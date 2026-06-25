@@ -1,0 +1,159 @@
+dataset: subj
+task_type: classification
+seed: 0
+
+output_dir: outputs/phase2_budgeted_mocapo_subj
+
+prompt_pool: configs/phase2_prompt_pool_subj.yaml
+
+task_description: >
+  The dataset contains sentences labeled as either subjective or objective.
+  The task is to classify each sentence as either subjective or objective.
+  The class will be extracted between the markers <final_answer>answer</final_answer>.
+
+labels:
+  - subjective
+  - objective
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+evaluation:
+  # true  = use LM Studio / Mistral
+  # false = use ToyObjectiveEvaluator
+  use_llm: true
+
+  # Paper-aligned marker extraction.
+  require_final_answer_tags: true
+
+cost:
+  # Mistral Small 3.2 24B-style cost weights.
+  input_weight: 0.08
+  output_weight: 0.32
+
+# In-loop counterfactual fairness (HEAL-CAPO extension).
+# When in_loop is true, each unique candidate prompt is also evaluated on a
+# fixed set of counterfactual pairs, and its real combined fairness_risk enters
+# the 4-objective vector that drives Pareto dominance / intensification.
+# When false, the runner falls back to the cheap prompt-keyword heuristic.
+fairness:
+  in_loop: true
+  fairness_data: data/fairness_counterfactual_subj.yaml
+  eval_pairs: 10               # cap pairs/candidate to bound token cost (2 calls/pair)
+  flip_weight: 0.50
+  group_gap_weight: 0.25
+  bias_weight: 0.15
+  debt_weight: 0.10
+  clamp: true
+  use_expected_same_prediction: true
+
+# MO-CAPO block partitioning.
+# Paper setup: Ddev=300, block_size=30.
+# Current local SUBJ demo is tiny, so block_size=2 is intentionally small.
+block_size: 2
+drop_last_block: false
+
+# Initial population evaluation.
+# The upgraded runner evaluates all initial population members on the same seed block set.
+num_seed_blocks: 1
+
+budget:
+  max_budget: 1200.0
+  allow_overspend: false
+
+evolutionary:
+  # MO-CAPO population size mu.
+  population_size: 10
+
+  # Local-safe iteration limit. Increase for longer optimization.
+  max_iterations: 5
+
+  # MO-CAPO paper uses c=4 offspring per iteration.
+  offspring_per_iteration: 4
+
+  # CAPO/MO-CAPO-style genetic operators.
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+
+  # false = deterministic local fallback operators.
+  # true  = use LM Studio as meta-LLM for crossover/mutation prompt generation.
+  use_meta_llm: false
+
+  require_prompt_tags: true
+  preserve_output_format: true
+
+  # Advance incumbents after every evolutionary iteration to improve comparability.
+  advance_after_iteration: true
+
+intensification:
+  # Current tiny dev set/block demo setting.
+  # Later, for paper-style Ddev=300 and b=30, increase this.
+  max_blocks_per_challenger: 2
+
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+
+  # Rejected offspring can still remain genetic material when evaluated.
+  add_rejected_to_population: true
+
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+experiment_notes:
+  setup: local_mistral_subj_demo
+  algorithm: evolutionary_budgeted_mocapo
+  relation_to_mocapo: >
+    This configuration now uses an evolutionary MO-CAPO-style loop with an
+    initial population, parent selection, crossover/mutation, intensification,
+    environmental selection, incumbent advancement, budget tracking, and Pareto
+    portfolio export.
+  current_limitations: >
+    This is still a small local SUBJ demo. For paper-level evaluation, use
+    larger Ddev/Dshots/Dtest splits, multiple seeds, additional datasets, and
+    at least two LLMs.
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+
+  - name: cost_first
+    mode: cost_first
+
+  - name: risk_first
+    mode: risk_first
+
+  - name: fairness_first
+    mode: fairness_first
+
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0
+
+  - name: cost_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 2.0
+    risk: 0.8
+    fairness: 0.8

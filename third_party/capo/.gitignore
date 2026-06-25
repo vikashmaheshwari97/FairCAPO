@@ -1,0 +1,17 @@
+# latex files
+*.fls
+*.out
+*.log
+*.aux
+*.err
+*.out
+*.synctex(busy)
+*.fdb_latexmk
+*.gz
+*.dvi
+
+# python
+__pycache__
+deepinfratoken.txt
+temp/
+logs/

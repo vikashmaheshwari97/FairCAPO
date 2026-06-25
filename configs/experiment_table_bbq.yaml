@@ -1,0 +1,96 @@
+# Cross-method experiment comparison table — BBQ (fairness-varying showcase).
+#
+# Core rows that prove the contribution on a task where fairness actually varies:
+#   - FairCAPO (perf + cost + risk + canonical BBQ bias-score fairness)
+#   - MO-CAPO (fairness OFF)  -> the ablation
+#   - NSGA-II-PO + fairness   -> off-the-shelf MOEA with the SAME real objectives
+# Single-objective baselines (GEPA/CAPO/Evo/OPRO) are added once they are run on
+# BBQ and passed through scripts/measure_baseline_fairness.py (their
+# *_bbqfair.csv); they exist to show uncontrolled bias, not as competitors.
+#
+# Columns: performance, cost, risk, fairness_risk, HV, nR2, portfolio_size, budget_used.
+
+output_dir: outputs/experiment_table/bbq_mistral
+dataset: BBQ
+model: mistralai/mistral-small-3.2
+seed: 0
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  # BBQ contexts are long + few-shot demos + a folded fairness pass, so costs run
+  # large; keep the cost bound wide enough to contain the front or HV degenerates.
+  cost: [0.0, 3000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 50
+  seed: 0
+
+methods:
+  - name: FairCAPO
+    type: pareto_set
+    # holdout_csv adds the honest per-call INFERENCE cost (fairness-audit cost
+    # separated out) from each method's held-out Dtest. FairCAPO's exists now;
+    # the NSGA/ablation ones come from evaluate_pareto_bbq_{nsga,ablation}.yaml.
+    candidates_csv: outputs/phase2_budgeted_mocapo_bbq_local/phase2_all_candidates.csv
+    only_pareto: true
+    budget_json: outputs/phase2_budgeted_mocapo_bbq_local/budget_summary.json
+    holdout_csv: outputs/evaluation/bbq_mistral_local/test_eval_candidates.csv
+
+  - name: MO-CAPO (fairness off)
+    type: pareto_set
+    candidates_csv: outputs/mocapo_baseline_bbq_local/phase2_all_candidates.csv
+    only_pareto: true
+    budget_json: outputs/mocapo_baseline_bbq_local/budget_summary.json
+    holdout_csv: outputs/evaluation/bbq_ablation_local/test_eval_candidates.csv
+
+  - name: NSGA-II-PO + fairness
+    type: pareto_set
+    candidates_csv: outputs/baselines/nsga2_po_bbq_local/nsga2_po_all_candidates.csv
+    only_pareto: true
+    holdout_csv: outputs/evaluation/bbq_nsga_local/test_eval_candidates.csv
+
+  # Post-hoc fairness baseline ("why not just sort by fairness at the end?").
+  # This is the MO-CAPO fairness-OFF front (above) re-scored with the canonical
+  # BBQ scorer on the HELD-OUT (disjoint) fairness set via
+  # scripts/measure_baseline_fairness.py. IMPORTANT measurement-basis note:
+  #   - The "MO-CAPO (fairness off)" row above reports fairness on the IN-LOOP
+  #     set (data/fairness_bbq.jsonl) = 0.12 -> this IS the in-sample post-hoc
+  #     number (select the fairest member of a fairness-blind front).
+  #   - THIS row reports the SAME front re-scored on the HELD-OUT set = ~0.0,
+  #     which TIES FairCAPO's held-out Dtest (0.0/0.04). So the in-loop fairness
+  #     advantage (0.12 -> 0.0) is IN-SAMPLE; on held-out |sAMB| both reach ~0.
+  # The two rows together are the honest "both sets" comparison. The real
+  # residual bias on held-out lives in sDIS (~0.45-0.60), which |sAMB| (the
+  # optimized fairness_risk) does not capture. See docs/bbq_posthoc_fairness_finding.md.
+  - name: Post-hoc fair. (held-out)
+    type: pareto_set
+    candidates_csv: outputs/mocapo_baseline_bbq_local/phase2_prompt_portfolio_bbqfair.csv
+    only_pareto: true
+
+  # --- COST-WEIGHT ABLATION rows (§G — MO-CAPO §6.2 / Table 5) ---
+  # Uncomment once the corresponding runs land.
+  # - name: FairCAPO w_in=w_out=0
+  #   type: pareto_set
+  #   candidates_csv: outputs/phase2_budgeted_mocapo_bbq_wzero/phase2_all_candidates.csv
+  #   only_pareto: true
+  #   budget_json: outputs/phase2_budgeted_mocapo_bbq_wzero/budget_summary.json
+  #   holdout_csv: outputs/evaluation/bbq_wzero_local/test_eval_candidates.csv
+  #
+  # - name: MO-CAPO fair. off + w=0
+  #   type: pareto_set
+  #   candidates_csv: outputs/mocapo_baseline_bbq_wzero/phase2_all_candidates.csv
+  #   only_pareto: true
+  #   budget_json: outputs/mocapo_baseline_bbq_wzero/budget_summary.json
+  #   holdout_csv: outputs/evaluation/bbq_ablation_wzero_local/test_eval_candidates.csv

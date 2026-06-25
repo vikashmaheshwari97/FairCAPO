@@ -1,0 +1,180 @@
+## HEAL-CAPO dashboard config
+## Controls dashboard input files, default filters, display options, and preference weights.
+#
+#title: "HEAL-CAPO Prompt Portfolio Dashboard"
+#subtitle: "Interactive prompt selection over performance, cost, risk, fairness risk, and budgeted MO-CAPO evaluation."
+#
+#data:
+#  # Default dashboard input.
+#  # Recommended default now: budgeted MO-CAPO output.
+#  portfolio_csv: outputs/phase2_budgeted_mocapo_subj/phase2_all_candidates.csv
+#  recommendations_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_recommendations.csv
+#
+#  # Budgeted MO-CAPO outputs.
+#  budgeted_mocapo_portfolio_csv: outputs/phase2_budgeted_mocapo_subj/phase2_all_candidates.csv
+#  budgeted_mocapo_recommendations_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_recommendations.csv
+#  budgeted_mocapo_pareto_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_portfolio.csv
+#  budgeted_mocapo_events_csv: outputs/phase2_budgeted_mocapo_subj/budgeted_mocapo_events.csv
+#  budgeted_mocapo_budget_summary_json: outputs/phase2_budgeted_mocapo_subj/budget_summary.json
+#
+#  # Counterfactual fairness outputs.
+#  counterfactual_fairness_portfolio_csv: outputs/phase2_counterfactual_fairness_subj/phase2_all_candidates.csv
+#  counterfactual_fairness_recommendations_csv: outputs/phase2_counterfactual_fairness_subj/phase2_prompt_recommendations.csv
+#  counterfactual_predictions_csv: outputs/phase2_counterfactual_fairness_subj/counterfactual_predictions.csv
+#  counterfactual_fairness_summary_csv: outputs/phase2_counterfactual_fairness_subj/counterfactual_fairness_summary.csv
+#
+#  # Prompt pool demo outputs.
+#  prompt_pool_portfolio_csv: outputs/phase2_prompt_pool_subj/phase2_all_candidates.csv
+#  prompt_pool_recommendations_csv: outputs/phase2_prompt_pool_subj/phase2_prompt_recommendations.csv
+#  prompt_pool_pareto_csv: outputs/phase2_prompt_pool_subj/phase2_prompt_portfolio.csv
+#
+#  # Phase 1-derived portfolio outputs.
+#  phase1_portfolio_csv: outputs/phase2_prompt_portfolio/phase2_all_candidates.csv
+#  phase1_recommendations_csv: outputs/phase2_prompt_portfolio/phase2_prompt_recommendations.csv
+#  phase1_pareto_csv: outputs/phase2_prompt_portfolio/phase2_prompt_portfolio.csv
+#
+#defaults:
+#  show_only_pareto: false
+#  min_performance: 0.0
+#  max_risk: 1.0
+#  max_fairness_risk: 1.0
+#  max_cost: null
+#
+#weights:
+#  accuracy: 1.0
+#  cost: 0.3
+#  risk: 1.0
+#  fairness: 1.0
+#
+#display:
+#  show_downloads: true
+#  show_recommendation_cards: true
+#  show_prompt_comparison: true
+#  show_fairness_analysis: true
+#  show_warning_badges: true
+#  show_budget_analysis: true
+#  show_intensification_events: true
+#
+#thresholds:
+#  low_risk: 0.20
+#  medium_risk: 0.40
+#  low_fairness_risk: 0.15
+#  medium_fairness_risk: 0.30
+#  low_budget_utilization: 0.25
+#  medium_budget_utilization: 0.70
+#
+#tabs:
+#  - Overview
+#  - All Candidates
+#  - Pareto Portfolio
+#  - Recommendations
+#  - Prompt Comparison
+#  - Fairness Analysis
+#  - Budget Analysis
+
+
+# HEAL-CAPO dashboard config
+# Controls dashboard input files, default filters, display options, budget analysis,
+# and preference weights.
+
+title: "HEAL-CAPO Prompt Portfolio Dashboard"
+subtitle: "Interactive prompt selection over performance, cost, risk, fairness risk, and evolutionary budgeted MO-CAPO evaluation."
+
+data:
+  # Default dashboard input.
+  # Keep this pointed to the latest active output folder.
+  portfolio_csv: outputs/phase2_budgeted_mocapo_subj/phase2_all_candidates.csv
+  recommendations_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_recommendations.csv
+
+  # Active budgeted MO-CAPO outputs.
+  budgeted_mocapo_portfolio_csv: outputs/phase2_budgeted_mocapo_subj/phase2_all_candidates.csv
+  budgeted_mocapo_recommendations_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_recommendations.csv
+  budgeted_mocapo_pareto_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_portfolio.csv
+  budgeted_mocapo_events_csv: outputs/phase2_budgeted_mocapo_subj/budgeted_mocapo_events.csv
+  budgeted_mocapo_budget_summary_json: outputs/phase2_budgeted_mocapo_subj/budget_summary.json
+
+  # Optional toy/no-LLM output folder.
+  # Use this when you run:
+  # python scripts/run_phase2_budgeted_mocapo.py --config configs/phase2_budgeted_mocapo_subj.yaml --no-llm --output-dir outputs/phase2_budgeted_mocapo_subj_toy
+  budgeted_mocapo_toy_portfolio_csv: outputs/phase2_budgeted_mocapo_subj_toy/phase2_all_candidates.csv
+  budgeted_mocapo_toy_recommendations_csv: outputs/phase2_budgeted_mocapo_subj_toy/phase2_prompt_recommendations.csv
+  budgeted_mocapo_toy_pareto_csv: outputs/phase2_budgeted_mocapo_subj_toy/phase2_prompt_portfolio.csv
+  budgeted_mocapo_toy_events_csv: outputs/phase2_budgeted_mocapo_subj_toy/budgeted_mocapo_events.csv
+  budgeted_mocapo_toy_budget_summary_json: outputs/phase2_budgeted_mocapo_subj_toy/budget_summary.json
+
+  # Optional Mistral output folder.
+  # Use this later when LM Studio/Mistral is loaded:
+  # python scripts/run_phase2_budgeted_mocapo.py --config configs/phase2_budgeted_mocapo_subj.yaml --output-dir outputs/phase2_budgeted_mocapo_subj_mistral
+  budgeted_mocapo_mistral_portfolio_csv: outputs/phase2_budgeted_mocapo_subj_mistral/phase2_all_candidates.csv
+  budgeted_mocapo_mistral_recommendations_csv: outputs/phase2_budgeted_mocapo_subj_mistral/phase2_prompt_recommendations.csv
+  budgeted_mocapo_mistral_pareto_csv: outputs/phase2_budgeted_mocapo_subj_mistral/phase2_prompt_portfolio.csv
+  budgeted_mocapo_mistral_events_csv: outputs/phase2_budgeted_mocapo_subj_mistral/budgeted_mocapo_events.csv
+  budgeted_mocapo_mistral_budget_summary_json: outputs/phase2_budgeted_mocapo_subj_mistral/budget_summary.json
+
+  # Counterfactual fairness outputs.
+  counterfactual_fairness_portfolio_csv: outputs/phase2_counterfactual_fairness_subj/phase2_all_candidates.csv
+  counterfactual_fairness_recommendations_csv: outputs/phase2_counterfactual_fairness_subj/phase2_prompt_recommendations.csv
+  counterfactual_predictions_csv: outputs/phase2_counterfactual_fairness_subj/counterfactual_predictions.csv
+  counterfactual_fairness_summary_csv: outputs/phase2_counterfactual_fairness_subj/counterfactual_fairness_summary.csv
+
+  # Prompt pool demo outputs.
+  prompt_pool_portfolio_csv: outputs/phase2_prompt_pool_subj/phase2_all_candidates.csv
+  prompt_pool_recommendations_csv: outputs/phase2_prompt_pool_subj/phase2_prompt_recommendations.csv
+  prompt_pool_pareto_csv: outputs/phase2_prompt_pool_subj/phase2_prompt_portfolio.csv
+
+  # Phase 1-derived portfolio outputs.
+  phase1_portfolio_csv: outputs/phase2_prompt_portfolio/phase2_all_candidates.csv
+  phase1_recommendations_csv: outputs/phase2_prompt_portfolio/phase2_prompt_recommendations.csv
+  phase1_pareto_csv: outputs/phase2_prompt_portfolio/phase2_prompt_portfolio.csv
+
+defaults:
+  show_only_pareto: false
+  min_performance: 0.0
+  max_risk: 1.0
+  max_fairness_risk: 1.0
+  max_cost: null
+
+weights:
+  accuracy: 1.0
+  cost: 0.3
+  risk: 1.0
+  fairness: 1.0
+
+display:
+  show_downloads: true
+  show_recommendation_cards: true
+  show_prompt_comparison: true
+  show_fairness_analysis: true
+  show_warning_badges: true
+  show_budget_analysis: true
+
+  # Backward-compatible name used by dashboard/app.py.
+  show_intensification_events: true
+
+  # New semantic name for upgraded dashboard.
+  show_evolutionary_events: true
+
+thresholds:
+  low_risk: 0.20
+  medium_risk: 0.40
+  low_fairness_risk: 0.15
+  medium_fairness_risk: 0.30
+  low_budget_utilization: 0.25
+  medium_budget_utilization: 0.70
+
+event_types:
+  initial_population: "Initial population"
+  evolutionary_intensification: "Evolutionary intensification"
+  environmental_selection: "Environmental selection"
+  advance_incumbent: "Advance incumbent"
+  budget_stop: "Budget stop"
+  budget_error: "Budget error"
+
+tabs:
+  - Overview
+  - All Candidates
+  - Pareto Portfolio
+  - Recommendations
+  - Prompt Comparison
+  - Fairness Analysis
+  - Budget Analysis

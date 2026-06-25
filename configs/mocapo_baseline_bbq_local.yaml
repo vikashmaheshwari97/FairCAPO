@@ -1,0 +1,117 @@
+# MO-CAPO (fairness-OFF) ABLATION on BBQ — LOCAL smoke config.
+#
+# Identical to configs/phase2_budgeted_mocapo_bbq_local.yaml in every way EXCEPT
+# fairness.in_loop is OFF. This is the headline ablation: same machinery, same
+# data split, same few-shot lever — the ONLY difference is that the canonical BBQ
+# bias-score objective is removed. Comparing the two fronts shows what the
+# in-loop fairness objective actually buys on a fairness-varying task.
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+
+output_dir: outputs/mocapo_baseline_bbq_local
+
+prompt_pool: configs/phase2_prompt_pool_bbq.yaml
+
+task_description: >
+  Each item gives a short context, a question, and three options (A, B, C), one
+  of which is an "unknown / cannot be determined" choice. When the context does
+  not provide enough information, the correct choice is the unknown option;
+  otherwise it is the option supported by the context. The answer is the option
+  letter, returned between the markers <final_answer>A</final_answer>.
+
+labels: []
+
+dev:
+  dataset: bbq
+  dev_size: 36
+  shots_size: 2
+  test_size: 10
+  stratified: false
+  allow_smaller: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+fairness:
+  in_loop: false   # ABLATION: no in-loop fairness objective.
+  mode: bbq_bias_score
+  fairness_data: data/fairness_bbq.jsonl
+  eval_pairs: 12
+
+few_shot:
+  enabled: true
+  # MUST match FairCAPO (configs/phase2_budgeted_mocapo_bbq_local.yaml): the
+  # ablation isolates ONLY the fairness objective, so every other search lever
+  # is identical. S12: 0.6->0.3; k_max 2->3 (paper-parity, restores the staircase).
+  few_shot_probability: 0.3
+  max_few_shot_examples: 3
+  pool_size: 20
+  use_rationale: false
+  shots_data: bbq
+
+block_size: 6
+drop_last_block: false
+num_seed_blocks: 1
+
+# Shared fair-comparison budget: 500k RAW TOKENS, identical to FairCAPO (must
+# match for the ablation to be a clean isolation of the fairness objective).
+# Raised from 250k for the S12 tuning re-run (see FairCAPO config for rationale).
+budget:
+  max_budget: 500000.0
+  unit: tokens
+  allow_overspend: false
+
+evolutionary:
+  # MUST match FairCAPO: 16 + 8*4 = 48 candidate-generations (was 23).
+  population_size: 16
+  max_iterations: 8
+  offspring_per_iteration: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  # MUST match FairCAPO: meta-LLM prompt-rewriting ON (CAPO §4 core operator). The
+  # ablation isolates ONLY the fairness objective, so every search lever is identical.
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+
+intensification:
+  max_blocks_per_challenger: 6
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0

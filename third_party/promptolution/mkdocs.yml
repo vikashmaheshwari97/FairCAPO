@@ -1,0 +1,98 @@
+site_name: Promptolution Documentation
+site_url: https://finitearth.github.io/promptolution/
+repo_url: https://github.com/finitearth/promptolution/
+remote_branch: docs
+
+theme:
+  name: material
+  logo: img/logo.svg
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+  language: en
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/toggle-switch-off-outline
+        name: Switch to dark mode
+      primary: custom
+      accent: purple
+    - scheme: slate
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to light mode
+      primary: custom
+      accent: lime
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_submodules: true
+
+nav:
+  - Home: index.md
+  - Release Notes:
+    - Overview: release-notes.md
+    - v2.2.3: release-notes/v2.2.3.md
+    - v2.2.2: release-notes/v2.2.2.md
+    - v2.2.1: release-notes/v2.2.1.md
+    - v2.2.0: release-notes/v2.2.0.md
+    - v2.1.0: release-notes/v2.1.0.md
+    - v2.0.1: release-notes/v2.0.1.md
+    - v2.0.0: release-notes/v2.0.0.md
+    - v1.4.0: release-notes/v1.4.0.md
+    - v1.3.2: release-notes/v1.3.2.md
+    - v1.3.1: release-notes/v1.3.1.md
+    - v1.3.0: release-notes/v1.3.0.md
+    - v1.2.0: release-notes/v1.2.0.md
+    - v1.1.1: release-notes/v1.1.1.md
+    - v1.1.0: release-notes/v1.1.0.md
+    - v1.0.1: release-notes/v1.0.1.md
+    - v1.0.0: release-notes/v1.0.0.md
+    - v0.2.0: release-notes/v0.2.0.md
+    - v0.1.1b: release-notes/v0.1.1b.md
+    - v0.1.1: release-notes/v0.1.1.md
+    - v0.1.0: release-notes/v0.1.0.md
+  - API Reference:
+    - LLMs: api/llms.md
+    - Optimizers: api/optimizers.md
+    - Predictors: api/predictors.md
+    - Tasks: api/tasks.md
+    - Helpers: api/helpers.md
+    - Utils: api/utils.md
+    - Exemplar Selectors: api/exemplar_selectors.md
+  - Tutorials:
+    - Getting Started: examples/getting_started.md
+    - LLM-as-a-Judge Tutorial: examples/llm_as_judge_tutorial.md
+    - Reward Task Tutorial: examples/reward_task_tutorial.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.arithmatex:
+      generic: true
+  - footnotes
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.mark
+  - attr_list
+
+copyright: |
+  by Tom Zehle, Timo Heiß, Moritz Schlager

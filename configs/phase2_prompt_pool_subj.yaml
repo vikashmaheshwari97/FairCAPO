@@ -1,0 +1,143 @@
+# Paper-aligned SUBJ prompt pool for HEAL-CAPO / MO-CAPO / NSGA-II-PO
+# Dataset: Subj binary subjectivity classification
+# Labels: subjective, objective
+#
+# All prompts explicitly require marker-based extraction:
+# <final_answer>answer</final_answer>
+#
+# Categories:
+# - cost_first
+# - baseline
+# - accuracy_first
+# - format_controlled
+# - risk_first
+# - fairness_first
+# - balanced
+
+dataset: subj
+task_type: classification
+seed: 0
+
+labels:
+  - subjective
+  - objective
+
+task_description: >
+  The dataset contains sentences labeled as either subjective or objective.
+  The task is to classify each sentence as either subjective or objective.
+  The class will be extracted between the markers <final_answer>answer</final_answer>.
+
+prompt_pool:
+  - id: cheap_short
+    category: cost_first
+    prompt: >
+      Classify the sentence as subjective or objective.
+      Return only <final_answer>subjective</final_answer> or <final_answer>objective</final_answer>.
+
+  - id: cheap_label_only
+    category: cost_first
+    prompt: >
+      Subjective or objective?
+      Return the label inside <final_answer> and </final_answer> tags.
+
+  - id: baseline
+    category: baseline
+    prompt: >
+      Classify the given sentence as either subjective or objective.
+      Return exactly one label inside <final_answer> and </final_answer> tags.
+
+  - id: definition_based
+    category: accuracy_first
+    prompt: >
+      Classify the sentence as subjective if it expresses an opinion, feeling,
+      judgment, evaluation, belief, or personal view. Classify it as objective
+      if it states a factual, verifiable, descriptive, or neutral claim.
+      Return the final label inside <final_answer> and </final_answer> tags.
+
+  - id: careful_decision
+    category: accuracy_first
+    prompt: >
+      Read the sentence carefully. Decide whether it is opinion-based or
+      fact-based. Opinion-based sentences are subjective. Fact-based or
+      verifiable sentences are objective. Return only the chosen label inside
+      <final_answer> and </final_answer> tags.
+
+  - id: evidence_based
+    category: accuracy_first
+    prompt: >
+      Use the wording of the sentence as evidence. If the sentence contains
+      evaluative language, personal sentiment, preference, or judgment, classify
+      it as subjective. If it reports a verifiable fact or neutral information,
+      classify it as objective. Return the answer inside <final_answer> and
+      </final_answer> tags.
+
+  - id: final_answer_format
+    category: format_controlled
+    prompt: >
+      Classify the sentence as subjective or objective. Do not include
+      explanations. Return the answer using exactly this format:
+      <final_answer>subjective</final_answer> or <final_answer>objective</final_answer>.
+
+  - id: strict_format
+    category: format_controlled
+    prompt: >
+      Output exactly one XML-style final answer tag containing one valid label.
+      Valid labels are subjective and objective. Use no other text.
+      Format: <final_answer>label</final_answer>.
+
+  - id: risk_abstention
+    category: risk_first
+    prompt: >
+      Classify the sentence as subjective or objective. If the sentence is
+      ambiguous, choose the label best supported by the wording. Do not invent
+      context or infer unstated speaker intent. Return the label inside
+      <final_answer> and </final_answer> tags.
+
+  - id: hallucination_safe
+    category: risk_first
+    prompt: >
+      Use only the given sentence. Do not assume missing context, speaker
+      identity, hidden intent, or background facts beyond the text. Classify as
+      subjective or objective. Return only the label inside <final_answer> and
+      </final_answer> tags.
+
+  - id: unsupported_context_safe
+    category: risk_first
+    prompt: >
+      Determine whether the sentence itself expresses subjectivity or objectivity.
+      Do not use unsupported context, external knowledge, or guesses. Base the
+      classification only on the sentence. Return the final label inside
+      <final_answer> and </final_answer> tags.
+
+  - id: fairness_gender
+    category: fairness_first
+    prompt: >
+      Classify the sentence as subjective or objective. Do not infer subjectivity
+      from gendered names, pronouns, stereotypes, or demographic attributes.
+      Base the decision only on the wording of the sentence. Return the label
+      inside <final_answer> and </final_answer> tags.
+
+  - id: fairness_demographic
+    category: fairness_first
+    prompt: >
+      Classify the sentence as subjective or objective. Do not use gender, race,
+      ethnicity, nationality, religion, age, location, disability, or other
+      demographic attributes as evidence of subjectivity. Return the label
+      inside <final_answer> and </final_answer> tags.
+
+  - id: balanced_trust
+    category: balanced
+    prompt: >
+      Classify the sentence as subjective or objective using only textual
+      evidence. Treat opinions, emotions, judgments, preferences, and evaluations
+      as subjective. Treat factual, descriptive, or verifiable claims as objective.
+      Do not rely on demographic stereotypes or missing context. Return the
+      label inside <final_answer> and </final_answer> tags.
+
+  - id: balanced_strict
+    category: balanced
+    prompt: >
+      Determine whether the sentence expresses a personal opinion or a factual
+      statement. Avoid assumptions, stereotypes, unsupported context, and extra
+      explanation. Return exactly one label inside <final_answer> and
+      </final_answer> tags.

@@ -1,0 +1,81 @@
+# MO-CAPO-style baseline on the SAME held-out SUBJ Dtest as FairCAPO, so the two
+# can be plotted on ONE comparable axis (same 50 stratified test examples, same
+# seed, same cost basis, same in-loop fairness eval). The portfolio is the 2
+# zero-shot MO-CAPO-style Pareto prompts recovered from the phase-1 baseline.
+# CAVEAT: this baseline is a weak phase-1 run (zero-shot, no few-shot lever, no
+# intensification) — it is NOT a budget-matched MO-CAPO, so treat it as a lower
+# reference, not a fair head-to-head.
+experiment_name: evaluate_mocapo_style_subj_ddev30
+
+portfolio_csv: outputs/phase1_subj_lmstudio_mistral32_mocapo_style_30/mocapo_style_dtest_portfolio.csv
+
+output_dir: outputs/evaluation/mocapo_style_subj_ddev30
+
+# Dataset mode (no inline test_data) -> real stratified split from SUBJ test split.
+dataset: subj
+task_type: classification
+seed: 0
+test_size: 50
+stratified: true
+allow_smaller: true
+
+labels:
+  - subjective
+  - objective
+
+# LLM-backed: needed to actually validate the perf=1.0 rung.
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+# In-loop counterfactual fairness at test time too, so the Dtest fairness_risk
+# is the SAME signal as the search-time objective (previously Dtest fell back to
+# the prompt keyword heuristic, which is not comparable). The one-time
+# counterfactual eval cost is folded into the candidate cost, as in search.
+fairness:
+  in_loop: true
+  fairness_data: data/fairness_counterfactual_subj.yaml
+  eval_pairs: 6
+  flip_weight: 0.50
+  group_gap_weight: 0.25
+  bias_weight: 0.15
+  debt_weight: 0.10
+  clamp: true
+  use_expected_same_prediction: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+# HV/nR2 normalization bounds. The cost bound MUST contain the observed Dtest
+# cost range or normalization degenerates and HV collapses to 0. Dtest cost
+# scales with test_size (50) AND the restored few-shot demonstrations (now
+# preserved), so the prior [0, 50] was far too low (~70-700 real costs). 800
+# comfortably contains a 50-example few-shot eval; widen if a run exceeds it.
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 800.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 50
+  seed: 0

@@ -1,0 +1,109 @@
+# NSGA-II-PO + fairness on BBQ — LOCAL smoke config.
+#
+# The multi-objective baseline (off-the-shelf NSGA-II + CAPO operators) run with
+# the SAME real objectives as FairCAPO on BBQ: multiple-choice accuracy, cost,
+# risk, and the canonical BBQ bias score. This is achieved by routing the
+# objective evaluation through FairCAPO's shared LLMObjectiveEvaluator (see
+# scripts/run_baseline_nsga2_po.build_objective_evaluator, gated on dataset==bbq),
+# so the only difference vs FairCAPO is the search algorithm (no budgeted
+# intensification).
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+
+output_dir: outputs/baselines/nsga2_po_bbq_local
+
+prompt_pool: configs/phase2_prompt_pool_bbq.yaml
+
+task_description: >
+  Each item gives a short context, a question, and three options (A, B, C), one
+  of which is an "unknown / cannot be determined" choice. Pick the single correct
+  option, returned between the markers <final_answer>A</final_answer>.
+
+labels: []
+
+# Real BBQ dev split (loaded by the shared loader because dataset == bbq).
+dev:
+  dataset: bbq
+  dev_size: 36
+  shots_size: 2
+  test_size: 10
+  stratified: false
+  allow_smaller: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+# Same real in-loop BBQ bias-score fairness as FairCAPO (the shared evaluator
+# reads this block).
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  # Same fairness definition as FairCAPO/ablation: max(|sAMB|, |sDIS|).
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq.jsonl
+  eval_pairs: 12
+
+# NSGA-II-PO is the off-the-shelf MO-CAPO §4.2 baseline: it runs UNBUDGETED
+# (full evaluation of every candidate, no token cap), exactly as in the MO-CAPO
+# paper. The fairness-of-comparison is carried by the cost axis (quality-vs-cost),
+# not by an iso-budget cap — so we deliberately do NOT budget NSGA here.
+#
+# The runner still supports an optional budget (baselines/nsga2_po_runner.py,
+# default max_budget=None = unbudgeted). To run an iso-budget robustness check
+# (e.g. an appendix), uncomment the block below with the SAME cap as FairCAPO:
+#
+# budget:
+#   max_budget: 250000.0
+#   unit: tokens
+#   allow_overspend: false
+
+nsga2_po:
+  # MUST match FairCAPO's mu/c (MO-CAPO §4.2: NSGA-II-PO shares the population +
+  # offspring knobs with MO-CAPO, only the search algorithm differs). S14: 8->16,
+  # 3->4 so the baseline explores the SAME candidate budget as FairCAPO
+  # (16 + g*4). Under-sizing NSGA would be a soft handicap (forbidden by the S12
+  # integrity guardrail); bumping it UP is the allowed direction.
+  population_size: 16
+  max_generations: 5
+  offspring_per_generation: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  # MUST match FairCAPO/ablation: meta-LLM prompt-rewriting ON. NSGA-II-PO is the
+  # algorithmic baseline (MO-CAPO §4.2) — it must share CAPO's operators, only the
+  # SEARCH algorithm differs. Leaving this OFF while FairCAPO is ON would handicap
+  # the baseline (forbidden by the S12 integrity guardrail).
+  use_meta_llm: true
+  objectives:
+    - performance
+    - cost
+    - risk
+    - fairness_risk
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: fairness_first
+    mode: fairness_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0

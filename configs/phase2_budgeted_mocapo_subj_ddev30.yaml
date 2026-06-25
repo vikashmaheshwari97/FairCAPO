@@ -1,0 +1,127 @@
+# HEAL-CAPO budgeted MO-CAPO on SUBJ — LOCAL (laptop) config.
+#
+# Faithful down-scaled MO-CAPO: we keep the paper's EXACT optimizer
+# hyperparameters (mu=10, c=4, kmax=5) and only shrink the datasets for local
+# compute (Ddev=60 vs paper 300, Dtest=5 vs 500, single seed). The paper's
+# invariant b*z_max = |Ddev| is preserved (10*6 = 60). Budget here is a weighted
+# COST ceiling (not raw tokens) and is sized so the iteration cap governs, not
+# the budget. Paper-scale runs (Ddev=300, Dtest=500, 3 seeds, 7.5M-token budget)
+# live in configs/phase2_budgeted_mocapo_subj_HPC.yaml for the cluster.
+dataset: subj
+task_type: classification
+seed: 0
+
+output_dir: outputs/phase2_budgeted_mocapo_subj_ddev30
+
+prompt_pool: configs/phase2_prompt_pool_subj.yaml
+
+task_description: >
+  The dataset contains sentences labeled as either subjective or objective.
+  The task is to classify each sentence as either subjective or objective.
+  The class will be extracted between the markers <final_answer>answer</final_answer>.
+
+labels:
+  - subjective
+  - objective
+
+# Real dataset-backed dev split (paper-style Ddev).
+dev:
+  dataset: subj
+  dev_size: 60
+  shots_size: 2
+  test_size: 5
+  stratified: true
+  allow_smaller: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+fairness:
+  in_loop: true
+  fairness_data: data/fairness_counterfactual_subj.yaml
+  eval_pairs: 6
+  flip_weight: 0.50
+  group_gap_weight: 0.25
+  bias_weight: 0.15
+  debt_weight: 0.10
+  clamp: true
+  use_expected_same_prediction: true
+
+# Few-shot search (MO-CAPO accuracy/cost staircase lever).
+# Offspring randomly add/remove/swap demonstrations drawn from this pool, so
+# the Pareto front spans zero-shot (cheap, lower acc) -> few-shot (costlier,
+# higher acc). The pool is drawn from the dev split unless shots_data is set.
+few_shot:
+  enabled: true
+  few_shot_probability: 0.6
+  max_few_shot_examples: 5   # = MO-CAPO kmax (paper default)
+  pool_size: 20
+
+# Ddev=60, block_size=10 -> 6 blocks; max_blocks_per_challenger=6 lets a fully
+# intensified candidate use all 60 examples -> ~1/60 accuracy resolution.
+block_size: 10
+drop_last_block: false
+num_seed_blocks: 1
+
+budget:
+  max_budget: 20000.0
+  allow_overspend: false
+
+evolutionary:
+  population_size: 10        # = MO-CAPO mu (paper default; only datasets are downscaled)
+  max_iterations: 8
+  offspring_per_iteration: 4  # = MO-CAPO c (paper default)
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  use_meta_llm: false
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+
+intensification:
+  max_blocks_per_challenger: 6
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: fairness_first
+    mode: fairness_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0

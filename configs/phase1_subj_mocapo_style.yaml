@@ -1,0 +1,42 @@
+# Dataset SUBJ
+# MO-CAPO-style Pareto baseline for Phase 1C
+
+dataset: subj
+task_type: classification
+dev_size: 30
+shots_size: 5
+test_size: 20
+seed: 0
+allow_smaller: false
+stratified: true
+
+output_dir: outputs/phase1_subj_lmstudio_mistral32_mocapo_style_30
+
+initial_prompt: "Classify the sentence as subjective or objective. Return only subjective or objective."
+
+initial_prompts:
+  - "Classify the sentence as subjective or objective. Return only subjective or objective."
+  - "Determine whether the sentence expresses an opinion or a factual statement. Return subjective or objective."
+  - "Read the sentence carefully. If it contains personal judgment, feeling, or opinion, answer subjective. Otherwise answer objective."
+  - "Classify the sentence as subjective or objective. Put the answer inside <final_answer> tags."
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+promptolution:
+  enabled: false
+  n_steps: 0
+  optimizers: []
+
+mocapo_style:
+  enabled: true
+  candidate_prompts:
+    - "Classify the sentence as subjective or objective. Return only subjective or objective."
+    - "Determine whether the sentence expresses an opinion or a factual statement. Return subjective or objective."
+    - "Read the sentence carefully. If it contains personal judgment, feeling, or opinion, answer subjective. Otherwise answer objective."
+    - "Classify the sentence as subjective or objective. Put the answer inside <final_answer> tags."

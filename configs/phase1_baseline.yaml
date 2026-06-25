@@ -1,0 +1,56 @@
+#Dataset SUBJ
+# Promptolution optimizers: CAPO, EvoPromptGA, EvoPromptDE, OPRO
+
+dataset: subj
+task_type: classification
+dev_size: 10
+shots_size: 2
+test_size: 5
+seed: 0
+allow_smaller: false
+stratified: true
+
+output_dir: outputs/phase1_subj_lmstudio_mistral32_all_optimizers_fast
+
+initial_prompt: "Classify the sentence as subjective or objective. Return only subjective or objective."
+
+initial_prompts:
+  - "Classify the sentence as subjective or objective. Return only subjective or objective."
+  - "Decide whether the sentence is factual/objective or opinion-based/subjective."
+  - "Read the sentence and output subjective or objective inside <final_answer> tags."
+  - "Determine if the sentence states a fact or expresses an opinion. Return objective for fact and subjective for opinion."
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+promptolution:
+  enabled: true
+  n_steps: 1
+
+  task_n_subsamples: 5
+  task_eval_strategy: sequential_block
+
+  capo_max_n_blocks_eval: 1
+  capo_upper_shots: 0
+  capo_crossovers_per_iter: 1
+
+  evoprompt_de_donor_random: false
+
+  opro_max_num_instructions: 10
+  opro_num_instructions_per_step: 2
+  opro_num_few_shots: 2
+
+  optimizers:
+    - capo
+    - evoprompt_ga
+    - evoprompt_de
+    - opro
+
+mocapo_style:
+  enabled: false
+  candidate_prompts: []

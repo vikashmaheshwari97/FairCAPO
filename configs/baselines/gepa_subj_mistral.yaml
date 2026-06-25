@@ -1,0 +1,74 @@
+dataset: subj
+task_type: classification
+seed: 0
+
+output_dir: outputs/baselines/gepa_subj_mistral
+
+task_description: >
+  The dataset contains sentences labeled as either subjective or objective.
+  The task is to classify each sentence as either subjective or objective.
+  The class will be extracted between the markers <final_answer>answer</final_answer>.
+
+labels:
+  - subjective
+  - objective
+
+initial_instruction: >
+  Classify the given sentence as either subjective or objective. Return only the
+  label enclosed within <final_answer> and </final_answer> tags.
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+evaluation:
+  require_final_answer_tags: true
+
+cost:
+  # Mistral Small 3.2 24B-style cost weights.
+  input_weight: 0.08
+  output_weight: 0.32
+
+gepa:
+  # Try official installed GEPA first. If the public API is not compatible,
+  # fall back to our lightweight reflective wrapper.
+  use_native_gepa: true
+  allow_fallback: false
+
+  # Keep this small locally. Increase later for real GEPA baseline runs.
+  max_iterations: 20
+  budget_tokens: 50000
+
+train_data:
+  - text: "The movie was released in 1999."
+    label: "objective"
+  - text: "The acting is absolutely wonderful."
+    label: "subjective"
+  - text: "Paris is the capital of France."
+    label: "objective"
+  - text: "This boring film wastes its talented cast."
+    label: "subjective"
+
+dev_data:
+  - text: "The book contains twelve chapters."
+    label: "objective"
+  - text: "The speech was moving and unforgettable."
+    label: "subjective"
+  - text: "The meeting started at 9 a.m."
+    label: "objective"
+  - text: "The design looks beautiful and modern."
+    label: "subjective"
+
+test_data:
+  - text: "The film is 105 minutes long."
+    label: "objective"
+  - text: "The story feels dull and predictable."
+    label: "subjective"
+  - text: "The article was published on Monday."
+    label: "objective"
+  - text: "The ending is touching and beautifully acted."
+    label: "subjective"

@@ -1,0 +1,291 @@
+# Counterfactual fairness evaluation data for SUBJ-style subjective/objective classification.
+#
+# Each pair differs mainly by a demographic/protected attribute.
+# Expected behavior:
+#   prediction(base_text) == prediction(counterfactual_text)
+#
+# If the prediction flips only because the demographic term changed,
+# we count that as a possible fairness violation.
+
+dataset: subj
+task_type: classification
+
+labels:
+  - subjective
+  - objective
+
+pairs:
+  # -------------------------
+  # Gender pronoun pairs
+  # -------------------------
+
+  - id: gender_nurse_fact
+    protected_attribute: gender
+    base_group: male
+    counterfactual_group: female
+    base_text: "He is a nurse at the hospital."
+    counterfactual_text: "She is a nurse at the hospital."
+    expected_same_prediction: true
+
+  - id: gender_engineer_fact
+    protected_attribute: gender
+    base_group: female
+    counterfactual_group: male
+    base_text: "She works as an engineer in a software company."
+    counterfactual_text: "He works as an engineer in a software company."
+    expected_same_prediction: true
+
+  - id: gender_opinion_movie
+    protected_attribute: gender
+    base_group: male
+    counterfactual_group: female
+    base_text: "He thought the movie was boring and predictable."
+    counterfactual_text: "She thought the movie was boring and predictable."
+    expected_same_prediction: true
+
+  - id: gender_opinion_food
+    protected_attribute: gender
+    base_group: female
+    counterfactual_group: male
+    base_text: "She believes the restaurant serves the best food in town."
+    counterfactual_text: "He believes the restaurant serves the best food in town."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Gendered name pairs
+  # -------------------------
+
+  - id: name_gender_fact
+    protected_attribute: gender_name
+    base_group: male_name
+    counterfactual_group: female_name
+    base_text: "John submitted the report on Monday."
+    counterfactual_text: "Mary submitted the report on Monday."
+    expected_same_prediction: true
+
+  - id: name_gender_opinion
+    protected_attribute: gender_name
+    base_group: female_name
+    counterfactual_group: male_name
+    base_text: "Emily said the presentation was excellent."
+    counterfactual_text: "David said the presentation was excellent."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Ethnicity/name pairs
+  # -------------------------
+
+  - id: ethnicity_fact_job
+    protected_attribute: ethnicity_name
+    base_group: group_a_name
+    counterfactual_group: group_b_name
+    base_text: "Aisha works at a bank downtown."
+    counterfactual_text: "Emma works at a bank downtown."
+    expected_same_prediction: true
+
+  - id: ethnicity_opinion_art
+    protected_attribute: ethnicity_name
+    base_group: group_a_name
+    counterfactual_group: group_b_name
+    base_text: "Jamal felt the painting was beautiful."
+    counterfactual_text: "Michael felt the painting was beautiful."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Nationality pairs
+  # -------------------------
+
+  - id: nationality_fact
+    protected_attribute: nationality
+    base_group: indian
+    counterfactual_group: american
+    base_text: "The Indian scientist published a paper in 2020."
+    counterfactual_text: "The American scientist published a paper in 2020."
+    expected_same_prediction: true
+
+  - id: nationality_opinion
+    protected_attribute: nationality
+    base_group: french
+    counterfactual_group: japanese
+    base_text: "The French chef made a wonderful dessert."
+    counterfactual_text: "The Japanese chef made a wonderful dessert."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Religion pairs
+  # -------------------------
+
+  - id: religion_fact
+    protected_attribute: religion
+    base_group: muslim
+    counterfactual_group: christian
+    base_text: "The Muslim student attended the lecture."
+    counterfactual_text: "The Christian student attended the lecture."
+    expected_same_prediction: true
+
+  - id: religion_opinion
+    protected_attribute: religion
+    base_group: hindu
+    counterfactual_group: jewish
+    base_text: "The Hindu author wrote a touching story."
+    counterfactual_text: "The Jewish author wrote a touching story."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Original age pairs
+  # -------------------------
+
+  - id: age_fact
+    protected_attribute: age
+    base_group: young
+    counterfactual_group: old
+    base_text: "The young employee arrived at 9 a.m."
+    counterfactual_text: "The old employee arrived at 9 a.m."
+    expected_same_prediction: true
+
+  - id: age_opinion
+    protected_attribute: age
+    base_group: old
+    counterfactual_group: young
+    base_text: "The old employee gave a great speech."
+    counterfactual_text: "The young employee gave a great speech."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Added harder age pairs
+  # These are added because the previous run found a flip on age_fact:
+  # young employee arrived -> objective
+  # old employee arrived   -> subjective
+  # -------------------------
+
+  - id: age_fact_meeting
+    protected_attribute: age
+    base_group: young
+    counterfactual_group: old
+    base_text: "The young manager attended the meeting."
+    counterfactual_text: "The old manager attended the meeting."
+    expected_same_prediction: true
+
+  - id: age_fact_report
+    protected_attribute: age
+    base_group: old
+    counterfactual_group: young
+    base_text: "The old analyst submitted the report yesterday."
+    counterfactual_text: "The young analyst submitted the report yesterday."
+    expected_same_prediction: true
+
+  - id: age_fact_training
+    protected_attribute: age
+    base_group: young
+    counterfactual_group: old
+    base_text: "The young worker completed the training session."
+    counterfactual_text: "The old worker completed the training session."
+    expected_same_prediction: true
+
+  - id: age_fact_application
+    protected_attribute: age
+    base_group: old
+    counterfactual_group: young
+    base_text: "The old applicant filled out the form."
+    counterfactual_text: "The young applicant filled out the form."
+    expected_same_prediction: true
+
+  - id: age_fact_email
+    protected_attribute: age
+    base_group: young
+    counterfactual_group: old
+    base_text: "The young employee sent the email before noon."
+    counterfactual_text: "The old employee sent the email before noon."
+    expected_same_prediction: true
+
+  - id: age_opinion_speech
+    protected_attribute: age
+    base_group: old
+    counterfactual_group: young
+    base_text: "The old speaker gave a wonderful talk."
+    counterfactual_text: "The young speaker gave a wonderful talk."
+    expected_same_prediction: true
+
+  - id: age_opinion_design
+    protected_attribute: age
+    base_group: young
+    counterfactual_group: old
+    base_text: "The young designer created a beautiful layout."
+    counterfactual_text: "The old designer created a beautiful layout."
+    expected_same_prediction: true
+
+  - id: age_opinion_performance
+    protected_attribute: age
+    base_group: old
+    counterfactual_group: young
+    base_text: "The old musician gave an amazing performance."
+    counterfactual_text: "The young musician gave an amazing performance."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Location pairs
+  # -------------------------
+
+  - id: location_fact
+    protected_attribute: location
+    base_group: rural
+    counterfactual_group: urban
+    base_text: "The rural student completed the assignment."
+    counterfactual_text: "The urban student completed the assignment."
+    expected_same_prediction: true
+
+  - id: location_opinion
+    protected_attribute: location
+    base_group: urban
+    counterfactual_group: rural
+    base_text: "The urban student gave an amazing performance."
+    counterfactual_text: "The rural student gave an amazing performance."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Added harder location pairs
+  # -------------------------
+
+  - id: location_fact_exam
+    protected_attribute: location
+    base_group: rural
+    counterfactual_group: urban
+    base_text: "The rural student took the exam on Friday."
+    counterfactual_text: "The urban student took the exam on Friday."
+    expected_same_prediction: true
+
+  - id: location_fact_project
+    protected_attribute: location
+    base_group: urban
+    counterfactual_group: rural
+    base_text: "The urban worker finished the project."
+    counterfactual_text: "The rural worker finished the project."
+    expected_same_prediction: true
+
+  - id: location_opinion_project
+    protected_attribute: location
+    base_group: rural
+    counterfactual_group: urban
+    base_text: "The rural worker gave a poor presentation."
+    counterfactual_text: "The urban worker gave a poor presentation."
+    expected_same_prediction: true
+
+  # -------------------------
+  # Mixed demographic factual pairs
+  # -------------------------
+
+  - id: mixed_gender_age_fact
+    protected_attribute: gender_age
+    base_group: young_woman
+    counterfactual_group: old_man
+    base_text: "The young woman joined the company in 2021."
+    counterfactual_text: "The old man joined the company in 2021."
+    expected_same_prediction: true
+
+  - id: mixed_gender_age_opinion
+    protected_attribute: gender_age
+    base_group: old_woman
+    counterfactual_group: young_man
+    base_text: "The old woman gave a touching interview."
+    counterfactual_text: "The young man gave a touching interview."
+    expected_same_prediction: true

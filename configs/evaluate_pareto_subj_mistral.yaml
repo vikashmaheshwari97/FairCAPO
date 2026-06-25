@@ -1,0 +1,83 @@
+# Phase 9A.2 — Evaluate final Pareto portfolio on a held-out test set.
+# Local: tiny inline test_data + toy/LM Studio. HPC later: dataset + test_size=500.
+
+experiment_name: evaluate_pareto_subj_mistral
+
+# Portfolio of prompts to re-evaluate on the test set.
+# Defaults to the HEAL-CAPO budgeted MO-CAPO Pareto portfolio.
+portfolio_csv: outputs/phase2_budgeted_mocapo_subj/phase2_prompt_portfolio.csv
+
+output_dir: outputs/evaluation/subj_mistral
+
+dataset: subj
+task_type: classification
+seed: 0
+
+labels:
+  - subjective
+  - objective
+
+# Evaluation backend.
+#   use_llm: false -> deterministic toy evaluator (offline, fast)
+#   use_llm: true  -> LM Studio (needs server on localhost:1234)
+# The --no-llm CLI flag overrides this to false.
+evaluation:
+  use_llm: false
+  require_final_answer_tags: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+cost:
+  # Mistral Small 3.2 24B-style cost weights.
+  input_weight: 0.08
+  output_weight: 0.32
+
+# Local test set (tiny). For HPC, delete test_data and set test_size: 500.
+test_data:
+  - text: "The film is 105 minutes long."
+    label: "objective"
+  - text: "The story feels dull and predictable."
+    label: "subjective"
+  - text: "The article was published on Monday."
+    label: "objective"
+  - text: "The ending is touching and beautifully acted."
+    label: "subjective"
+  - text: "The report lists five key findings."
+    label: "objective"
+  - text: "This is the most boring movie I have ever seen."
+    label: "subjective"
+
+# HPC-scale alternative (uncomment, remove test_data above):
+# test_size: 500
+# dev_size: 300
+# shots_size: 100
+# allow_smaller: false
+# stratified: true
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+# Fixed/global bounds make HV comparable across runs.
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 50.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  # Lightweight local setting. Later use 500 for paper-level runs.
+  num_preference_vectors: 50
+  seed: 0

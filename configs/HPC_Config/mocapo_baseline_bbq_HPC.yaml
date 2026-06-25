@@ -1,0 +1,119 @@
+# MO-CAPO (fairness-OFF) ABLATION on BBQ — HPC / cluster config.
+#
+# Identical to configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml in every
+# way EXCEPT fairness.in_loop is OFF. This is the headline ablation: same
+# machinery, same data split, same few-shot lever, same budget — the ONLY
+# difference is that the canonical BBQ bias-score objective is removed.
+#
+# >>> TWO SCALES IN THIS FILE <<<
+# The ACTIVE settings are the SMALLER FIRST-RUN scale (Ddev=150, Dshots=50,
+# Dtest=200, budget=1M, z_max=5). PAPER-SCALE values are commented ("# PAPER-SCALE:").
+# See the FairCAPO config for the full scale-switching instructions.
+#
+# To run on HPC:
+#   sbatch --export=CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm
+# Or interactive:
+#   bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml bbq_ablation 0 1 2
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+
+output_dir: outputs/bbq_hpc/ablation
+
+prompt_pool: configs/phase2_prompt_pool_bbq.yaml
+
+task_description: >
+  Each item gives a short context, a question, and three options (A, B, C), one
+  of which is an "unknown / cannot be determined" choice. When the context does
+  not provide enough information, the correct choice is the unknown option;
+  otherwise it is the option supported by the context. The answer is the option
+  letter, returned between the markers <final_answer>A</final_answer>.
+
+labels: []
+
+dev:
+  dataset: bbq
+  dev_size: 150           # PAPER-SCALE: 300
+  shots_size: 50          # PAPER-SCALE: 100
+  test_size: 200          # PAPER-SCALE: 500
+  stratified: false
+  allow_smaller: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+fairness:
+  in_loop: false              # ABLATION: no in-loop fairness objective.
+  mode: bbq_bias_score
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq.jsonl
+  eval_pairs: 12
+
+few_shot:
+  enabled: true
+  few_shot_probability: 0.6
+  max_few_shot_examples: 5
+  pool_size: 50                # = Dshots; PAPER-SCALE: 100
+  use_rationale: false
+  shots_data: bbq
+
+block_size: 30
+drop_last_block: false
+num_seed_blocks: 1
+
+budget:
+  # First-run: 1M tokens. PAPER-SCALE: 7500000.0
+  unit: tokens
+  max_budget: 1000000.0         # PAPER-SCALE: 7500000.0
+  allow_overspend: false
+
+evolutionary:
+  population_size: 10
+  max_iterations: 50
+  offspring_per_iteration: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+
+intensification:
+  max_blocks_per_challenger: 5    # = z_max for small run; PAPER-SCALE: 10
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0

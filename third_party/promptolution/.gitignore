@@ -1,0 +1,15 @@
+openaitoken.txt
+anthropictoken.txt
+deepinfratoken.txt
+groqtoken.txt
+rsync_exclude.txt
+__pycache__/
+temp/
+dist/
+outputs/
+results/
+poetry.lock
+CLAUDE.md
+**/CLAUDE.local.md
+.mypy_cache/
+token.txt

@@ -1,0 +1,88 @@
+# Phase 9A.4 — Cross-method experiment comparison table.
+#
+# Rows: Initial, CAPO, EvoPromptGA, EvoPromptDE, OPRO, GEPA, NSGA-II-PO,
+#       MO-CAPO-style, HEAL-CAPO.
+# Columns: performance, cost, risk, fairness_risk, HV, nR2, portfolio_size, budget_used.
+#
+# Multi-prompt methods (pareto_set) report best-per-objective over the Pareto set
+# (perf=max; cost/risk/fairness=min) plus HV and nR2 for set quality.
+# Missing source files produce a blank row + a printed warning (never crash).
+
+output_dir: outputs/experiment_table/subj_mistral
+dataset: SUBJ
+model: mistralai/mistral-small-3.2
+seed: 0
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  # Cost bound MUST contain the observed cost range or HV degenerates to 0 (the
+  # same bug fixed on the Dtest config). The intensified FairCAPO front costs
+  # 151-847, so [0,50] would collapse it — use [0,900] to match the Dtest scale.
+  cost: [0.0, 900.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 50
+  seed: 0
+
+methods:
+  # --- Single-point baselines (perf + cost only; risk/fairness default 0) ---
+  - name: Initial
+    type: single_point
+    csv: outputs/phase1_summary/final_phase1_subj_complete.csv
+    match: initial_prompt
+
+  - name: CAPO
+    type: single_point
+    csv: outputs/phase1_summary/final_phase1_subj_complete.csv
+    match: promptolution_capo
+
+  - name: EvoPromptGA
+    type: single_point
+    csv: outputs/phase1_summary/final_phase1_subj_complete.csv
+    match: promptolution_evoprompt_ga
+
+  - name: EvoPromptDE
+    type: single_point
+    csv: outputs/phase1_summary/final_phase1_subj_complete.csv
+    match: promptolution_evoprompt_de
+
+  - name: OPRO
+    type: single_point
+    csv: outputs/phase1_summary/final_phase1_subj_complete.csv
+    match: promptolution_opro
+
+  # GEPA writes a candidate CSV with full risk/fairness columns.
+  - name: GEPA
+    type: pareto_set
+    candidates_csv: outputs/baselines/gepa_subj_mistral/gepa_candidate.csv
+    only_pareto: false
+
+  # --- Multi-prompt Pareto-set methods ---
+  - name: NSGA-II-PO
+    type: pareto_set
+    candidates_csv: outputs/baselines/nsga2_po_subj_mistral/nsga2_po_all_candidates.csv
+    only_pareto: true
+    budget_json: ""
+
+  - name: MO-CAPO-style
+    type: pareto_set
+    candidates_csv: outputs/phase1_subj_lmstudio_mistral32_mocapo_style_30/baseline_table.csv
+    only_pareto: true
+
+  - name: FairCAPO
+    type: pareto_set
+    candidates_csv: outputs/phase2_budgeted_mocapo_subj_ddev30_intensified/phase2_all_candidates.csv
+    only_pareto: true
+    budget_json: outputs/phase2_budgeted_mocapo_subj_ddev30_intensified/budget_summary.json

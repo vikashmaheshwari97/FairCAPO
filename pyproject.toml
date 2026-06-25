@@ -1,0 +1,30 @@
+[project]
+name = "heal-capo"
+version = "0.1.0"
+description = "HEAL-CAPO starter scaffold for self-healing trust-aware prompt portfolio optimization"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "pydantic>=2.0",
+  "pyyaml>=6.0"
+]
+
+[tool.setuptools.packages.find]
+include = ["heal_capo*"]
+
+# --- Optional pytest config (currently disabled) ---
+# Uncomment ONE of the options below to silence the two third_party
+# collection errors (promptolution: missing 'transformers'; gepa/promptolution
+# duplicate 'test_callbacks.py' filename collision). These do NOT affect the
+# editable installs of gepa/promptolution used by the baselines/comparison code.
+#
+# [tool.pytest.ini_options]
+#
+# Option A (clean): only collect this project's tests/ directory.
+# testpaths = ["tests"]
+#
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+#
+# Option B (narrow): keep other third_party tests runnable, skip only the broken two.
+# addopts = "--ignore=third_party/promptolution/tests/llms/test_local_llm.py --ignore=third_party/gepa/tests/test_callbacks.py"

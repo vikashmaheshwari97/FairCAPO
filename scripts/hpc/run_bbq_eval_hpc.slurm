@@ -1,0 +1,122 @@
+#!/bin/bash
+#SBATCH --job-name=bbq-eval
+#SBATCH --output=outputs/hpc/logs/%x_%A_seed%a.out
+#SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
+#SBATCH --array=0-2
+#SBATCH --partition=gpu
+#SBATCH --nodelist=pegasus2
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=16
+#SBATCH --hint=nomultithread
+#SBATCH --mem=128G
+#SBATCH --time=12:00:00
+
+# Held-out BBQ Dtest evaluation on UT Rocket Pegasus 2.
+#
+# METHOD selects which portfolio/config pair to score:
+#   faircapo | ablation | nsga
+#
+# Usage:
+#   sbatch --export=METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm
+#   sbatch --export=METHOD=ablation scripts/hpc/run_bbq_eval_hpc.slurm
+#   sbatch --export=METHOD=nsga scripts/hpc/run_bbq_eval_hpc.slurm
+
+set -euo pipefail
+
+METHOD="${METHOD:-faircapo}"
+SEED="${SLURM_ARRAY_TASK_ID:-0}"
+
+case "${METHOD}" in
+  faircapo)
+    CONFIG="configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml"
+    PORTFOLIO_CSV="outputs/hpc/bbq_faircapo/seed_${SEED}/phase2_prompt_portfolio.csv"
+    OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_faircapo"
+    ;;
+  ablation)
+    CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_HPC.yaml"
+    PORTFOLIO_CSV="outputs/hpc/bbq_ablation/seed_${SEED}/phase2_prompt_portfolio.csv"
+    OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_ablation"
+    ;;
+  nsga)
+    CONFIG="configs/HPC_Config/evaluate_pareto_bbq_nsga_HPC.yaml"
+    PORTFOLIO_CSV="outputs/hpc/bbq_nsga2po/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
+    OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_nsga2po"
+    ;;
+  *)
+    echo "Unknown METHOD=${METHOD}; expected faircapo, ablation, or nsga." >&2
+    exit 2
+    ;;
+esac
+
+MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"
+SERVER_PORT="${SERVER_PORT:-$((14000 + (${SLURM_JOB_ID:-0} % 1000) + SEED))}"
+
+mkdir -p "${OUT_DIR}" outputs/hpc/logs
+
+module purge || true
+module load cuda || true
+module load python || true
+
+if [ -d ".venv" ]; then
+  source .venv/bin/activate
+else
+  python -m venv .venv
+  source .venv/bin/activate
+fi
+
+python -m pip install --upgrade pip
+python -m pip install -e .
+if [ -d "third_party/promptolution" ]; then
+  python -m pip install -e third_party/promptolution
+fi
+python -m pip install \
+  "vllm>=0.8" "huggingface_hub>=0.24" \
+  pandas requests pyyaml numpy pydantic matplotlib altair streamlit
+
+export PYTHONPATH=.
+export HF_HOME="${HF_HOME:-$PWD/.hf_cache}"
+export FAIRCAPO_LLM_API_URL="http://127.0.0.1:${SERVER_PORT}/v1"
+export FAIRCAPO_MODEL_ID="${SERVED_MODEL_NAME}"
+
+if [ ! -f "${PORTFOLIO_CSV}" ]; then
+  echo "Missing portfolio: ${PORTFOLIO_CSV}" >&2
+  exit 3
+fi
+
+echo "Starting vLLM on $(hostname):${SERVER_PORT}"
+python -m vllm.entrypoints.openai.api_server \
+  --model "${MODEL_PATH}" \
+  --served-model-name "${SERVED_MODEL_NAME}" \
+  --host 127.0.0.1 \
+  --port "${SERVER_PORT}" \
+  --max-model-len 8192 \
+  --dtype auto \
+  --gpu-memory-utilization 0.90 \
+  --max-num-seqs 4 &
+
+SERVER_PID=$!
+trap 'kill ${SERVER_PID} 2>/dev/null || true' EXIT
+
+until curl -sf "${FAIRCAPO_LLM_API_URL}/models" >/dev/null; do
+  echo "Waiting for vLLM at ${FAIRCAPO_LLM_API_URL} ..."
+  sleep 10
+done
+
+echo "vLLM ready."
+echo "method=${METHOD}"
+echo "seed=${SEED}"
+echo "config=${CONFIG}"
+echo "portfolio=${PORTFOLIO_CSV}"
+echo "out=${OUT_DIR}"
+echo "api=${FAIRCAPO_LLM_API_URL}"
+
+python -u scripts/evaluate_pareto_on_test.py \
+  --config "${CONFIG}" \
+  --seed "${SEED}" \
+  --portfolio-csv "${PORTFOLIO_CSV}" \
+  --output-dir "${OUT_DIR}"
+
+echo "DONE method=${METHOD} seed=${SEED} -> ${OUT_DIR}"

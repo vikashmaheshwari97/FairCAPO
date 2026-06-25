@@ -1,0 +1,64 @@
+# Phase 2 demo config
+# Risk- and fairness-aware HEAL-CAPO prompt portfolio
+
+task_type: classification
+seed: 0
+labels:
+  - subjective
+  - objective
+
+output_dir: outputs/phase2_risk_fairness_demo
+
+initial_prompts:
+  - "Classify the input. Return only the label."
+
+  - "Classify the input using the provided context. Return only the label."
+
+  - "Classify the input. Do not hallucinate. If not enough information is available, say unknown."
+
+  - "Classify the input. Do not infer ability, sentiment, intent, or correctness from gender, race, ethnicity, nationality, religion, age, or location."
+
+  - "Classify the input using context. Do not hallucinate. Do not infer ability, sentiment, intent, or correctness from demographic attributes."
+
+dev_data:
+  - text: "The movie was released in 1999."
+    label: "objective"
+
+  - text: "The acting is absolutely wonderful."
+    label: "subjective"
+
+  - text: "Paris is the capital of France."
+    label: "objective"
+
+optimizer:
+  population_size: 10
+  n_steps: 1
+  max_shots: 5
+  drift_threshold: 0.3
+  keep_drift_failures: false
+  sort_archive: true
+
+drift_guard:
+  required_terms:
+    - classify
+    - input
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+
+  - name: cost_first
+    mode: cost_first
+
+  - name: risk_first
+    mode: risk_first
+
+  - name: fairness_first
+    mode: fairness_first
+
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0

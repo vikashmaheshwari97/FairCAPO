@@ -1,0 +1,106 @@
+# Phase 2 counterfactual fairness config
+# Evaluates prompt candidates on demographic counterfactual pairs.
+
+dataset: subj
+task_type: classification
+seed: 0
+
+output_dir: outputs/phase2_counterfactual_fairness_subj
+
+fairness_data: data/fairness_counterfactual_subj.yaml
+
+# Prompt pool to evaluate.
+prompt_pool: configs/phase2_prompt_pool_subj.yaml
+
+labels:
+  - subjective
+  - objective
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+evaluation:
+  use_llm: true
+
+  # If true, compare predictions on base_text and counterfactual_text.
+  evaluate_counterfactual_pairs: true
+
+  # If false, only saves fairness CSV, not merged portfolio.
+  update_prompt_portfolio: true
+
+  # Output parsing settings.
+  require_final_answer_tags: false
+  allowed_labels:
+    - subjective
+    - objective
+
+cost:
+  # Mistral Small 3.2 24B-style cost weights.
+  input_weight: 0.08
+  output_weight: 0.32
+
+# Combined fairness_risk: weighted blend of the available fairness signals.
+# Weights are renormalized over whichever signals are present, so missing
+# group/bias data simply redistributes weight to the rest.
+fairness:
+  aggregation: combined        # combined | max | mean
+  flip_weight: 0.50            # counterfactual flip / violation rate
+  group_gap_weight: 0.25       # max-min group accuracy gap
+  bias_weight: 0.15            # rule-based bias-language rate
+  debt_weight: 0.10            # decayed repeated-violation debt
+  clamp: true
+  # Honor expected_same_prediction per pair: a flip on a pair that *should*
+  # change label is not a violation (and vice versa).
+  use_expected_same_prediction: true
+
+# Fairness-aware dynamic prompt generation (Part B).
+# When enabled, prompts whose counterfactual pairs flip are repaired into new
+# fairness-hardened candidates, each gated by a fairness drift guard.
+dynamic_generation:
+  enabled: false               # off by default; set true to expand the pool
+  max_new_prompts_per_seed: 2  # repair candidates generated per flipping prompt
+  min_flips_to_trigger: 1      # only repair prompts with at least this many flips
+  drift_guard:
+    required_terms:
+      - classify
+      - input
+    fairness_terms:
+      - gender
+      - race
+      - ethnicity
+      - demographic
+      - do not infer
+    max_missing_ratio: 0.34
+    fairness_max_missing_ratio: 0.6
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+
+  - name: cost_first
+    mode: cost_first
+
+  - name: risk_first
+    mode: risk_first
+
+  - name: fairness_first
+    mode: fairness_first
+
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0

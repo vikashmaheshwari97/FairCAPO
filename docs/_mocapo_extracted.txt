@@ -1,0 +1,1998 @@
+===== PAGE 1 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization
+JAN BÜSSING,LMU Munich, Germany
+MORITZ SCHLAGER∗,Technical University of Munich (TUM), Munich Center for Machine Learning
+(MCML), Germany
+TIMO HEISS∗,LMU Munich, Munich Center for Machine Learning (MCML), Germany
+TOM ZEHLE∗,University of Freiburg, ELLIS Institute Tübingen, Germany
+MATTHIAS FEURER,TU Dortmund University, Lamarr Institute for Machine Learning and Artificial
+Intelligence, Germany
+Large language models (LLMs) achieve strong performance across a wide range of tasks but are highly sensitive
+to prompt design, motivating the need for automatic prompt optimization. Existing methods predominantly
+focus on performance alone, ignoring competing objectives such as inference cost or latency. At the same
+time, existing work on multi-objective prompt optimization relies on off-the-shelf NSGA-II, ignoring optimiza-
+tion efficiency. As a remedy, we introduceMO-CAPO, a novel multi-objective prompt optimization algorithm
+that jointly optimizes performance and inference cost while leveraging budget allocation for cost-efficient
+optimization. We further propose a deployment-oriented cost objective that captures the full computational
+profile of LLM inference. We evaluate our approach across four tasks and three LLMs and compare it to
+an NSGA-II-based multi-objective method and state-of-the-art single-objective prompt optimizers. Results
+show that MO-CAPO consistently identifies strong, robust, and diverse Pareto front approximations while
+maintaining cost-efficiency. It outperforms the NSGA-II baseline on 8 out of 12 cases in terms of the noisy R2
+metric and achieves competitive performances often already at a considerably lower budget. The discovered
+solution sets span diverse performance-cost trade-offs that are omitted by single-objective optimizers, yet the
+top-performance candidates remain competitive with single-objective solutions. Additionally, we conduct the
+first evaluation of multi-objective machine learning experiments that considers generalization and robustness
+through noisy R2 and approximation gap, enabling a more realistic assessment of solution quality. MO-CAPO
+enables practitioners to select from an efficiently discovered set of multiple prompts offering different trade-offs
+between performance and cost.
+1 Introduction
+Nowadays, large language models (LLMs) yield impressive results on a wide variety of tasks [Ouyang
+et al. 2022; Radford et al . 2019; Touvron et al . 2023]. They can be adapted to solve new tasks
+simply through apromptas input, consisting of a textual instruction and optionally few-shot
+examples [Brown et al. 2020; Liu et al. 2023]. However, the performance of an LLM on a given
+task is highly sensitive to the quality and formulation of this prompt, as well as the selection and
+order of few-shot examples [Lu et al. 2022; Zhao et al. 2021; Zhou et al. 2023]. Optimizing prompts
+can therefore substantially improve performance [Zehle et al . 2025b]. Because manual prompt
+engineering is tedious and unreliable [Jiang et al. 2020; Liu et al. 2023], the field of automatic prompt
+optimization has emerged [Cui et al. 2025; Li et al. 2025].
+Most existing prompt optimization algorithms focus solely on optimizing performance. In practice,
+however, there are often several competing objectives for which we want to optimize prompts, such
+as cost or latency, in addition to performance [Murthy et al. 2025]. At the same time, the optimization
+process itself can be costly, as evaluating prompts requires numerous LLM calls [Agarwal et al. 2024].
+CAPO [Zehle et al. 2025b] recognizes both challenges, but primarily addresses the cost-efficiency
+of the optimization process through a racing mechanism, and considers the cost of a prompt only
+by penalizing its length. This penalty is controlled by ana priori-chosen weight, and choosing
+an appropriate weight is a non-trivial task for users. Existing multi-objective prompt optimizers
+mostly rely on off-the-shelf NSGA-II to discover trade-offs between multiple objectives, such as
+∗These authors contributed equally.
+Preprint, May 2026
+arXiv:2605.18869v1  [cs.LG]  15 May 2026
+===== PAGE 2 =====
+2 Büssing et al.
+performance and prompt length, and are not cost-efficient in their optimization procedures [Câmara
+et al. 2025; do Val Lopes and Machado 2025; Yang and Li 2023]. In addition, costs are not only
+produced by prompt length. With the rise of thinking models that leverage internal reasoning [Guo
+et al. 2025; Jaech et al. 2024] and prompting techniques such as chain-of-thought [Wei et al. 2022],
+output tokens have become a considerable driver of cost and latency.
+concise zero-shot prompt
+add one few-shot example
+detailed instruction
++ 3 few-shot examples
+single best CAPO prompt
+for fixed trade-off
++ 5 few-shot examples
+10 15 20 25 30
+Avg. Cost [$] per 1M Calls
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90Test Accuracy
+MO-CAPO CAPO
+Fig. 1. Prompts for Mistral-3.2-24B on Subj:
+CAPO is limited to a single solution, whereas
+MO-CAPO discovers a Pareto front. The x-axis de-
+notes the average cost in US dollars per 1M calls
+with a prompt, the y-axis its test set accuracy.
+From an optimization perspective, prompt op-
+timization can naturally be viewed as an expen-
+sive black-box optimization problem [Cheng et al .
+2024; Zhou et al. 2023]. The objective function (LLM
+performance under a given prompt) can only be
+evaluated through costly LLM calls, while its in-
+ternal structure remains unknown. This setting
+closely resembles established black-box optimiza-
+tion problems such as automatic algorithm config-
+uration [AAC; Hutter et al. 2009] and hyperparame-
+ter optimization (HPO) in machine learning [Feurer
+and Hutter 2019], where function evaluations are
+likewise expensive. Moreover, these problems are
+frequently multi-objective, e.g., trading off runtime
+vs. solution quality in AAC [Blot et al . 2016], or
+performance vs. interpretability in HPO [Karl et al.
+2023]. These fields have developed dedicated budget
+allocation strategies specifically for multi-objective
+optimization [Blot et al. 2016; Rook et al. 2025].
+In this work, we propose a new multi-objective
+prompt optimization method that builds on the evo-
+lutionary strategy of CAPO [Zehle et al. 2025b], extends it to explicitly handle multiple objectives,
+and integrates an intensification mechanism for budget allocation inspired by the multi-objective
+AAC method MO-SMAC [Rook et al. 2025]. Our main contributions are as follows:
+(1) We introduce MO-CAPO, ana posteriorimulti-objective prompt optimization algorithm that
+enables the discovery of full Pareto front approximations of prompts that balance perfor-
+mance and inference cost (see Fig. 1) while keeping optimization itself cost-efficient.
+(2) We propose a new objective function that accounts for the full computational profile of
+LLM inference by weighting input and output tokens, providing a realistic measure of
+deployment costs for modern LLMs.
+(3) We are the first study to conduct a large multi-objective generalization evaluation by
+studying optimistic and pessimistic HV, approximation gap [Feurer et al. 2023], and the
+noisy R2 metric [Branke 2025].
+(4) We compare our method against SOTA single-objective prompt optimizers and an NSGA-II-
+based baseline across multiple LLMs and tasks, demonstrating superiority in multi-objective
+metrics, efficiency, solution set diversity, and competitive top performances. We verify the
+effect of the algorithmic components and new cost objective in dedicated ablation studies.1
+2 Notation and Problem Statement
+Let𝑝=(𝑖,𝒆) be a prompt consisting of an instruction𝑖 from the instruction spaceI and an ordered
+tuple of𝑘 few-shot examples 𝒆=(𝑒 1,...,𝑒 𝑘) from the example spaceE𝑘. The complete search space
+1Code and experimental results are provided as supplementary material.
+===== PAGE 3 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 3
+P=I× Ð𝑘max
+𝑘=0E𝑘 includes prompts from zero to𝑘max shots. In automatic prompt optimization,
+this search space (or subspace when only instructions are tuned) is systematically explored using
+automatic optimization strategies [Cui et al. 2025; Li et al. 2025; Wan et al. 2024].
+Assume an instance 𝑥∈X with an associated ground truth 𝑦∈Y from an unknown data-
+generating process𝑃𝑥𝑦 . LetD=(𝑥 𝑖,𝑦𝑖)𝑛
+𝑖=1 denote a dataset of size𝑛 drawn from𝑃𝑥𝑦 . We consider
+two disjoint instantiations: a development setDdev for optimization and a holdout test setDtest for
+final evaluation.
+An LLM is treated as a black-box function Φ :P×X→Y that maps a prompt 𝑝∈P and
+an input instance 𝑥∈ X to a predicted output ˆ𝑦∈ Y.2 Performance is measured by a point-
+wise scoring function 𝜎 :Y∪(Y×Y) →R that evaluates each output independently and
+returns a numerical score.3 In (single-objective) prompt optimization, the goal is to find an optimal
+solution𝑝 that maximizes this score in expectation over the true unknown data distribution𝑃𝑥𝑦 :
+arg max𝑝∈P E(𝑥,𝑦)∼𝑃 𝑥 𝑦[𝜎(𝑦,Φ eval(𝑝,𝑥))] . In practice, we have to resort to maximizing an empirical
+score by estimating it on the finite development setD dev:
+˜𝑓1(𝑝;D dev)= 1
+𝑛dev
+𝑛dev∑︁
+𝑖=1
+𝜎(𝑦𝑖,Φ eval(𝑝,𝑥𝑖)).(1)
+However, when optimizing prompts, there can be more than one objective of interest. Often,
+the cost (computational or financial) of a prompt is another important consideration [Câmara
+et al. 2025; do Val Lopes and Machado 2025; Yang and Li 2023; Zehle et al. 2025b]. Then the aim
+is to reduce the expected costs, i.e., arg min𝑝∈P E𝑥∼𝑃 𝑥[𝑐Φ(𝑝;𝑥)] for an LLM-specific cost function
+𝑐Φ :P×X→R as a direct measure (e.g., API costs) or proxy (e.g., token count) for the cost of a
+prompt. Estimating this empirically onD dev yields:
+𝑓2(𝑝;D dev)= 1
+𝑛dev
+𝑛dev∑︁
+𝑖=1
+𝑐Φ(𝑝;𝑥𝑖).(2)
+Further objectives𝑓𝑗, such as additional metrics, can also be of interest. The problem now becomes
+a multi-objective optimization (MOO) problem. To maintain consistency with MOO conventions,
+we write𝑓1(𝑝;Ddev)=− ˜𝑓1(𝑝;Ddev). Let𝑓 :P→R 𝑚 be a vector-valued objective function. The
+𝑚-dimensional MOO problem (minimization WLOG) is then defined as [Ehrgott 2005; Emmerich
+and Deutz 2018; Karl et al. 2023]:
+arg min
+𝑝∈P
+𝑓(𝑝;D dev)=arg min
+𝑝∈P
+(𝑓 1(𝑝;D dev),𝑓 2(𝑝;D dev),...,𝑓 𝑚(𝑝;D dev)).(3)
+Objectives𝑓𝑗 can conflict; no single solution generally minimizes all simultaneously. To compare
+solutions, the concept of Pareto dominance is used. Let 𝑝1,𝑝 2∈P be two candidates and 𝑓(𝑝 1)
+and𝑓(𝑝 2) their respective objective vectors (omittingDdev for brevity).𝑝1 Pareto dominates𝑝2
+(𝑝1≺𝑝 2), iff:
+∀𝑖∈{1,...,𝑚}:𝑓 𝑖(𝑝1)≤𝑓 𝑖(𝑝2)∧∃𝑗∈{1,...,𝑚}:𝑓 𝑗(𝑝1)<𝑓 𝑗(𝑝2).(4)
+A candidate𝑝∗ isPareto-optimalif 𝑝′∈P such that𝑝′≺𝑝∗. ThePareto set Ppar⊆P contains
+all Pareto-optimal prompts. Its imageFpar =𝑓(P par) is thePareto front. In MOO, an optimization
+2In the following, we differentiate between (1) the evaluation-LLM Φeval(𝑝,𝑥) , which returns the predictions ˆ𝑦 for an
+instance𝑥 using𝑝, and (2) the meta-LLM Φmeta(𝑝meta,𝑖) , which is used to alter instructions𝑖 and ˆ𝑦 is again an instruction.
+3This includes both supervised scenarios with available ground-truth labels, where we can test, e.g., for exact match
+𝜎(𝑦, ˆ𝑦)=I [𝑦= ˆ𝑦] , or unsupervised scenarios without ground-truth, where the scoring function can be an LLM-as-a-Judge
+or a custom numerical reward function that maps the LLM-output to a score to be maximized.
+===== PAGE 4 =====
+4 Büssing et al.
+algorithm returns an approximation ˆPpar. Its quality is characterized by convergence of ˆFpar =
+𝑓( ˆPpar)toF par and diversity across trade-offs [Karl et al. 2023].
+In this work, we focus on finding good approximations ˆPpar for the2-dimensional prompt
+optimization problem arg min𝑝∈P 𝑓(𝑝 ;Ddev)=arg min 𝑝∈P(𝑓 1(𝑝 ;Ddev),𝑓 2(𝑝 ;Ddev)) with the ob-
+jectives defined in (1) and (2), and the implicit goal to generalize to the unseen test setD test.
+3 Background & Related Work
+3.1 Multi-objective optimization
+Established literature on multi-objective optimization (MOO) exists across several areas, including
+AAC [Blot et al. 2016; Rook et al. 2025] and HPO [Karl et al. 2023]. A large body of work in MOO
+relies on Multi-Objective Evolutionary Algorithms (MOEAs), which maintain a population of
+candidate solutions and evolve them using selection, variation, and survival operators [Karl et al.
+2023]. NSGA-II is a widely adopted MOEA that ranks solutions via non-dominated sorting (NDS)
+and employs crowding distance (CD) to preserve diversity along the Pareto front [Deb et al. 2002].
+We explain both NDS and CD in more detail in Appendix A.1. Alternative paradigms include
+archive-based approaches such as SPEA2 [Zitzler et al. 2001] and indicator-based methods such as
+SMS-EMOA [Beume et al. 2007], using hypervolume (HV) contribution for selection.
+Within multi-objective AAC, several methods extend established single-objective algorithms.
+MO-ParamILS [Blot et al. 2016] adapts ParamILS [Hutter et al. 2009] to the multi-objective setting
+by maintaining an archive of non-dominated configurations and employing iterated local search
+with adaptive evaluation strategies. MO-SMAC [Rook et al. 2025] extends SMAC [Hutter et al. 2011]
+by introducing a multi-objective acquisition strategy and intensification mechanism that allocates
+evaluation effort adaptively and terminates dominated configurations early. Its MO-Intensify routine
+compares challengers against their nearest incumbent in objective space, terminates evaluation
+early when dominated, and prunes the incumbent set using CD to maintain Pareto front coverage.4
+Related ideas combining evolutionary search with budget allocation via multi-fidelity approaches
+include TPOT-SH [Parmentier et al. 2019] for AutoML pipeline construction and MO-DEHB [Awad
+et al. 2023], an extension of DEHB [Awad et al. 2021], for multi-objective hyperparameter opti-
+mization. Both integrate evolutionary operators with a resource-allocation mechanism such as
+successive halving [Jamieson and Talwalkar 2016] or hyperband [Li et al . 2018]. Racing-based
+methods [Birattari et al. 2002; López-Ibáñez et al. 2016] such as S-Race [Zhang et al . 2013] and
+its extensions [Miranda et al . 2015; Zhang et al . 2015a] further explore statistically principled
+elimination strategies for multi-objective settings.
+3.2 Metrics in Multi-Objective Optimization
+Assessing optimizer performance in multi-objective settings requires careful consideration of both
+solution quality and stability across runs. The hypervolume indicator HV( ˆPpar), which measures
+the volume of the region in objective space dominated by ˆPpar w.r.t. a reference point𝑟, is typically
+used to quantify solution quality in terms of convergence to and diversity along the Pareto front in
+a single scalar value [Zitzler et al. 2003] (for details, see §A.1.1), but can obscure stability aspects
+like generalization errors, selection effects, and stochastic variability.
+Approximation Gap for Generalization Robustness.In MOO for machine learning, solutions se-
+lected on the development setDdev may not generalize to test dataDtest due to estimation error on
+finite samples. Solutions that were part of ˆPpar onDdev can be dominated onDtest. Using only the
+4In this context, an incumbent refers to a member of the incumbent set, which contains the currently non-dominated
+solutions maintained by the algorithm as its evolving Pareto front approximation.
+===== PAGE 5 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 5
+non-dominated solutions to assess solution quality can lead to overestimation. In particular, HV
+masks potential degradations when dominated solutions are included in the volume.
+To quantify the robustness of ˆPpar, Feurer et al. [2023] propose the approximation gap. Two sets
+are constructed: an optimistic ˆPopt
+par , containing solutions from ˆPpar that remain non-dominated on
+Dtest, and a pessimistic ˆPpes
+par with solutions that do not dominate any other in ˆPpar. This enables
+(1) method ranking when the optimistic HV of method𝐵 falls below the pessimistic of𝐴, (2) Pareto
+dominance when the pessimistic front of𝐴 dominates the optimistic of𝐵, and (3) the approximation
+gapΔ gap =HV( ˆPopt
+par)−HV( ˆPpes
+par)with smaller gaps indicating more robust approximations.
+Noisy R2 Metric for Measuring Selection Robustness.Single-objective evaluation protocols select
+the best solutions based on performance onDdev and report their performance onDtest, mirroring
+how practitioners select solutions based on optimization performance and experience generalization
+performance. While straightforward for a single objective, MOO complicates this protocol: users
+select a single solution from ˆPpar based on their preferences over objective trade-offs. However,
+standard metrics like HV on Dtest evaluate the (aggregated) quality of the entire solution set,
+potentially overstating practical performance when the selected solution generalizes poorly.
+To incorporate this selection step, Branke [2025] proposes the noisy R2 (nR2) metric. For each
+preference vector 𝝀𝑖 parameterizing a utility function𝑈 ,5 the solution minimizing utility during
+optimization𝑝∗
+𝑖 =arg min𝑝∈ ˆPpar𝑈(𝑓(𝑝 ;Ddev),𝝀𝑖) is selected, and its utility𝑈(𝑓(𝑝 ∗
+𝑖 ;Dtest),𝝀𝑖) is
+evaluated on test data. Averaging these values over many sampled preference vectors yields nR2.
+Empirical Attainment Surfaces for Stochastic Variability.Single Pareto fronts obscure performance
+stability across runs, while plotting all fronts can be visually cluttered. Empirical Attainment
+Surfaces (EAS) [Watanabe 2023] aggregate𝑆 runs into interpretable front shapes with performance
+bands. The empirical attainment function𝛼( y) := 1
+𝑆
+Í𝑆
+𝑠=1 I[ ˆF𝑠
+par⪯ y] measures the fraction of runs
+whose front approximation ˆF𝑠
+par weakly dominatesy(i.e., at least as good asyin all objectives).
+The𝐿/𝑆-EAS contains points with 𝛼( y)≥𝐿/𝑆 , meaning at least 𝐿 out of 𝑆 runs attained this
+surface. Plotting several EAS, such as median, best (1/𝑆), and worst (𝑆/𝑆 ), compactly visualizes
+performance and variability: narrow bands signal stable behavior across runs, wide bands reveal
+variability. However, like HV, EAS are computed on the optimistic solution set and therefore mask
+the generalization gap betweenDdev andDtest. A narrow EAS band may suggest stable, high-quality
+performance, but can conceal that some of the attained solutions are dominated on unseen data.
+3.3 Related Work on Prompt Optimization
+Automatic prompt optimization is typically categorized into continuous methods, learning soft
+prompts in embedding space, and discrete methods, directly modifying textual prompts [Cui et al.
+2025]. Due to prompt interpretability and their LLM-agnostic nature, we focus on discrete methods.
+Many discrete methods rely on ameta-LLMguided by ameta-promptto modify prompts. This
+includes Monte Carlo search like APE [Zhou et al . 2023], evolutionary approaches like Evo-
+Prompt [Guo et al . 2024] and PromptBreeder [Fernando et al . 2024], using the meta-LLM for
+evolutionary operators [Meyerson et al. 2024], or OPRO [Yang et al. 2024], which employs the meta-
+LLM directly as optimizer with performance histories in the meta-prompt. A complementary line
+of work applies gradient-based optimization ideas to textual prompts, including ProTeGi [Pryzant
+et al. 2023], TextGrad [Yuksekgonul et al. 2025], and LLM-AutoDiff [Yin and Wang 2025].
+5The utility function𝑈 maps multi-objective outcomes to a scalar value and is parameterized by a preference vector 𝝀𝑖,
+which specifies the trade-off preference between objectives. Potential utility functions are, e.g., a weighted linear combination
+of the objectives or a Chebychev utility with weights𝝀 𝑖.
+===== PAGE 6 =====
+6 Büssing et al.
+While these works optimize only instructions, i.e., overP=I , recent approaches jointly optimize
+prompts and few-shot examples [Agarwal et al. 2024; Zehle et al. 2025b]. This has been shown
+to yield strong synergies [Wan et al . 2024] and is used by leading prompt optimizers such as
+MIPROv2 [Opsahl-Ong et al . 2024]. GEPA [Agrawal et al. 2025] instead uses reflective prompt
+evolution, iteratively diagnosing failures from system trajectories and refining high-level prompt
+rules, while outperforming MIPROv2. Both are included in DSPy [Khattab et al. 2024].
+In parallel, efficiency considerations have become central. EASE [Wu et al. 2024] applies neural
+bandits to efficiently optimize few-shot example selection and can be extended to jointly optimize
+examples and instructions. CAPO [Zehle et al. 2025b] is an evolutionary approach that combines
+instruction and few-shot optimization, integrates racing to discard underperforming prompts early,
+and penalizes prompt length to control inference cost. A recent comparison [Zehle et al. 2025a]
+shows that CAPO can outperform SOTA optimizers like GEPA.
+These optimizers are all single-objective optimizers targeting prompt performance. Although
+GEPA [Agrawal et al. 2025] introduces a multi-objective-inspired Pareto-based selection mechanism
+for population diversity, the optimization is single-objective. CAPO [Zehle et al. 2025b] as well
+as Promptomatix [Murthy et al. 2025] consider prompt length as an additional objective, but use
+scalarization with a fixed trade-off parameter that must be chosena priori, which can be challenging.
+Nonetheless, there exist multi-objective methods that yield Pareto fronts of prompts to trade
+off performance and length. InstOptima [Yang and Li 2023] uses NSGA-II with meta-prompts
+to optimize prompt performance vs. length vs. perplexity. It includes separate mutation and
+crossover for instructions and examples, and the meta-LLM is guided by the parents’ perfor-
+mances. MOPrompt [Câmara et al. 2025] also optimizes prompts for accuracy and token length
+with NSGA-II. This is also done for joint model selection and prompt construction from predefined
+blocks [do Val Lopes and Machado 2025], but without proper evaluation on unseen test data.
+Other works consider alternative objective trade-offs. Survival of the Safest [Sinha et al. 2024]
+proposes a multi-objective, feedback-based mutation strategy to trade off performance and security,
+with the final solution chosen via a weighted combination of the objectives. EMO-Prompt [Baumann
+and Kramer 2024] applies NSGA-II and SMS-EMOA with meta-prompts for crossover and mutation,
+evaluated on story generation with conflicting sentiment objectives. MOPO [Menchaca Resendiz
+and Klinger 2025] similarly employs NSGA-II for affective text generation. FairPrompt [Shafqat
+et al. 2025] uses NSGA-II to select prompts that jointly maximize semantic diversity, bias detection
+rate, and balanced demographic coverage for fairness testing.
+Using reinforcement learning strategies to tune small networks on top of an LLM whose weights
+are frozen, MORL-Prompt [Jafari et al. 2024] compares three different scalarization and indicator
+methods, while Pareto Prompt Optimization [Zhao et al. 2025] proposes a multi-objective weight
+update for the neural network. Both works focus on optimizing performance and style metrics.
+However, these works do not address the cost-efficiency of the optimization process, despite the
+substantial cost of LLM evaluations, and they lack rigorous multi-objective evaluation protocols.
+Positioning of MO-CAPO.While the idea of trading off prompt quality and prompt length through
+MOO is not new, we are the first to explicitly examine how to efficiently arrive at solutions by
+incorporating a multi-objective budget allocation mechanism from MO-AAC into evolutionary
+prompt optimization. Moreover, we go beyond using prompt length as a proxy for cost and explicitly
+consider input and output token usage, covering all costs involved in LLM inference. In addition
+to algorithmic contributions, we provide a systematic evaluation of Pareto front approximations
+and how selected solutions generalize to unseen test data, whereas prior work either picks a single
+solution by scalarizing the objectives or omits a dedicated test-set analysis altogether. To the best
+of our knowledge, this constitutes the first thorough evaluation of multi-objective optimization
+===== PAGE 7 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 7
+for machine learning, extending the preliminary work of Feurer et al . [2023] and applying the
+methodology from Branke [2025].
+4 Multi-Objective Cost-Aware Prompt Optimization
+We introduce MO-CAPO, a multi-objective prompt optimization algorithm that jointly optimizes
+performance and inference cost. Our approach extends CAPO by moving from searching for the
+optimal solution at a fixed trade-off to performing true multi-objective optimization. For this
+purpose, we propose a deployment-oriented cost objective that explicitly accounts for both input
+and output token consumption, reflecting the full computational profile of modern LLM inference.
+In addition, it integrates an intensification mechanism for budget allocation in an evolutionary
+algorithm to ensure cost-efficient search. Together, these components enable the discovery of robust
+Pareto front approximations while maintaining high optimization efficiency.
+4.1 Cost Objective
+We propose𝑐Φ(𝑝,𝑥)=𝑤 in𝑡𝑜𝑘 in(𝑝;𝑥)+𝑤 out𝑡𝑜𝑘 out(𝑝;𝑥) to measure the cost of a prompt candidate𝑝
+on an instance𝑥. Here,𝑡𝑜𝑘 in(𝑝;𝑥) and𝑡𝑜𝑘 out(𝑝;𝑥) represent the number of input and output tokens
+processed by the LLM during inference with𝑝 on𝑥.𝑤in and𝑤out are (potentially LLM-specific)
+weights. The corresponding cost-objective on a datasetDis then:
+𝑓2(𝑝;D)= 1
+𝑛
+𝑛∑︁
+𝑖=1
+[𝑤in𝑡𝑜𝑘 in(𝑝;𝑥 𝑖)+𝑤 out𝑡𝑜𝑘 out(𝑝;𝑥 𝑖)] =𝑤 in𝑡𝑜𝑘 in(𝑝;D)+𝑤 out𝑡𝑜𝑘 out(𝑝;D).(5)
+Table 1. Cost weights for various LLMs derived from
+OpenRouter. We average prices per million tokens
+across all listed providers per model (cf. §A.5).
+Model𝑤 in 𝑤out
+Mistral-3.2-24B 0.08 0.32
+Qwen3-30B 0.11 0.41
+GPT-OSS-120B 0.12 0.49
+Claude Opus 4.6 2.72 25.43
+GPT-5.2 Pro 21.00 168.00
+This formulation allows accounting for the
+distinct computational profiles of input and out-
+put tokens. In current autoregressive LLMs in-
+put tokens are usually cheaper, as processed in
+parallel during pre-fill, whereas output tokens
+are more expensive, as generation proceeds
+sequentially through autoregressive decoding.
+Token weights are defined based on the infer-
+ence costs prior to optimization. For local de-
+ployments, weights can be determined from la-
+tency metrics (e.g., time-to-first-token, tokens-
+per-second) combined with resource costs. For
+deployments via vendor APIs, weights can be
+obtained from the pricing structure. To illustrate this, we derive model-specific weights𝑤in and
+𝑤out for exemplary LLMs from the pricing data of all vendors listed onOpenRouter 6 in Tab. 1. This
+serves as a proxy for inference costs and reflects the distinct computational profiles described above.
+We also employ these weights later in our experiments in §5.
+4.2 A Multi-Objective Prompt Optimization Baseline Using NSGA-II
+To represent the existing multi-objective prompt optimization methods that use NSGA-II [Deb
+et al. 2002] in combination with a meta-LLM to optimize prompts for a variety of objectives (as
+outlined in §3), we introduce a baseline algorithm for our work, NSGA-II-PO. It uses NSGA-II with
+the evolutionary operators from CAPO [Zehle et al . 2025b] to optimize prompts consisting of
+instructions and few-shot examples for both performance and our cost objective from §4.1.
+6OpenRouter(https://openrouter.ai) is a unified API platform providing access to over 400 AI models through a single
+endpoint, passing through provider-native pricing with distinct input and output rates.
+===== PAGE 8 =====
+8 Büssing et al.
+Algorithm 1MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization
+Require: datasetsDdev &Dshots, meta-LLM Φmeta, evaluation-LLM Φeval, initial instructionsI0 ={𝑖 1,...,𝑖 𝜇},
+population size𝜇, block size𝑏, no. iterations𝑇 , no. crossovers per iteration𝑐, max. no. shots𝑘max,
+input & output token-weights𝑤in &𝑤out, crossover-meta-prompt𝑝𝐶, mutation-meta-prompt𝑝𝑀
+1:Divide datasetD dev into blocksB={𝐵 1,...,𝐵 𝑧}where|𝐵 𝑖|=𝑏
+2:P 𝜇←initialize_pop(I 0,D shots,𝑘 max,Φ eval)
+3:𝐵←sample(B)
+4:H←evaluate(P 𝜇,𝐵,Φ eval,𝑤 in,𝑤 out)
+5:P inc←get_non_dominated(P 𝜇,H,𝐵)
+6: for𝑡=1to𝑇do
+7: Poff←crossover(P 𝜇,H,Φ meta,𝑝𝐶,𝑐)
+8: Poff←mutate(P off,Φ meta,Φ eval,𝑝𝑀,D shots,𝑘 max)
+9: for𝑝 chal inP off do
+10: Pinc,P𝜇,H←intensify(P inc,P𝜇,𝑝 chal,B,Φ eval,H,𝑤 in,𝑤 out,𝜇)
+11:returnP inc
+In particular, it employs a binary tournament with front rank and CD as selection criteria for
+parent selection, contrasting with CAPO’s random selection. Environmental selection is performed
+via non-dominated sorting (NDS) with crowding distance (CD) as a tie-breaker to include partial
+fronts. We use a steady-state version of NSGA-II, recalculating CD after each selection, since
+removing candidates alters neighbor distances. Pseudo-code for this baseline is provided in §A.2.1.
+4.3 MO-CAPO
+We now present our new method MO-CAPO. It advances our baseline from §4.2 by introducing a
+budget allocation mechanism to terminate the evaluation of unpromising prompts early, given the
+high cost of evaluations in prompt optimization. The method integrates and adapts core concepts
+from NSGA-II [Deb et al. 2002], MO-SMAC [Rook et al. 2025], and CAPO [Zehle et al. 2025b] to
+develop a cost-efficient algorithm for multi-objective prompt optimization.
+Overview. MO-CAPO follows a standard genetic algorithm (see Algorithm 1). After prompt initializa-
+tion and their initial evaluation, the algorithm creates an incumbent setPinc⊆P 𝜇 of non-dominated
+solutions. In each iteration of the evolutionary loop, the genetic operatorscrossoverandmutate
+generate𝑐 offspringPoff. Parents are selected based on binary tournament selection. Each offspring
+enters an adapted version of MO-SMAC’s intensification mechanism as a “challenger”, which is
+progressively evaluated on additional data and compared against the incumbent set. If a prompt
+survives intensification, it is added toPinc. After𝑇 iterations,Pinc is returned as the final Pareto
+front approximation. MO-CAPO differs from typical evolutionary algorithms and MO-SMAC by
+retaining both a populationP𝜇 and a dedicated incumbent set Pinc⊆P 𝜇.7 The incumbent set
+serves as the current Pareto front approximation and reference for intensification. However, in
+contrast to MO-SMAC, rejected candidates cannot simply be all discarded after early termination
+to retain sufficient genetic material for crossover and mutation.8 In the following, we describe each
+component in more detail. Full algorithmic specifications are provided in §A.2.
+7The incumbent set differs conceptually from the first front identified by non-dominated sorting, as it can contain candidates
+that are evaluated for different budgets.
+8Discarding all dominated solutions would deplete genetic diversity and limit exploration, while using the complete prompt
+historyH would introduce all unpromising candidates. Our separation into an evolving population and incumbent set
+balances diversity preservation with efficient dominance-based pruning.
+===== PAGE 9 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 9
+Initialization.Following the original CAPO method, MO-CAPO partitions the development setDdev
+into blocksB of equal size𝑏 and creates an initial populationP𝜇 ininitialize_popby augmenting
+the initial instructionsI0 with up to𝑘max randomly sampled few-shot examples 𝒆 (see §A.2 for
+details). Each prompt inP𝜇 is evaluated on the same single randomly sampled block𝐵, yielding
+their objective function vectors 𝑓(𝑝 ;𝐵) . Based on these evaluations, the incumbent set Pinc of
+all non-dominated solutions is populated using NDS. A run history H records all evaluations
+performed for each candidate on each block to prevent redundant computations in future steps.
+Parent Selection.We design the parent selection to favor candidates that are close to the Pareto
+front, while preserving diversity and accounting for different levels of evaluation. This differs from
+CAPO’s random parent selection. MO-CAPO performs a binary tournament, adapted from NSGA-II
+to handle heterogeneous evaluation levels. Two independent tournaments are conducted to obtain
+distinct parents. In each tournament, two candidates are sampled fromP𝜇 and compared: (1) If
+exactly one candidate is an incumbent, it wins, favoring the candidate that contributes to the
+Pareto front approximation. (2) If both candidates are incumbents, the higher CD decides in order
+to maintain diversity of the incumbent front. (3) If both are non-incumbents and share identical
+evaluation levels, they are compared using NDS and CD. (4) For non-incumbents with different
+evaluation levels, a weaker dominance criterion from MO-ParamILS [Blot et al. 2016] is applied:
+ifB𝑝𝑖 ⊂B 𝑝 𝑗 ,𝑝𝑗 wins if it dominates 𝑝𝑖 on the subsetB𝑝𝑖 . This ensures a fair comparison, as
+candidates evaluated on fewer blocks could otherwise appear superior by chance alone due to the
+high variance in performance estimates from small samples. (5) When the previous criteria do not
+provide a clear preference, random selection decides the winner (for details, see §A.2).
+Offspring Creation.The genetic operatorscrossoverandmutatefollow the established mech-
+anisms from CAPO [Zehle et al. 2025b]. Instructions of the selected parents are crossed using a
+meta-LLM, while the offspring’s few-shot examples are sampled from the union of the parents’
+few-shot pool, creating𝑐 offspring instructions inPoff. These are subsequently mutated by altering
+the instruction with a meta-LLM and by randomly removing or adding examples (see §A.2).
+Intensification.Similar to CAPO’s single-objective racing, we aim to avoid wasting budget by
+evaluating weak candidates on the full data. To still enable fair comparisons with the incumbent
+set, we evaluate challengers progressively on more data blocks. The multi-objective intensification
+mechanism in Algorithm 2 starts by identifying the common blocksB∩ on which all incumbents
+have been evaluated so far. The challenger must be evaluated on this same subset before it can be
+added toPinc. Therefore, it is evaluated progressively on more blocks that are drawn at random from
+B∩. A comparison against the incumbents is triggered either if (a) the challenger’s performance
+has improved, i.e., the new objective vector𝑓new after adding further evaluations dominates the
+objective vector 𝑓old from the previous comparison, 9 or (b) the challenger has been evaluated
+on all blocks fromB∩. In case (a), the challenger is compared to the closest incumbent 10 on the
+challenger’s blocks. If the challenger is dominated by the closest incumbent, it is “rejected” in the
+sense that its intensification is terminated and the challenger is not added toPinc, but is still added
+to the populationP𝜇 as genetic material. If it is not dominated, the loop continues by adding further
+evaluations. In case (b), the challenger survived the intensification loop and was evaluated on all
+blocks inB∩. It is added to the population and temporarily to the set of potential incumbents. This
+9A comparison is always triggered after the first block evaluation as we initialize𝑓 old =(∞,...,∞).
+10The nearest incumbent is selected based on the Euclidean distance in objective space, where objective vectors are min-max
+normalized over all objective values seen during the optimization process so far. Rook et al. [2025] argue that comparing
+only against the closest incumbent instead of all incumbents reduces the type I error, i.e., the error of falsely rejecting a
+good challenger based on the comparison on only a subset of the data.
+===== PAGE 10 =====
+10 Büssing et al.
+Algorithm 2MO-CAPO: Intensification
+1: functionintensify(P inc,P𝜇,𝑝 chal,B,Φ eval,H,𝑤 in,𝑤 out,𝜇)
+2: B∩← Ñ
+𝑝∈P inc get_evaluated_blocks(𝑝,H)⊲Get shared evaluation basis
+3: Bchal←[]
+4: 𝑓new←(∞,...,∞)
+5: while true do
+6: 𝑓old←𝑓 new
+7: repeat⊲Progressively add block evaluations of𝑝 chal
+8: Bchal←B chal∪{sample(B∩\B chal)}
+9: H←evaluate(𝑝 chal,B chal,Φ eval,𝑤 in,𝑤 out)
+10: 𝑓new←get_objective_values(𝑝 chal,H,B chal)
+11: until𝑓 new≺𝑓 old orB∩ =B chal
+12: ifB∩ =B chal then⊲Case (b): temporal acceptance
+13: P𝜇←P 𝜇∪{𝑝 chal}
+14: Pinc←get_non_dominated(P inc∪{𝑝 chal},H,B chal)⊲Re-assess incumbents
+15: break
+16: else⊲Case (a): early rejection check
+17: 𝑝inc←get_closest_inc(P inc,𝑝 chal,B chal)
+18: 𝑓inc←get_objective_values(𝑝 inc,H,B chal)
+19: if𝑓 inc≺𝑓 new then⊲If closest incumbent dominates, “reject”𝑝 chal
+20: P𝜇←P 𝜇∪{𝑝 chal}
+21: break
+22: if|P 𝜇|>𝜇then⊲Maintain population size
+23: P𝜇,P inc←environmental_selection(P 𝜇,P inc,H,𝜇)
+24: H←advance_incumbents(P inc,H,Φ eval,𝑤 in,𝑤 out)⊲Advance incumbent
+25: returnP inc,P𝜇,H
+set is re-evaluated using NDS on the commonly evaluated blocks to ensure that only non-dominated
+solutions remain inP inc.
+Finally, we perform environmental selection (see next paragraph) to maintain population size
+𝜇. Moreover, we advance the evaluation of the incumbent set. The incumbent with the fewest
+evaluations is selected. If it lags behind in evaluations, it is evaluated on one of the missing blocks.
+If all incumbents share the same block set, it is evaluated on a new block sampled fromB. This
+mechanism ensures comparable evaluation levels for the incumbents while gradually expanding
+the evaluation basis as the optimization progresses.
+Environmental Selection.Environmental selection ensures that the population size does not
+exceed 𝜇 by eliminating poorly performing candidates from the population. Candidates not in
+Pinc are removed preferentially, as they are dominated. If such candidates exist and have all been
+evaluated on the same blocks, NDS and CD are applied, eliminating candidates from the worst
+front with CD as tie-breaker. If such candidates do not share the same evaluation blocks, such a
+comparison would not be reliable. In this case, candidates with the fewest evaluations are discarded
+first, as their objective estimates are based on less evidence. If this applies to multiple candidates, a
+random elimination is performed among them. When only candidates inPinc remain, CD overB∩
+is used as an elimination criterion to promote diversity among the front (see §A.2).
+5 Experimental Design
+Setup.We evaluate MO-CAPO using three open-weight LLMs of different sizes and organizational
+origins: GPT-OSS-120B [OpenAI 2025], Qwen3-30B [Yang et al. 2025], and Mistral-3.2-24B [Mistral
+===== PAGE 11 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 11
+AI Team 2025]. These model sizes enable deployment on single-GPU instances while delivering
+strong performance. Each experiment employs the same model for prompt alteration (Φmeta) and
+evaluation (Φeval). We provide the complete model specifications in §A.3.1.
+We employ four datasets spanning a diverse range of tasks, which vary in domain, output
+cardinality, and reasoning complexity: (1)AG News(4-class topic classification [Zhang et al. 2015b]),
+(2)GSM8K(grade school math word problems [Cobbe et al . 2021]), (3)Subj(binary subjectivity
+classification [Pang and Lee 2004]), and (4)MBPP(programming problems [Austin et al. 2021]). Each
+dataset is partitioned into three subsets: a development setDdev of 300 instances for optimization, a
+few-shot poolDshots of 100 instances, and a hold-out test setDtest of 500 instances for generalization
+assessment. Detailed descriptions of datasets and performance measures are provided in §A.3.2.
+We benchmark the proposed MO-CAPO against the NSGA-II-PO baseline, as a representative of
+existing multi-objective prompt optimizers, and against unoptimized initial instructions. In addi-
+tion, we compare against three state-of-the-art single-objective prompt optimizers: CAPO [Zehle
+et al. 2025b] (primary baseline as our method directly builds upon it), EvoPromptGA [Guo et al.
+2024] (widely known evolutionary optimizer), and GEPA [Agrawal et al . 2025] (popular due to
+implementation in DSPy). The evolutionary optimizers require ten initial instructions as starting
+point, and GEPA a single initial instruction. In addition, CAPO, MO-CAPO, and NSGA-II-PO use a
+textual task description in the meta-prompts. For this, task descriptions and a pool of 15 initial
+instructions per dataset are taken from Zehle et al. [2025b] for datasets (1)-(3). For the new task (4),
+we manually create a task description (cf. §A.4.1) and automatically generate an initial instruction
+pool using Anthropic’s Claude (cf. §A.4.2). In each optimization run, initial instructions for the
+optimizers are sampled from this pool. The same ten sampled initial instructions are used as a
+baseline for the comparison. Despite local LLM deployment, we use the averaged API prices from
+Tab. 1 as a proxy for the model-specific token weights𝑤in and𝑤out. This choice allows interpreting
+the cost objective value as the average potential API cost in US dollars per 1M calls with this prompt.
+We provide an overview of the parameterizations of all optimizers in §A.3.4.
+Each experiment configuration is executed with three random seeds controlling initial instruc-
+tion sampling, dataset partitioning, LLM decoding, and stochastic algorithm components. All
+optimization runs terminate under a budget constraint of7.5× 106 total tokens consumed by Φeval.
+Evaluation.From the multi-objective optimizers and the initial instruction set, we can naturally
+form Pareto fronts, which we evaluate using the multi-objective nR2 and HV metrics.11 To obtain
+the nR2 metric, we use the Chebychev utility (following Branke [2025]) and average across 500
+uniformly sampled preference vectors. Moreover, we use EAS plots from the package by Watanabe
+[2023]. With𝑆= 3runs per task, we plot the2 /3-EAS (median) as a line with bands spanning
+1/3-EAS (best) and3 /3-EAS (worst). Single-objective optimizers naturally only yield a single
+incumbent in their last step. Therefore, we evaluate single-objective methods solely in terms of
+their accuracy and compare them with the maximum-accuracy solutions of the multi-objective
+methods. Unless stated otherwise, reported metrics represent the mean and standard deviation
+over three seeds, where candidates are selected by their performance onDdev, and their objective
+vectors are subsequently evaluated onD test.
+===== PAGE 12 =====
+12 Büssing et al.
+6 Results & Analysis
+6.1 Benchmark Results
+Comparison on Multi-objective Metrics.First, we compare MO-CAPO with NSGA-II-PO and initial
+instructions after the full budget in Table 2. According to the nR2 metric, MO-CAPO achieves the
+best performance in 8 out of 12 model–dataset combinations, while NSGA-II-PO leads in 3 cases. In
+these cases, MO-CAPO is still within one standard deviation. In one setting (Mistral-3.2-24B on AG
+News), the unoptimized initial instructions perform best. However, the overall results on AG News
+show generally limited gains from optimization, suggesting that its relatively lower task complexity
+leads to saturation with the employed LLMs, while the more complex reasoning and generation
+tasks benefit substantially from prompt optimization. On those, we consistently outperform the
+initial instructions. This underlines that prompt choice alone has a substantial impact on the
+final performance–cost trade-off, and relying on manually designed or default instructions leaves
+considerable untapped potential. Automatic prompt optimization is therefore not merely beneficial,
+but often necessary to obtain competitive solution sets in the multi-objective setting.
+Finding:MO-CAPOoutperforms the NSGA-II-based baseline in 8 out of 12 settings.
+11To ensure comparability of objectives, optimizers, and seeds, we employ global min-max normalization per dataset. The
+normalization bounds are derived from the union of all incumbent solutions across development and test set scores of all
+multi-objective optimizers and seeds.
+Table 2. Results for multi-objective prompt optimizers compared to initial instructions across all datasets
+and models at 7.5M token budget. nR2 measures convergence (lower is better). HV𝑜𝑝𝑡 (optimistic) and HV𝑝𝑒𝑠
+(pessimistic) measure Pareto front quality (higher is better). Gap measures HV uncertainty (lower is better).
+Bold indicates best value per model-dataset combination.
+GSM8K Subj
+Model OptimizernR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓nR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓
+GPT-OSS-120B
+Initial0.319 ±.078 0.438±.121 0.426±.115 0.012±.021 0.214±.023 0.719±.047 0.708±.043 0.012±.020
+NSGA-II-PO0.098±.045 0.973±.116 0.920±.088 0.053±.092 0.098±.008 0.987±.023 0.966±.022 0.021±.004
+MO-CAPO0.038 ±.005 1.150±.020 1.145±.019 0.005±.007 0.095±.009 0.998±.009 0.949±.024 0.049±.033
+Mistral-3.2-24B
+Initial0.387 ±.013 0.352±.029 0.352±.029 0.000±.000 0.383±.071 0.361±.153 0.361±.153 0.000±.001
+NSGA-II-PO0.122±.038 0.920±.086 0.896±.096 0.024±.023 0.130±.024 0.880±.077 0.842±.085 0.038±.054
+MO-CAPO0.110 ±.034 0.943±.080 0.930±.073 0.013±.015 0.129±.026 0.898±.093 0.884±.109 0.014±.016
+Qwen3-30B
+Initial0.374 ±.011 0.361±.018 0.361±.018 0.000±.000 0.264±.061 0.590±.126 0.590±.126 0.000±.000
+NSGA-II-PO0.343±.006 0.399±.009 0.399±.009 0.000±.000 0.111±.023 0.927±.061 0.913±.079 0.014±.020
+MO-CAPO0.340 ±.006 0.410±.018 0.406±.021 0.004±.004 0.106±.005 0.930±.015 0.925±.022 0.005±.006
+AG News MBPP
+Model OptimizernR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓nR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓
+GPT-OSS-120B
+Initial0.052 ±.008 1.086±.029 1.010±.096 0.076±.102 0.429±.035 0.278±.032 0.259±.063 0.019±.032
+NSGA-II-PO0.068±.025 1.044±.046 1.031±.044 0.014±.022 0.306±.011 0.504±.077 0.469±.023 0.035±.054
+MO-CAPO0.045 ±.012 1.116±.045 0.939±.276 0.177±.238 0.144±.120 0.840±.293 0.834±.295 0.005±.005
+Mistral-3.2-24B
+Initial0.177 ±.047 0.806±.105 0.806±.105 0.000±.000 0.196±.068 0.731±.157 0.671±.178 0.060±.105
+NSGA-II-PO0.224±.066 0.713±.137 0.649±.168 0.064±.063 0.092±.010 0.995±.038 0.936±.060 0.059±.069
+MO-CAPO0.231 ±.031 0.704±.099 0.457±.360 0.247±.393 0.107±.044 0.979±.131 0.859±.211 0.120±.083
+Qwen3-30B
+Initial0.269 ±.020 0.628±.040 0.613±.046 0.014±.012 0.380±.039 0.392±.086 0.331±.045 0.061±.064
+NSGA-II-PO0.177±.021 0.826±.063 0.782±.029 0.044±.042 0.144±.046 0.860±.128 0.848±.119 0.012±.010
+MO-CAPO0.190 ±.027 0.808±.067 0.704±.082 0.104±.134 0.165±.027 0.832±.102 0.730±.104 0.102±.100
+===== PAGE 13 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 13
+These findings also reflect in other multi-objective metrics. In terms of optimistic HV, MO-CAPO
+also achieves the highest value in 8 out of 12 model–dataset combinations. In particular, on MBPP,
+MO-CAPOachieves performance improvements of up to a factor of 3 in HV compared to the initial
+instructions (for GPT-OSS-120B), highlighting substantial gains.
+We now also discuss the three decision criteria by Feurer et al. [2023] (cf. §3.2). Following criterion
+(1), we find that MO-CAPO’s pessimistic HV exceeds the optimistic HV of NSGA-II-PO in 5 out of 12
+cases, while the opposite relationship only occurs once. At the same time,MO-CAPO’s pessimistic HV
+exceeds the optimistic HV of the initial instructions in 10 out of 12 cases, with only one opposite case.
+Regarding criterion (2), we find that MO-CAPO pessimistic fronts dominate NSGA-II-PO optimistic
+fronts on 5 out of 36 seeds, while the reverse case happens only once.12 Lastly, criterion (3) assesses
+the robustness of a solution set. We observe relatively small approximation gaps for both MO-CAPO
+and NSGA-II-PO. This indicates that the discovered fronts generalize well from development to
+test data and are not driven by a few unstable boundary solutions. Notable exceptions appear on
+the saturated AG News task and on MBPP for MO-CAPO. These findings are in line with those from
+the original work introducing these metrics: domination of the optimistic HV by the pessimistic
+HV is likely, but dominance of the Pareto front is rather unlikely.
+Overall, these results show that MO-CAPO consistently discovers strong, robust Pareto fronts at a
+budget of 7.5M tokens, particularly on more complex tasks, often outperforming its competitor.
+Optimization Trajectories.Despite promising results at the full token budget, we are also interested
+in evaluations at intermediate budgets. The optimization trajectories for nR2 in Figure 2 reveal that
+the cost-efficient design of MO-CAPO enables it to produce competitive solutions already at small
+budgets. Across the three selected representative settings, MO-CAPO is always the first optimizer to
+finalize the first optimization step and return an improved solution set. Moreover, it often reaches
+near-final performances already well before4 × 106 tokens (Figure 2a and 2c) and dominates
+NSGA-II-PO over the entire budget range, with one exception for higher budgets in Figure 2a.
+Particularly, in Figure 2b,MO-CAPOfinds a solution set with nR2≈0.17on average already before
+2M input tokens, while NSGA-II-PO requires roughly thrice the budget for the same performance.
+Within the first tokens, MO-CAPO sharply reduces nR2, while NSGA-II-PO either improves slowly
+or remains largely flat. Trajectory plots for the remaining settings in §A.9 confirm these findings.
+MO-CAPO NSGA-II-PO Initial Instructions
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.050
+0.075
+0.100
+0.125
+0.150
+0.175nR2 Indicator
+(a) Mistral-3.2-24B on MBPP
+0 2 4 6
+Token Budget [×10⁶]
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30nR2 Indicator
+ (b) GPT-OSS-120B on GSM8K
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.10
+0.15
+0.20
+0.25nR2 Indicator
+ (c) Qwen3-30B on Subj
+Fig. 2. Optimization trajectories for the nR2 indicator across three dataset/model combinations. Lines and
+shaded regions denote mean±std across three independent runs.
+12For details, we refer to the supplementary material.
+===== PAGE 14 =====
+14 Büssing et al.
+Finding: MO-CAPO finds competitive solutions already at much lower budgets compared to
+NSGA-II-PO, underscoring its efficiency.
+Attainment Surfaces.The EAS plots in Figure 3 after the full budget provide more detailed insights
+into the different objective trade-offs the final solutions entail. We see that multi-objective optimizers
+find diverse fronts of different trade-offs, covering both low-cost solutions with reasonable accuracy
+and more costly high-accuracy solutions. The mostly narrow bands of the EAS plots indicate
+relatively stable results across seeds. Initial instructions are either limited to lower-cost areas
+or entirely dominated, and MO-CAPO fronts often partly exceed or even dominate NSGA-II-PO
+fronts. Although solutions found by single-objective optimizers sometimes dominate solutions in
+the multi-objective fronts, they clearly represent fixed trade-offs: for example, EvoPrompt, as an
+instruction-only optimizer, finds only low-cost solutions with medium performance in Figure 3a,
+while CAPO yields the best performing but also expensive solutions. MO-CAPO finds solutions in
+both areas and also in between, which are highly relevant from a practical perspective: in many
+deployment scenarios, marginal gains in accuracy do not justify substantial increases in inference
+cost. By explicitly optimizing the performance–cost trade-off, MO-CAPO provides practitioners with
+viable low-cost alternatives that are ignored by performance-only methods. Further EAS plots in
+§A.9 confirm these findings. Nonetheless, it is important to consider that EAS mask the pessimistic
+HV as they only show non-dominated solutions.
+Finding: MO-CAPO discovers a wide variety of performance-cost-trade-offs, exploiting both
+low-cost solutions omitted by single-objective optimizers as well as highly performant ones.
+MO-CAPO NSGA-II-PO CAPO GEPA EvoPromptGA Initial Instructions
+10 15 20 25
+Avg. Cost [$] per 1M Calls
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95Test Score (Accuracy)
+(a) Mistral-3.2-24B on Subj
+80 100 120 140
+Avg. Cost [$] per 1M Calls
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9Test Score (Accuracy)
+ (b) GPT-OSS-120B on GSM8K
+Fig. 3. Empirical attainment surfaces for MO optimizer at a budget of 7.5M tokens. Lines indicate median
+attainment across three independent seeds, shaded bands span minimum to maximum attainment, showing
+the variability across seeds. For single-objective optimizers, we plot the single solutions from each seed.
+Prompt Composition Analysis.Next, we examine the diversity of the prompt compositions in the
+solution sets. Prompts can be diverse in (i) the number of few-shot examples, (ii) the instruction’s
+level of detail, and (iii) the verbosity of the associated output (direct output vs. reasoning). We
+analyze these aspects in Figure 4 by displaying the number of few-shot examples in the prompt
+and the share of cost associated with the output tokens vs. the input tokens. Regarding the number
+of few-shot examples, we find that MO-CAPO often discovers a diverse set with varying numbers
+===== PAGE 15 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 15
+of examples (e.g., between 0 and 3 in Figure 4a), where prompts with more examples naturally
+incur higher costs. Nonetheless, prompts with the same number of examples often incur different
+costs and even prompts with fewer examples (e.g., zero-shot) can have higher costs than prompts
+with more examples (e.g., one-shot; see Figure 4a), suggesting differences in (ii) and (iii). For the
+ratio of input to output tokens, we find small differences for prompts with the same example count
+and large differences across tasks. Nonetheless, this analysis highlights the diversity in prompt
+composition across the solution sets. Concrete prompt examples are provided in §A.8.
+Finding: MO-CAPO discovers diverse prompt sets with a varying number of few-shot examples.
+10 15 20
+Avg. Cost [$] per 1M Calls
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95Test Accuracy
+0
+1
+0
+2
+1
+3
+00
+2
+1
+0
+1
+0
+3
+1
+2
+0
+2
+0
+1
+0
+0
+2
+1
+2
+0
+2
+2
+(a) Mistral-3.2-24B on Subj
+50 60 70 80
+Avg. Cost [$] per 1M Calls
+0.355
+0.360
+0.365
+0.370
+0.375
+0.380Test Accuracy
+1
+2
+4
+1
+1
+1
+1
+1
+1
+11
+1 (b) Qwen3-30B on MBPP
+80 90 100 110
+Avg. Cost [$] per 1M Calls
+0.775
+0.800
+0.825
+0.850
+0.875
+0.900
+0.925Test Accuracy
+1
+1
+0 0
+0
+0
+1
+0
+1
+1
+0
+0
+1
+0 (c) GPT-OSS-120B on GSM8K
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Output Token Cost Share
+Fig. 4. Few-shot example counts for MO-CAPO for final incumbent set members of all three random seeds.
+Reported objective values are evaluated on the test set. Example counts are displayed as numbers, and the
+color scale indicates the share of costs produced by output tokens.
+Table 3. Accuracy achieved by each optimizer at 7.5M token budget (bold = best accuracy per model-dataset).
+We select the best prompt based on dev-performance and report the test-performance.
+Model Optimizer GSM8K Subj AG News MBPP
+GPT-OSS-120B
+Initial0.495 ±.192 0.741±.021 0.856±.005 0.072±.026
+CAPO0.871 ±.031 0.858±.004 0.869±.011 0.169±.021
+GEPA0.857 ±.044 0.870±.032 0.863±.017 0.253±.107
+EvoPromptGA0.584 ±.141 0.744±.017 0.861±.009 0.080±.016
+NSGA-II-PO0.852 ±.009 0.871±.008 0.855±.014 0.165±.010
+MO-CAPO0.893 ±.022 0.869±.007 0.867±.013 0.257±.062
+Mistral-3.2-24B
+Initial0.463 ±.013 0.673±.052 0.859±.011 0.304±.022
+CAPO0.752 ±.020 0.932±.025 0.844±.023 0.331±.002
+GEPA0.571 ±.146 0.813±.069 0.860±.018 0.318±.006
+EvoPromptGA0.439 ±.031 0.779±.008 0.856±.016 0.301±.029
+NSGA-II-PO0.743 ±.045 0.904±.014 0.849±.014 0.331±.000
+MO-CAPO0.751 ±.036 0.919±.034 0.848±.016 0.320±.017
+Qwen3-30B
+Initial0.540 ±.022 0.754±.044 0.850±.009 0.329±.006
+CAPO0.665 ±.025 0.909±.033 0.900±.014 0.381±.010
+GEPA0.659 ±.024 0.775±.078 0.870±.004 0.360±.026
+EvoPromptGA0.537 ±.010 0.783±.019 0.860±.029 0.370±.004
+NSGA-II-PO0.657 ±.033 0.885±.030 0.893±.010 0.372±.014
+MO-CAPO0.662 ±.036 0.885±.008 0.885±.009 0.369±.005
+===== PAGE 16 =====
+16 Büssing et al.
+123456
+Initial Instructions
+EvoPromptGA
+GEPA NSGA-II-PO
+MO-CAPO
+CAPO
+CD
+Fig. 5. Critical difference diagram ( 𝛼= 0.05) for test accuracy. Ranks are computed per model–dataset
+combination based on accuracy and averaged across seeds. Horizontal bars connect methods that are not
+significantly different according to the Friedman test, followed by a post-hoc Nemenyi test.
+Accuracy Comparison with Single-objective Optimizers.Lastly, we examine how the maximum-
+accuracy prompts discovered by the multi-objective methods compare with those of SOTA single-
+objective optimizers. Table 3 confirms that MO-CAPO is highly competitive in terms of accuracy,
+yielding the best performance in 2/12 cases and showing results close to the best (mostly within
+one standard deviation) in the remaining settings. This makes MO-CAPO ranked second on average,
+behind CAPO and ahead of GEPA, as shown in the critical differences plot in Figure 5. Importantly,
+this plot shows that at the𝛼= 0.05level, there are no significant differences in accuracy between our
+multi-objective methods and the SOTA single-objective optimizers CAPO and GEPA, as determined
+by a post-hoc Nemenyi test [Demšar 2006; Herbold 2020]. MO-CAPO significantly outperforms both
+EvoPrompt and the initial instructions on this single objective.
+Finding:The maximum accuracy solutions found by MO-CAPO are highly competitive with
+state-of-the-art single-objective optimizers.
+6.2 Ablation Studies
+To better understand the new components inMO-CAPO, we present ablation studies of the intensifica-
+tion mechanism and the cost-objective, and summarize results from ablations on minor components,
+such as the parent selection mechanism.
+Impact of Intensification.Although we introduced NSGA-II-PO as a baseline for benchmarking,
+it also serves as an ablation, since its main difference to MO-CAPO is the intensification mechanism.
+Thus, a comparison isolates the contribution of this budget-allocation component. The benchmark
+results (Table 2) showed that MO-CAPO mostly outperforms NSGA-II-PO at the full budget, and
+trajectory plots (Figure 2) demonstrated that MO-CAPO finds competitive solution sets earlier – gains
+stemming from intensification and partial evaluation, allocating the budget intelligently.
+We now provide a more detailed analysis of the efficiency gains through intensification in
+Table 4. First, the efficient budget allocation allows MO-CAPO to discover up to a factor of5.7more
+candidates, enabling broader exploration of the search space. This is because it performs only
+around 3 block evaluations (90 samples) per candidate on average, whereas NSGA-II-PO without
+intensification always performs full evaluations (300 samples). Moreover, Table 4 confirms that
+the average budget required to yield a first solution set after the first step is reduced by up to 88%
+through intensification and initial evaluation on only a single block. In addition,MO-CAPO converges
+faster, often requiring less than 1/3 of the token budget to achieve 80% of the final performance.
+Without intensification, this takes substantially longer in most cases. These findings confirm the
+intended effect of intensification.
+===== PAGE 17 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 17
+Finding: MO-CAPO’s intensification substantially improves efficiency by enabling broader
+exploration, considerably reducing the budget needed for the first solution set, and achieving
+near-final performance with less token budget.
+Effect of Cost Weights.Another novel component of MO-CAPO is the cost objective. We isolate
+the influence of the input and output token weights by systematically setting them to zero. The
+experiments are conducted on GSM8K and Subj with Qwen3-30B and a budget of 7.5M tokens. For
+comparability, the nR2 metric is always computed using the default cost weights.
+The results in Table 5 show that explicitly penalizing input tokens is essential to control prompt
+length. When setting𝑤in = 0, input token usage increases dramatically compared to the default
+(+118.9% on GSM8K and +225.7% on Subj). In contrast, removing only the output penalty (𝑤out = 0)
+has a comparatively modest effect on output token usage (+0.93% on GSM8K and +38.8% on Subj).
+When both weights are removed, the increase in input tokens remains high while the changes in
+output are comparably small. This behavior is intuitive, as the optimizer directly controls prompt
+length, while output length is only indirectly influenced by the instruction design. The impact is also
+reflected in the optimization quality. Removing the input penalty substantially degrades nR2, while
+removing only the output penalty leaves nR2 nearly unchanged, suggesting that input control is
+the dominant driver of the cost objective. Since setting both cost weights to 0 reduces MO-CAPO to a
+single-objective optimizer, we compare its accuracy with other SOTA single-objective optimizers in
+§A.6. The results show that it is the best-performing optimizer together with CAPO, outperforming
+GEPA and EvoPrompt. This demonstrates its applicability to single-objective settings.
+Finding: MO-CAPO’s cost objective, primarily the input token weight, is crucial to control
+prompt cost.
+Further Ablations & Sensitivity Analysis.We further ablate the influence of the parent selection
+(see §A.6), which shows rather limited impact. We also conduct a study on the sensitivity ofMO-CAPO
+Table 4. Efficiency comparison between MO-CAPO and NSGA-II-PO across all datasets and models at 7.5M
+token budget. #Cand is the average number of evaluated candidates. B/Cand is the average number of blocks
+on which candidates were evaluated. Iter1 is the budget consumed (in thousand tokens) when the first
+iteration is completed. TT80 is time-to-80%, i.e., the budget (in % of the total budget) required to achieve 80%
+of the final pessimistic HV. Bold values indicate the best per model-dataset pair.
+GSM8K Subj
+Model Optimizer #Cand B/Cand Iter1 (kTok)↓TT80 (%)↓#Cand B/Cand Iter1 (kTok)↓TT80 (%)↓
+GPT-OSS-120BMO-CAPO209 ±15 3.0±.3 296±21 32.3±18.6 237±8 3.3±.4 251±26 3.3±.3
+NSGA-II-PO46±8 —2503 ±278 90.8±8.0 58±7 —2070 ±169 27.3±2.3
+Mistral-3.2-24BMO-CAPO168 ±18 3.1±.3 332±53 8.4±7.5 442±30 3.4±.1 109±10 34.5±56.7
+NSGA-II-PO45±10 —2683 ±356 37.3±8.5 155±19 —829 ±34 37.8±41.7
+Qwen3-30BMO-CAPO234 ±94 2.1±.5 350±39 7.2±4.8 530±109 3.0±.4 100±7 6.0±5.0
+NSGA-II-PO41±6 —2836 ±156 37.1±2.5 187±48 —725 ±44 25.8±28.2
+AG News MBPP
+GPT-OSS-120BMO-CAPO349 ±170 3.0±1.0 187±23 2.9±1.0 218±19 2.9±.3 292±33 70.6±25.8
+NSGA-II-PO90±4 —1463 ±28 19.0±.8 55±2 —2134 ±143 100.0±.0
+Mistral-3.2-24BMO-CAPO513 ±147 2.9±.6 130±11 34.4±56.8 233±92 2.7±1.1 244±53 4.0±2.0
+NSGA-II-PO170±32 —1149 ±138 42.8±49.5 62±12 —2003 ±470 34.0±13.2
+Qwen3-30BMO-CAPO367 ±14 3.3±.6 133±25 1.8±.3 221±42 3.0±.6 221±28 90.2±17.1
+NSGA-II-PO141±36 —1064 ±57 13.9±.7 61±6 —1815 ±330 74.7±35.5
+===== PAGE 18 =====
+18 Büssing et al.
+Table 5. Token increase analysis for cost ablation experiments on Qwen3-30B at 7.5M token budget. We
+measure the percentage increase in average input/output token increase compared to MO-CAPO with cost
+weights active. nR2 measures optimization quality (lower is better).
+Dataset Experiment Input(%)Output(%)nR2↓
+GSM8K
+MO-CAPO(default) - -0.340 ±.006
+𝑤in =0 125.03 ±48.14 −6.14±0.72 0.434±.060
+𝑤out =0 5.69 ±8.90 0.93±1.94 0.363±.008
+𝑤in =0,𝑤 out =0 112.50 ±27.00 −5.08±1.08 0.439±.071
+Subj
+MO-CAPO(default) - -0.106 ±.005
+𝑤in =0 225.13 ±38.11 −0.45±13.57 0.210±.028
+𝑤out =0 4.83 ±14.23 40.90±45.90 0.105±.003
+𝑤in =0,𝑤 out =0 242.58 ±36.19 10.37±7.06 0.219±.017
+to its hyperparameters (block size, population size, number of crossovers; see §A.7), demonstrating
+that MO-CAPO is relatively robust w.r.t. the examined hyperparameters, as performance remains
+stable across a broad range of configurations.
+7 Conclusion & Future Work
+7.1MO-CAPO: Summary, Implications & Future Directions
+We introduced MO-CAPO, a multi-objective prompt optimization algorithm that jointly optimizes
+performance and inference cost while explicitly accounting for the high evaluation cost inherent
+in prompt optimization. The method extends CAPO with true multi-objective optimization and
+integrates a budget-aware intensification mechanism inspired by MO-SMAC, enabling efficient
+exploration of the prompt search space under limited evaluation budgets. In addition, we proposed
+a deployment-oriented cost objective that captures both input and output token consumption,
+providing a more realistic representation of inference cost than common prompt-length proxies.
+Extensive experiments across three LLMs and four tasks demonstrated thatMO-CAPO consistently
+discovers well-performing Pareto front approximations. The method outperforms an NSGA-II-based
+baseline in the majority of evaluated settings, mostly with substantial improvements over initial,
+unoptimized instructions, as measured by multi-objective metrics such as nR2 and optimistic and
+pessimistic HV. We demonstrated that the discovered Pareto fronts exhibit high robustness in
+most cases as measured by the approximation gap. Moreover, we showcased the efficiency of
+MO-CAPO, which finds competitive solution sets at much lower budgets compared to the NSGA-II
+baseline. We found that MO-CAPO discovers a wide variety of performance-cost-trade-offs with
+both competitive low-cost solutions and more costly but highly performant prompts. The analyzed
+solution sets contain diverse prompt compositions in terms of instruction length, the number of few-
+shot examples, and the input/output token ratio. Importantly, incorporating cost does not degrade
+performance. MO-CAPO remains competitive to SOTA single-objective optimizer and sometimes
+even superior in terms of accuracy rankings. Our ablation studies confirmed that intensification
+is key to the method’s efficiency, enabling broader exploration and faster convergence under a
+given budget. Furthermore, the proposed cost objective, particularly the input token weight, proved
+essential for controlling prompt cost.
+Practical Implications.The cost-efficient multi-objective optimization provided by MO-CAPO is
+particularly useful for practitioners, who can now choose from a diverse set of solutions. In single-
+objective settings, they are constrained to a single solution focused on accuracy. However, in many
+practical settings, marginal accuracy gains do not justify a considerable increase in inference costs.
+===== PAGE 19 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 19
+Practitioners can now select the most appropriate trade-off for their use case themselves, from a
+diverse set of trade-offs found efficiently.
+Future Work.Future research can extend this line of work in several directions. First, instead of
+scalarizing input and output tokens, these could be treated as separate objectives, yielding higher-
+dimensional Pareto fronts. Second, additional objectives such as robustness across evaluation
+subsets, stability under stochastic decoding, inference latency, or fairness considerations could
+be incorporated. Importantly, MO-CAPO extends, in principle, to such other objectives without
+modifying the algorithm itself. Last, integrating surrogate modeling may further improve search
+efficiency in large prompt spaces.
+7.2 Reflection on Metrics for Multi-Objective Generalization
+Beyond the algorithmic contribution, a central aspect of our work was the application of novel, not
+widely used metrics for measuring multi-objective generalization: nR2 [Branke 2025] and the so-
+called optimistic and pessimistic HV [Feurer et al. 2023]. In our case, this evaluation better reflected
+the conditions practitioners face when selecting prompts in practice by explicitly accounting for
+solution robustness and stochastic variability.
+More generally, we find that nR2 yields a single, easy-to-interpret number, but when comparing
+two methods, it is unclear how their Pareto front approximations compare. Similarly, comparing
+the pessimistic HV of one method with the optimistic HV of another provides no information about
+specific solutions on the Pareto front. However, this method appears to provide more conservative
+results than nR2. We hypothesize that, in many practical settings, when A’s pessimistic HV exceeds
+B’s optimistic HV, then method A will also tend to achieve a lower nR2 than method B. Dominance
+of A’s pessimistic Pareto front approximation over B’s optimistic Pareto front approximation most
+likely is even stronger.
+Future Work.Based on our findings, we think these metrics for multi-objective generalization
+demand further study, as machine learning is moving beyond solely performance-driven towards
+multi-objective settings. Additionally, the empirical attainment surfaces require extension to aggre-
+gate multiple optimistic and pessimistic Pareto fronts.
+Acknowledgments
+Tom Zehle received funding by the European Union. This work was supported by the European
+Union’s Horizon Europe research and innovation programm under grant agreement No. 101214398
+(ELLIOT).
+Author Contribution Statement
+JB conceived the research idea, developed the algorithm, implemented a prototype, conducted
+preliminary experiments, designed the evaluation and visualizations, and drafted the manuscript.
+MS led the execution of the experiments and the structured collection and evaluation of results.
+TH led the writing of the manuscript and implemented the experimental setup. TZ implemented
+the proposed algorithm and baseline methods, and designed and implemented the benchmarks.
+MF conceived the research idea, conducted literature research, and supervised the project. JB
+continued to contribute to the processes led by the other authors throughout the project. All
+authors contributed to reviewing and editing the manuscript. This work originated in the Master’s
+thesis of JB, completed under the supervision of MF.
+===== PAGE 20 =====
+20 Büssing et al.
+References
+Eshaan Agarwal, Joykirat Singh, Vivek Dani, Raghav Magazine, Tanuja Ganu, and Akshay Nambi. 2024. PromptWizard:
+Task-Aware Prompt Optimization Framework.arXiv:2405.18369 [cs.CL](2024).
+Lakshya A. Agrawal, Shangyin Tan, Dilara Soylu, Noah Ziems, Rishi Khare, Krista Opsahl-Ong, Arnav Singhvi, Herumb
+Shandilya, Michael J. Ryan, Meng Jiang, Christopher Potts, Koushik Sen, Alexandros G. Dimakis, Ion Stoica, Dan Klein,
+Matei Zaharia, and Omar Khattab. 2025. GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning.
+arXiv:2507.19457 [cs.CL](2025).
+Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai,
+Michael Terry, Quoc Le, and Charles Sutton. 2021. Program Synthesis with Large Language Models.arXiv:2108.07732
+[cs.PL](2021).
+N. Awad, N. Mallik, and F. Hutter. 2021. DEHB: Evolutionary Hyperband for Scalable, Robust and Efficient Hyperparameter
+Optimization. InProceedings of the 30th International Joint Conference on Artificial Intelligence (IJCAI’21), Z. Zhou (Ed.).
+2147–2153.
+Noor Awad, Ayushi Sharma, Philipp Muller, Janek Thomas, and Frank Hutter. 2023. MO-DEHB: Evolutionary-based
+Hyperband for Multi-Objective Optimization.arXiv:2305.04502 [cs.LG](2023).
+Jill Baumann and Oliver Kramer. 2024. Evolutionary Multi-objective Optimization of Large Language Model Prompts for
+Balancing Sentiments. InApplications of Evolutionary Computation, Stephen Smith, João Correia, and Christian Cintrano
+(Eds.). Springer Nature Switzerland, Cham, 212–224.
+N. Beume, B. Naujoks, and M. Emmerich. 2007. SMS-EMOA: Multiobjective selection based on dominated hypervolume.
+European Journal of Operational Research181, 3 (2007), 1653–1669.
+M. Birattari, T. Stützle, L. Paquete, and K. Varrentrapp. 2002. A Racing Algorithm for Configuring Metaheuristics. In
+Proceedings of the Genetic and Evolutionary Computation Conference (GECCO’02), W. Langdon, E. Cantu-Paz, K. Mathias,
+R. Roy, D. Davis, R. Poli, K. Balakrishnan, V. Honavar, G. Rudolph, J. Wegener, L. Bull, M. Potter, A. Schultz, J. Miller,
+E. Burke, and N. Jonoska (Eds.). Morgan Kaufmann Publishers, 11–18.
+Aymeric Blot, Holger Hoos, Laetitia Jourdan, Marie Kessaci-Marmion, and Heike Trautmann. 2016. MO-ParamILS: A
+Multi-objective Automatic Algorithm Configuration Framework. InProceedings of the Tenth International Conference
+on Learning and Intelligent Optimization (LION’16) (Lecture Notes in Computer Science), P. Festa, M. Sellmann, and
+J. Vanschoren (Eds.). Springer, 32–47.
+Juergen Branke. 2025. Performance Metrics for Multiobjective Optimization Under Noise.IEEE Transactions on Evolutionary
+Computation29, 4 (2025), 1449–1455.
+T. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal,
+A. Herbert-Voss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. Ziegler, J. Wu, C. Winter, ..., and D. Amodei. 2020.
+Language Models are Few-Shot Learners. InProceedings of the 33rd International Conference on Advances in Neural
+Information Processing Systems (NeurIPS’20), H. Larochelle, M. Ranzato, R. Hadsell, M.-F. Balcan, and H. Lin (Eds.). Curran
+Associates, 1877–1901.
+Jiale Cheng, Xiao Liu, Kehan Zheng, Pei Ke, Hongning Wang, Yuxiao Dong, Jie Tang, and Minlie Huang. 2024. Black-Box
+Prompt Optimization: Aligning Large Language Models without Model Training. InProceedings of the 62nd Annual
+Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Lun-Wei Ku, Andre Martins, and Vivek
+Srikumar (Eds.). Association for Computational Linguistics, Bangkok, Thailand, 3201–3219.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry
+Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training Verifiers to Solve Math
+Word Problems.arXiv:2110.14168 [cs.LG](2021).
+Wendi Cui, Jiaxin Zhang, Zhuohang Li, Hao Sun, Damien Lopez, Kamalika Das, Bradley A. Malin, and Sricharan Kumar.
+2025. Heuristic-based Search Algorithm in Automatic Instruction-focused Prompt Optimization: A Survey. InFindings
+of the Association for Computational Linguistics: ACL 2025, Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and
+Mohammad Taher Pilehvar (Eds.). Association for Computational Linguistics, Vienna, Austria, 22093–22111.
+Sara Câmara, Eduardo Luz, Valéria Carvalho, Ivan Reinaldo Meneghini, and Gladston Moreira. 2025. MOPrompt: Multi-
+objective Semantic Evolution for Prompt Optimization. InAnais do XVI Simpósio Brasileiro de Tecnologia da Informação e
+da Linguagem Humana (STIL 2025) (STIL 2025). Sociedade Brasileira de Computação, 78–89.
+K. Deb, A. Pratap, S. Agarwal, and T. Meyarivan. 2002. A fast and elitist multiobjective genetic algorithm: NSGA-II.IEEE
+Transactions on Evolutionary Computation6, 2 (2002), 182–197.
+Janez Demšar. 2006. Statistical Comparisons of Classifiers over Multiple Data Sets.Journal of Machine Learning Research7,
+1 (2006), 1–30.
+Cláudio Lúcio do Val Lopes and Lucca Machado. 2025. Assessing an evolutionary search engine for small language models,
+prompts, and evaluation metrics.arXiv:2506.21512 [cs.NE](2025).
+Matthias Ehrgott. 2005.Multicriteria optimization: with 88 figures and 12 tables(second edition ed.). Springer, Berlin
+Heidelberg New York.
+===== PAGE 21 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 21
+M. Emmerich and A. Deutz. 2018. A tutorial on multiobjective optimization: fundamentals and evolutionary methods.
+Natural Computing17, 3 (2018), 585–609.
+Chrisantha Fernando, Dylan Banarse, Henryk Michalewski, Simon Osindero, and Tim Rocktäschel. 2024. Promptbreeder:
+self-referential self-improvement via prompt evolution. InProceedings of the 41st International Conference on Machine
+Learning (ICML’24) (Proceedings of Machine Learning Research, Vol. 235), R. Salakhutdinov, Z. Kolter, K. Heller, A. Weller,
+N. Oliver, J. Scarlett, and F. Berkenkamp (Eds.). PMLR, 13481–13544.
+Matthias Feurer, Katharina Eggensperger, Edward Bergman, Florian Pfisterer, Bernd Bischl, and Frank Hutter. 2023. Mind
+the Gap: Measuring Generalization Performance Across Multiple Objectives. InAdvances in Intelligent Data Analysis XXI,
+Bruno Crémilleux, Sibylle Hess, and Siegfried Nijssen (Eds.). Springer Nature Switzerland, Cham, 130–142.
+Matthias Feurer and Frank Hutter. 2019. Hyperparameter Optimization. InAutomated Machine Learning: Methods, Systems,
+Challenges, Frank Hutter, Lars Kotthoff, and Joaquin Vanschoren (Eds.). Springer International Publishing, 3–33.
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao
+Bi, Xiaokang Zhang, Xingkai Yu, Yu Wu, Z. F. Wu, Zhibin Gou, Zhihong Shao, Zhuoshu Li, Ziyi Gao, Aixin Liu, ..., and
+Zhen Zhang. 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning.Nature645
+(2025), 633–638.
+Qingyan Guo, Rui Wang, Junliang Guo, Bei Li, Kaitao Song, Xu Tan, Guoqing Liu, Jiang Bian, and Yujiu Yang. 2024.
+Connecting Large Language Models with Evolutionary Algorithms Yields Powerful Prompt Optimizers. InThe Twelfth
+International Conference on Learning Representations (ICLR’24). ICLR. Published online: iclr.cc.
+Steffen Herbold. 2020. Autorank: A Python package for automated ranking of classifiers.Journal of Open Source Software5,
+48 (2020), 2173.
+F. Hutter, H. Hoos, and K. Leyton-Brown. 2011. Sequential Model-Based Optimization for General Algorithm Configuration.
+InProceedings of the Fifth International Conference on Learning and Intelligent Optimization (LION’11) (Lecture Notes in
+Computer Science, Vol. 6683), C. Coello (Ed.). Springer, 507–523.
+F. Hutter, H. Hoos, K. Leyton-Brown, and T. Stützle. 2009. ParamILS: An Automatic Algorithm Configuration Framework.
+Journal of Artificial Intelligence Research36 (2009), 267–306.
+Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, Alex
+Beutel, Alex Carney, Alex Iftimie, Alex Karpenko, Alex Tachard Passos, Alexander Neitz, Alexander Prokofiev, Alexander
+Wei, Allison Tam, Ally Bennett, Ananya Kumar, ..., and Zhuohan Li. 2024. OpenAI o1 System Card.arXiv:2412.16720
+[cs.AI](2024).
+Yasaman Jafari, Dheeraj Mekala, Rose Yu, and Taylor Berg-Kirkpatrick. 2024. MORL-Prompt: An Empirical Analysis of Multi-
+Objective Reinforcement Learning for Discrete Prompt Optimization. InFindings of the Association for Computational
+Linguistics: EMNLP 2024. Association for Computational Linguistics, Miami, Florida, USA, 9878–9889.
+Kevin Jamieson and Ameet Talwalkar. 2016. Non-stochastic Best Arm Identification and Hyperparameter Optimization. In
+Proceedings of the 19th International Conference on Artificial Intelligence and Statistics (Proceedings of Machine Learning
+Research, Vol. 51), Arthur Gretton and Christian C. Robert (Eds.). PMLR, 240–248.
+Zhengbao Jiang, Frank Xu, Jun Araki, and Graham Neubig. 2020. How Can We Know What Language Models Know?
+Transactions of the Association for Computational Linguistics8 (2020), 423–438.
+Florian Karl, Tobias Pielok, Julia Moosbauer, Florian Pfisterer, Stefan Coors, Martin Binder, Lennart Schneider, Janek Thomas,
+Jakob Richter, Michel Lang, Eduardo C. Garrido-Merchán, Juergen Branke, and Bernd Bischl. 2023. Multi-Objective
+Hyperparameter Optimization in Machine Learning – An Overview.ACM Transactions of Evolutionary Learning and
+Optimization3, 4 (2023), 16:1–16:50.
+Omar Khattab, Arnav Singhvi, Paridhi Maheshwari, Zhiyuan Zhang, Keshav Santhanam, Sri Vardhamanan, Saiful Haq,
+Ashutosh Sharma, Thomas Joshi, Hanna Moazam, Heather Miller, Matei Zaharia, and Christopher Potts. 2024. DSPy:
+Compiling Declarative Language Model Calls into State-of-the-Art Pipelines. InThe Twelfth International Conference on
+Learning Representations (ICLR’24). ICLR. Published online: iclr.cc.
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Yu, Joseph Gonzalez, Hao Zhang, and Ion
+Stoica. 2023. Efficient Memory Management for Large Language Model Serving with PagedAttention. InProceedings of
+the 29th Symposium on Operating Systems Principles (SOSP ’23). Association for Computing Machinery, 611–626.
+Lisha Li, Kevin Jamieson, Giulia DeSalvo, Afshin Rostamizadeh, and Ameet Talwalkar. 2018. Hyperband: A Novel Bandit-
+Based Approach to Hyperparameter Optimization.Journal of Machine Learning Research18, 185 (2018), 1–52.
+Wenwu Li, Xiangfeng Wang, Wenhao Li, and Bo Jin. 2025. A Survey of Automatic Prompt Engineering: An Optimization
+Perspective.arXiv:2502.11560 [cs.AI](2025).
+Pengfei Liu, Weizhe Yuan, Jinlan Fu, Zhengbao Jiang, Hiroaki Hayashi, and Graham Neubig. 2023. Pre-train, Prompt, and
+Predict: A Systematic Survey of Prompting Methods in Natural Language Processing.Comput. Surveys55, 9 (2023),
+195:1–195:35.
+M. López-Ibáñez, J. Dubois-Lacoste, L. Caceres, M. Birattari, and T. Stützle. 2016. The irace package: Iterated racing for
+automatic algorithm configuration.Operations Research Perspectives3 (2016), 43–58.
+===== PAGE 22 =====
+22 Büssing et al.
+Yao Lu, Max Bartolo, Alastair Moore, Sebastian Riedel, and Pontus Stenetorp. 2022. Fantastically Ordered Prompts and
+Where to Find Them: Overcoming Few-Shot Prompt Order Sensitivity. InProceedings of the 60th Annual Meeting of
+the Association for Computational Linguistics (Volume 1: Long Papers), Smaranda Muresan, Preslav Nakov, and Aline
+Villavicencio (Eds.). Association for Computational Linguistics, 8086–8098.
+Yarik Menchaca Resendiz and Roman Klinger. 2025. MOPO: Multi-Objective Prompt Optimization for Affective Text
+Generation. InProceedings of the 31st International Conference on Computational Linguistics, Owen Rambow, Leo Wanner,
+Marianna Apidianaki, Hend Al-Khalifa, Barbara Di Eugenio, and Steven Schockaert (Eds.). Association for Computational
+Linguistics, Abu Dhabi, UAE, 5588–5606.
+Elliot Meyerson, Mark J. Nelson, Herbie Bradley, Adam Gaier, Arash Moradi, Amy K. Hoover, and Joel Lehman. 2024.
+Language Model Crossover: Variation through Few-Shot Prompting.ACM Transactions of Evolutionary Learning and
+Optimization4, 4 (2024), 27:1–27:40.
+P Miranda, Ricardo Silva, and RB Prudêncio. 2015. I/S-Race: An iterative multi-objective racing algorithm for the SVM
+parameter selection problem. In22st European Symposium on Artificial Neural Networks, Computational Intelligence And
+Machine Learning, Bruges, April. 23–24.
+Mistral AI Team. 2025. Mistral Small 3.1: Mistral AI. https://mistral.ai/news/mistral-small-3-1. Accessed: 2026-02-19.
+Rithesh Murthy, Ming Zhu, Liangwei Yang, Jielin Qiu, Juntao Tan, Shelby Heinecke, Caiming Xiong, Silvio Savarese,
+and Huan Wang. 2025. Promptomatix: An Automatic Prompt Optimization Framework for Large Language Models.
+arXiv:2507.14241 [cs.CL](2025).
+OpenAI. 2025. gpt-oss-120b & gpt-oss-20b Model Card.arXiv:2508.10925 [cs.CL](2025).
+Krista Opsahl-Ong, Michael J Ryan, Josh Purtell, David Broman, Christopher Potts, Matei Zaharia, and Omar Khattab.
+2024. Optimizing Instructions and Demonstrations for Multi-Stage Language Model Programs. InProceedings of the
+2024 Conference on Empirical Methods in Natural Language Processing (EMNLP), Yaser Al-Onaizan, Mohit Bansal, and
+Yun-Nung Chen (Eds.). Association for Computational Linguistics, 9340–9366.
+Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal,
+Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell,
+Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. 2022. Training language models to follow instructions with
+human feedback. InProceedings of the 35th International Conference on Advances in Neural Information Processing Systems
+(NeurIPS’22), S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh (Eds.). Curran Associates, 27730–27744.
+Bo Pang and Lillian Lee. 2004. A Sentimental Education: Sentiment Analysis Using Subjectivity Summarization Based on
+Minimum Cuts. InProceedings of the 42nd Annual Meeting of the Association for Computational Linguistics (ACL-04).
+271–278.
+Laurent Parmentier, Olivier Nicol, Laetitia Jourdan, and Marie-Eleonore Kessaci. 2019. TPOT-SH: A Faster Optimization
+Algorithm to Solve the AutoML Problem on Large Datasets. InProceedings of the 31st IEEE International Conference on
+Tools with Artificial Intelligence (ICTAI’19). IEEE Computer Society, IEEE, 471–478.
+Reid Pryzant, Dan Iter, Jerry Li, Yin Lee, Chenguang Zhu, and Michael Zeng. 2023. Automatic Prompt Optimization with
+“Gradient Descent” and Beam Search. InProceedings of the 2023 Conference on Empirical Methods in Natural Language
+Processing (EMNLP), Houda Bouamor, Juan Pino, and Kalika Bali (Eds.). Association for Computational Linguistics,
+7957–7968.
+Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. 2019. Language Models are
+Unsupervised Multitask Learners.OpenAI blog1, 8 (2019), 9.
+Jeroen G. Rook, Carolin Benjamins, Jakob Bossek, Heike Trautmann, Holger H. Hoos, and Marius Lindauer. 2025. MO-
+SMAC: Multi-objective Sequential Model-based Algorithm Configuration.Evolutionary Computation34, 1 (2025), 29–52.
+Publisher: MIT Press.
+Zunaira Shafqat, Atif Aftab Ahmed Jilani, Nigar Azhar Butt, Shafiq Ur Rehman, Muhammad Usman Khalid, and Volker
+Gruhn. 2025. FairPrompt: Efficient Multi-Objective Prompt Optimization for Fairness Testing in Conversational AI
+Systems.IEEE Access13 (2025), 177615–177630.
+Ankita Sinha, Wendi Cui, Kamalika Das, and Jiaxin Zhang. 2024. Survival of the Safest: Towards Secure Prompt Optimization
+through Interleaved Multi-Objective Evolution. InProceedings of the 2024 Conference on Empirical Methods in Natural
+Language Processing: Industry Track, Franck Dernoncourt, Daniel Preoţiuc-Pietro, and Anastasia Shimorina (Eds.).
+Association for Computational Linguistics, Miami, Florida, US, 1016–1027.
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste Rozière,
+Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Armand Joulin, Edouard Grave, and Guillaume Lample.
+2023. LLaMA: Open and Efficient Foundation Language Models.arXiv:2302.13971 [cs.CL](2023).
+Xingchen Wan, Ruoxi Sun, Hootan Nakhost, and Sercan Arik. 2024. Teach Better or Show Smarter? On Instructions and
+Exemplars in Automatic Prompt Optimization. InProceedings of the 37th International Conference on Advances in Neural
+Information Processing Systems (NeurIPS’24), A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and
+C. Zhang (Eds.). Curran Associates, 58174–58244.
+===== PAGE 23 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 23
+Shuhei Watanabe. 2023. Python Tool for Visualizing Variability of Pareto Fronts over Multiple Runs.arXiv:2305.08852 [cs.AI]
+(2023).
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and Denny Zhou. 2022.
+Chain-of-thought prompting elicits reasoning in large language models. InProceedings of the 35th International Conference
+on Advances in Neural Information Processing Systems (NeurIPS’22), S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave,
+K. Cho, and A. Oh (Eds.). Curran Associates, Article 1800, 14 pages.
+Zhaoxuan Wu, Xiaoqiang Lin, Zhongxiang Dai, Wenyang Hu, Yao Shu, See-Kiong Ng, Patrick Jaillet, and Bryan Low. 2024.
+Prompt Optimization with EASE? Efficient Ordering-aware Automated Selection of Exemplars. InProceedings of the 37th
+International Conference on Advances in Neural Information Processing Systems (NeurIPS’24), A. Globerson, L. Mackey,
+D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang (Eds.). Curran Associates, 122706–122740.
+An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang,
+Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai
+Dang, ..., and Zihan Qiu. 2025. Qwen2.5 Technical Report.arXiv:2412.15115 [cs.CL](2025).
+Chengrun Yang, Xuezhi Wang, Yifeng Lu, Hanxiao Liu, Quoc Le, Denny Zhou, and Xinyun Chen. 2024. Large Language
+Models as Optimizers. InThe Twelfth International Conference on Learning Representations (ICLR’24). ICLR. Published
+online: iclr.cc.
+Heng Yang and Ke Li. 2023. InstOptima: Evolutionary Multi-objective Instruction Optimization via Large Language Model-
+based Instruction Operators. InFindings of the Association for Computational Linguistics: EMNLP 2023. Association for
+Computational Linguistics, Singapore, 13593–13602.
+Li Yin and Zhangyang Wang. 2025. LLM-AutoDiff: Auto-Differentiate Any LLM Workflow.arXiv:2501.16673 [cs.CL](2025).
+Mert Yuksekgonul, Federico Bianchi, Joseph Boen, Sheng Liu, Pan Lu, Zhi Huang, Carlos Guestrin, and James Zou. 2025.
+Optimizing generative AI by backpropagating language model feedback.Nature639, 8055 (2025), 609––616.
+Tom Zehle, Timo Heiß, Moritz Schlager, Matthias Aßenmacher, and Matthias Feurer. 2025a. promptolution: A Unified,
+Modular Framework for Prompt Optimization.arXiv:2512.02840 [cs.CL](2025).
+Tom Zehle, Moritz Schlager, Timo Heiß, and Matthias Feurer. 2025b. CAPO: Cost-Aware Prompt Optimization. InProceedings
+of the Fourth International Conference on Automated Machine Learning (Proceedings of Machine Learning Research, Vol. 293),
+Leman Akoglu, Carola Doerr, Jan N. van Rijn, Roman Garnett, and Jacob R. Gardner (Eds.). PMLR, 18/1–45.
+Tiantian Zhang, Michael Georgiopoulos, and Georgios Anagnostopoulos. 2013. S-Race: a multi-objective racing algorithm.
+InProceedings of the Genetic and Evolutionary Computation Conference (GECCO’13), C. Blum and E. Alba (Eds.). ACM
+Press, 1565–1572.
+Tiantian Zhang, Michael Georgiopoulos, and Georgios Anagnostopoulos. 2015a. SPRINT Multi-Objective Model Racing.
+InProceedings of the 2015 Annual Conference on Genetic and Evolutionary Computation. Association for Computing
+Machinery, 1383–1390.
+Xiang Zhang, Junbo Zhao, and Yann LeCun. 2015b. Character-level Convolutional Networks for Text Classification. In
+Proceedings of the 28th International Conference on Advances in Neural Information Processing Systems (NeurIPS’15),
+C. Cortes, N. Lawrence, D. Lee, M. Sugiyama, and R. Garnett (Eds.). Curran Associates.
+Guang Zhao, Byung-Jun Yoon, Gilchan Park, Shantenu Jha, Shinjae Yoo, and Xiaoning Qian. 2025. Pareto Prompt Optimiza-
+tion. InInternational Conference on Learning Representations.
+Zihao Zhao, Eric Wallace, Shi Feng, Dan Klein, and Sameer Singh. 2021. Calibrate Before Use: Improving Few-shot
+Performance of Language Models. InProceedings of the 38th International Conference on Machine Learning (ICML’21)
+(Proceedings of Machine Learning Research, Vol. 139), M. Meila and T. Zhang (Eds.). PMLR, 12697–12706.
+Y. Zhou, A. Ioan Muresanu, Z. Han, K. Paster, S. Pitis, H. Chan, and J. Ba. 2023. Large Language Models are Human-Level
+Prompt Engineers. InThe Eleventh International Conference on Learning Representations (ICLR’23). ICLR. Published
+online: iclr.cc.
+Eckart Zitzler, Marco Laumanns, and Lothar Thiele. 2001. SPEA2: Improving the strength Pareto evolutionary algorithm.
+TIK report103 (2001).
+E. Zitzler, L. Thiele, M. Laumanns, C.M. Fonseca, and V.G. Da Fonseca. 2003. Performance assessment of multiobjective
+optimizers: an analysis and review.IEEE Transactions on Evolutionary Computation7, 2 (2003), 117–132.
+===== PAGE 24 =====
+24 Büssing et al.
+A Appendix
+A.1 Additional Background on Multi-Objective-Metrics
+A.1.1 Hypervolume Indicator.To assess approximation quality without requiring the true front,
+the Hypervolume (HV) Indicator is commonly used [Zitzler et al. 2003]. For approximation ˆPpar
+and reference point𝑟∈R 𝑚:
+HV𝑟( ˆPpar):=vol 𝑚
+©­­
+«
+Ø
+𝑝∈ ˆPpar
+domHC𝑟(𝑝)
+ª®®
+¬
+,(6)
+where domHC𝑟(𝑝) :={𝑢∈R 𝑚|𝑓 𝑗(𝑝)≤𝑢 𝑗≤𝑟 𝑗∀𝑗∈{ 1,...,𝑚}} and𝑟 dominates all ˆPpar points.
+HV is strictly Pareto-compliant, meaning that any Pareto improvement strictly increases the HV,
+and promotes convergence and diversity [Karl et al. 2023].
+A.1.2 Non-dominated Sorting.Non-Dominated Sorting (NDS) partitions a set of candidate solutions
+into successive fronts according to Pareto dominance [Deb et al. 2002]. Given a set of solutions𝑃,
+the first front𝐹1 consists of all non-dominated solutions in𝑃. After removing𝐹1 from𝑃, the second
+front𝐹2 contains the non-dominated solutions among the remaining candidates, and the process is
+repeated until all solutions are assigned to a front. A solution𝑝1 is dominating another solution𝑝2
+(denoted𝑝 1≺𝑝 2) iff:
+𝑓𝑗(𝑝1)≤𝑓 𝑗(𝑝2) ∀𝑗∈{1,...,𝑚}and∃𝑗:𝑓 𝑗(𝑝1)<𝑓 𝑗(𝑝2).(7)
+A.1.3 Crowding Distance.Since NDS does not provide a strict ordering within fronts, Crowding
+Distance (CD) is commonly applied to break potential ties inside fronts and to promote diversity [Deb
+et al. 2002]. The crowding distance of a solution𝑖is computed as
+CD𝑖 =
+𝑚∑︁
+𝑗=1
+𝑓𝑗(𝑝+)−𝑓 𝑗(𝑝−)
+𝑓 max
+𝑗 −𝑓 min
+𝑗
+,(8)
+where𝑝+ and𝑝− denote the neighboring solutions of 𝑝 in the sorted order for objective 𝑗. For
+a set of solutions within the same non-dominated front, the crowding distance of each solution
+is computed as the sum of normalized objective-wise distances to adjacent solutions. Solutions
+located in less crowded regions obtain larger crowding distances. During selection, candidates with
+higher CD are preferred, encouraging a well-distributed approximation of the Pareto front.
+A.2 Algorithm Details
+A.2.1 NSGA-II-PO Algorithm Details.The full pseudo-code for our NSGA-II-PO baseline algorithm
+is given in Algorithm 3. Initialization viainitialize_pop(see Algorithm 4) with the few-shot
+example generation is identical to CAPO. For few-shot creation, this means that the input of each
+sampled example is supplemented by reasoning as the corresponding output for the example,
+providing richer information than a label alone. To generate reasoning, the evaluation-LLM is
+prompted with the initial instruction to solve the example input. The LLM response typically
+contains both reasoning and prediction, which is used as output for the example. In case the LLM
+fails to produce a correct prediction, the true label𝑦is used as example output instead.
+Furthermore, the evolutionary operatorscrossoverandmutate(see Algorithm 5) are adapted
+from Zehle et al. [2025b]. To accommodate binary tournament selection, the crossover operation is
+slightly modified to take the objective vectors inF𝜇 of the candidates as additional input. Binary
+tournament selection can be imagined as a simplified form of Algorithm 6, where Pinc =∅
+and all candidates have the same (full) evaluation level. Then, the selection criterion in each
+===== PAGE 25 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 25
+tournament reduces to the standard NSGA-II criteria: best front rank with largest CD as a tie-
+breaker. Theevaluate-function simply returns the objective vectors of all provided candidates
+on given instances. In case of NSGA-II-PO, all instances from the development setDdev are used.
+The functionenvironmental_selectioncan be imagined as a simplified form of Algorithm 8,
+whereP inc =∅and all candidates have the same (full) evaluation level. Thus, the process reduces
+to selection based on front rank with CD as a tie-breaker.
+Algorithm 3NSGA-II-PO: Multi-Objective Prompt Optimization with NSGA-II
+Require: datasetsDdev &Dshots, meta-LLM Φmeta, evaluation-LLM Φeval, initial instructionsI0 ={𝑖 1,...,𝑖 𝜇},
+population size𝜇, no. iterations𝑇 , no. crossovers per iteration𝑐, max. no. few-shots𝑘max, input &
+output token-weights𝑤 in &𝑤 out, crossover-meta-prompt𝑝𝐶, mutation-meta-prompt𝑝 𝑀
+1:P 𝜇←initialize_pop(I 0,D shots,𝑘 max,Φ eval)
+2:F 𝜇←evaluate(P𝜇,D dev,Φ eval,𝑤 in,𝑤 out)
+3: for𝑡=1to𝑇do
+4: Poff←crossover(P 𝜇,F𝜇,Φ meta,𝑝𝐶,𝑐)
+5: Poff←mutate(P off,Φ meta,Φ eval,𝑝𝑀,D shots,𝑘 max)
+6: F𝜇←evaluate(P off,D dev,Φ eval,𝑤 in,𝑤 out)
+7: P𝜇←environmental_selection(P 𝜇∪P off,F𝜇,𝜇)
+8:returnP 𝜇
+A.2.2MO-CAPOAlgorithm Details.
+Boundary Cases.For readability and conciseness when introducing the MO-CAPO algorithm, we
+omitted the handling of boundary cases during the optimization process in §4. For completeness’
+sake, we include them here:
+Parent selection: When both tournaments yield the same winner, new tournaments are started
+until a second distinct parent is yielded.
+Intensification: In the rare case that a challenger already exists in Pinc, its intensification is
+skipped to avoid duplicates. If it exists inP𝜇 but not inPinc, it is reactivated and intensified
+again, starting from its cached evaluations inH.
+Function Specifications.Below, we provide detailed pseudo-code for the functions of the MO-CAPO
+algorithm. For further descriptions, see §A.2.1.
+Algorithm 4MO-CAPO&NSGA-II-PO: Initialization (from Zehle et al. [2025b])
+1: functioninitialize_pop(I 0,D shots,𝑘 max,Φ eval)
+2: for𝑖∈I 0 do
+3: 𝑘∼Unif({0,...,𝑘 max})⊲Sample number of few-shots
+4: 𝒆←create_shots(D shots,𝑘,𝑖,Φ eval)⊲Create few-shots (cf. Zehle et al. [2025b])
+5: 𝑝←(𝑖,𝒆)
+6: P𝜇←append(𝑝,P 𝜇)
+7: returnP𝜇
+===== PAGE 26 =====
+26 Büssing et al.
+Algorithm 5 MO-CAPO & NSGA-II-PO: Evolutionary Operators (adapted from Zehle et al. [2025b])
+1: functioncrossover(P𝜇,H,Φ meta,𝑝𝐶,𝑐)
+2: Poff←[]
+3: for𝑗=1to𝑐do
+4: 𝑝𝑎,𝑝𝑏←tournament_selection(P 𝜇,H)⊲𝑝 𝑎 =(𝑖 𝑎,𝒆 𝒂),𝑝 𝑏 =(𝑖 𝑏,𝒆 𝒃)
+5: 𝑖off←Φ meta(𝑝𝐶||𝑖𝑎||𝑖𝑏)⊲Let meta-LLM cross the parent instructions
+6: 𝒆off←sample(𝒆 𝒂∪𝒆 𝒃,
+j|𝒆 𝒂|+|𝒆 𝒃|
+2
+k
+)⊲Sample offspring shots from parents’ shots
+7: 𝑝off←(𝑖 off,𝒆 off)
+8: Poff←append(𝑝 off,P off)
+9: returnP off
+10: functionmutate(P off,Φ meta,Φ eval,𝑝𝑀,D shots,𝑘 max)
+11: Pmut←[]
+12: for𝑝 off∈P off do
+13: 𝑖mut←Φ meta(𝑝𝑀∥𝑖 off)⊲Let meta-LLM mutate the instruction
+14: 𝑟∼Unif({0,1,2})⊲Select randomly one of three cases
+15: if𝑟=0∧ |𝒆 off|<𝑘 max then⊲Case 1: Create a new few-shot example
+16: 𝒆new←𝒆 off∪create_shots(D shots,1,𝑖 mut,Φ eval)
+17: else if𝑟=1∧ |𝒆 off|>0then⊲Case 2: Remove a few-shot example
+18: 𝒆new←sample(𝒆 off,|𝒆 off|−1)
+⊲Case 3: Keep no. few-shot examples unchanged
+19: 𝑝mut←  𝑖mut,shuffle(𝒆 new) ⊲In each case: shuffle example order
+20: Pmut←append(𝑝 mut,P mut)
+21: returnP mut
+Algorithm 6MO-CAPO: Tournament Selection
+1: functiontournament_selection(P𝜇,P inc,H)
+2: for𝑖∈{𝑎,𝑏}do
+3: 𝑝1,𝑝 2←sample(P 𝜇,2)
+4: if(𝑝 1∈P inc) xor (𝑝2∈P inc)then⊲Case (1): only one prompt is incumbent
+5: 𝑝𝑖←{𝑝 1,𝑝 2}∩P inc ⊲Incumbent is selected
+6: else if𝑝 1,𝑝 2∈P inc then⊲Case (2): both prompts are incumbents
+7: 𝑝𝑖←arg max𝑝∈{𝑝 1,𝑝2} cd(𝑝)⊲Select prompt with larger CD
+8: else
+9: B1,B 2←get_evaluated_blocks(𝑝 1,H),get_evaluated_blocks(𝑝 2,H)
+10: ifB 1 =B 2 then⊲Case (3): non-incumbents with same evaluation level
+11: 𝑝𝑖←get_best_by_nds_cd({𝑝 1,𝑝 2},H)⊲Select by better front rank / larger CD
+12: else ifB 1⊂B 2∧𝑓(𝑝 2;B 1)≺𝑓(𝑝 1;B 1)then⊲Case (4): weaker dominance
+13: 𝑝𝑖←𝑝 2
+14: else ifB 2⊂B 1∧𝑓(𝑝 1;B 2)≺𝑓(𝑝 2;B 2)then⊲Case (4): weaker dominance
+15: 𝑝𝑖←𝑝 1
+16: else⊲Case (5): random selection
+17: 𝑝𝑖←Sample(𝑝 1,𝑝 2)
+18: return𝑝𝑎,𝑝𝑏
+===== PAGE 27 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 27
+Algorithm 7MO-CAPO: Advance Incumbents
+1: functionadvance_incumbents(P inc,B,H,Φ eval,𝑤 in,𝑤 out)
+2: 𝑝inc←arg min𝑝∈P inc|get_evaluated_blocks(𝑝,H)| ⊲Least evaluated incumbent
+3: Bmin←get_evaluated_blocks(𝑝 inc,H)
+4: if(∀𝑝 𝑖∈P inc :get_evaluated_blocks(𝑝𝑖,H)=B min)then⊲Incumbents share same block sets
+5: Brest←B\B min ⊲Expand: select previously unseen blocks
+6: else⊲𝑝 inc lags behind
+7: Brest← Ð
+𝑝∈P inc get_evaluated_blocks(𝑝,H)\B min ⊲Catch up: select missing blocks
+8: ifB rest ≠∅then
+9: 𝐵←sample(B rest)⊲Sample block from selection
+10: H←evaluate(𝑝 inc,𝐵,Φ eval,𝑤 in,𝑤 out)⊲Advance𝑝 inc on this block
+11: returnH
+Algorithm 8MO-CAPO: Environmental Selection
+1: functionenvironmental_selection(P𝜇,P inc,H,𝜇)
+2: while|P 𝜇|>𝜇do⊲As long as population size is too large
+3: if|P inc|<|P 𝜇|then⊲If non-incumbents exist
+⊲Case 1: all non-incumbents have equal evaluation levels
+4: if∃B sub⊆B:∀𝑝∈P 𝜇\P inc,get_evaluated_blocks(𝑝,H)=B sub then
+5: 𝑝worst←get_worst_by_nds_cd(P 𝜇\P inc,H)⊲Remove by front rank/CD
+6: else⊲Case 2: non-incumbents have heterogeneous evaluation levels
+7: 𝑝worst←sample(arg min 𝑝∈P 𝜇\Pinc get_evaluated_blocks(𝑝,H))⊲Eliminate randomly
+8: else⊲If all remaining candidates are incumbents
+9: 𝑝worst←get_worst_by_cd(P inc,H)⊲Eliminate by lowest CD
+10: Pinc←P inc\{𝑝 worst}
+11: P𝜇←P 𝜇\{𝑝 worst}
+12: returnP𝜇,P inc
+A.3 Experiment Details
+A.3.1 Model Details.We report detailed IDs and revisions of the utilized LLMs from HuggingFace
+in Table 6. To locally host the LLMs, we use vLLM 0.13.0 [Kwon et al. 2023] as a fast and easy-to-use
+library for LLM inference and serving since it efficiently manages the required memory and allows
+the usage of quantized models. Note that we restrict the maximum output length to 3000, which is
+long enough for almost all generations while still allowing for reasonably large batch sizes. The
+optimal batch size is chosen by vLLM depending on available memory.
+Table 6. Overview of the utilized LLMs.
+Model Huggingface ID Revision
+Mistral-3.2-24Bmistralai/Mistral-Small-3.2-24B-Instruct-2506 95a6d26c4bfb886c58daf9d3f7332c857cb27b43
+Qwen3-30BQwen/Qwen3-30B-A3B-Instruct-2507 0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe
+GPT-OSS-120Bopenai/gpt-oss-120b b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+A.3.2 Dataset Details.In our experiments, we utilize four datasets, all retrieved from HuggingFace:
+(1) AG News [Zhang et al. 2015b]: topic classification dataset with titles and descriptions of
+news articles that are to be assigned to eitherWorld, Sports, BusinessorSci/Tech. The input
+𝑥 is taken from the column “text”, the labels𝑦 from the column “label_text”. Performance is
+evaluated using accuracy.
+===== PAGE 28 =====
+28 Büssing et al.
+(2) Subj [Pang and Lee 2004]: subjectivity classification dataset with movie reviews that are to
+be classified as eithersubjectiveorobjective. The input 𝑥 is taken from the column “text”,
+the labels𝑦from the column “label_text”. Performance is evaluated using accuracy.
+(3) GSM8K [Cobbe et al. 2021]: grade school math word problems requiring multi-step reasoning.
+We utilize the train and test split of the “main” subset, from which the column “question”
+is used as input 𝑥, the label𝑦 is extracted from the “answer” after ####. Performance is
+evaluated using accuracy of exactly correct solutions.
+(4) MBPP [Austin et al. 2021]: crowd-sourced Python programming problems, designed to be
+solvable by entry-level programmers, covering programming fundamentals and standard
+library functionality. Each problem consists of a “task description” used as input𝑥, a code
+solution used as label𝑦, and 3 automated test cases. Performance is measured by a reward
+function that runs the test cases associated with each instance in MBPP on the generated
+code and returns the fraction of passed tests. Note that this reward function does not require
+a label𝑦, which is only used for few-shot example creation.
+We provide detailed IDs and revisions of the utilized datasets in Table 7. ForDshots andDdev, 400
+instances are sampled from the train split without replacement. The first 300 points are used for
+Ddev, the remaining 100 forDshots. ForDtest, 500 instances are sampled from the test split without
+replacement. These sampling procedures are seeded using the random seed of the corresponding
+experiment run.
+Table 7. Overview of the utilized HuggingFace datasets.
+Dataset Huggingface ID Revisionn train ntest #classes
+AG News SetFit/ag_news ca5ba619eb034211db5-f70932b6702efd21e7c73 120k 7.6k 4
+SubjSetFit/subj f3c1162e678417f664d-76b21864fdb87b0615fcf 8.0k 2.0k 2
+GSM8Kopenai/gsm8k e53f048856ff4f594e95-9d75785d2c2d37b678ee 7.5k 1.3k -
+MBPPgoogle-research-datasets/mbpp 4bb6404fdc6cacfda99d4ac4205087b89d32030c 474 500 -
+A.3.3 Hardware Details.All computations are performed on a GPU cluster. For each experiment
+configuration, only a single GPU with at least 40GB of RAM (NVIDIA A100 or NVIDIA H100) is
+used to host the corresponding LLM. Experiments are distributed across multiple instances for
+parallel execution.
+A.3.4 Implementation Details.
+Answer Extraction.To reliably extract information from LLM output in our experiments, we
+utilize marker-based extraction. Concretely, we parse the information in html-style tags: off-
+spring/mutated prompts are extracted between <prompt></prompt> markers and predictions
+between <final_answer></final_answer> markers in the LLM output. This information is also
+included in the initial instructions and task descriptions.
+Optimizer Parametrization.For our experiments, we use the following default hyperparameters:
+We parametrize our MO-CAPO algorithm with𝑐= 4,𝑘max = 5and 𝑏= 30. By passing10sampled
+initial prompts in the beginning, we fix 𝜇= 10. For NSGA-II-PO we use the same𝑐,𝜇, and𝑘max,
+while the blocksize𝑏 is not required. The model-specific input- and output token weights used in
+the cost objective ofMO-CAPOandNSGA-II-POare those from Tab. 1.
+For CAPO [Zehle et al. 2025b], we use the same𝑐,𝜇,𝑘max, and𝑏. Additionally, we set𝛼= 0.2
+and𝑧max = 10(i.e., 𝑏·𝑧 max =|D dev|), and𝛾= 0.05(a prompt with the same length as the longest
+initial prompt (instruction + examples) is penalized by 5%p) as in the original paper.
+===== PAGE 29 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 29
+For EvoPromptGA [Guo et al. 2024], we also use the same𝜇, following the recommendations of
+the original paper. For GEPA [Agrawal et al. 2025], we use the original parametrization and provide
+one randomly sampled instruction from our pool. For all optimizers, an iteration limit of 2000 steps
+prevents excessively long runs when algorithm convergence prevents budget exhaustion.
+Optimizer Implementation.For CAPO and EvoPromptGA, we use (re-)implementations that
+are available in the public prompt optimization library promptolution [Zehle et al. 2025a]. For
+GEPA, we wrap their original implementation13 with small adaptations to ensure we can stop the
+optimization loop within our budget constraints.
+Budget Computation.We compute the input token budget usage by applying each LLM’s respec-
+tive tokenizer and counting the resulting number of tokens. Similarly, the input and output costs
+are computed based on the number of tokens produced by the respective tokenizer.
+A.4 Input Specifications and Templates
+A.4.1 Task Descriptions.
+Table 8. Manually created task descriptions used for CAPO,MO-CAPOandNSGA-II-PO
+AG News:
+The dataset contains news articles categorized into four classes: World, Sports, Business, and Sci/Tech. The task
+is to classify each news article into one of the four categories. The class will be extracted between the markers
+<final_answer>answer</final_answer>.
+Subj:
+The dataset contains sentences labeled as either subjective or objective. The task is to classify each sentence as either
+subjective or objective. The class will be extracted between the markers<final_answer>answer</final_answer>.
+GSM8K:
+The dataset consists of grade school math word problems that require multi-step reasoning to solve. The task is to
+solve each word problem and provide the final answer. The final solution will be extracted between the markers
+<final_answer>answer</final_answer>.
+MBPP:
+The dataset consists of Python programming problems described in natural language. The task is to generate a
+Python function that correctly solves the given problem. The solution code will be extracted between the markers
+<final_answer>code</final_answer>.
+A.4.2 Initial Instructions.Since all employed optimizers require initial instructions to start from,
+we create a set of 15 initial instructions for each task. To demonstrate that this requirement of initial
+instructions is not a major limiting factor of the algorithms, we produce them in an automated
+manner, prompting Anthropic’s Claude Sonnet (https://claude.ai/) to create a diverse set of initial
+instructions, making use of our task descriptions in Appendix A.4.1. The full prompt template is
+provided in Table 9.
+A.4.3 Meta-Prompt Templates.
+13https://github.com/gepa-ai/gepa (accessed: 2026-02-19)
+===== PAGE 30 =====
+30 Büssing et al.
+Table 9. Prompt used to generate initial instructions with Anthropic’s Claude Sonnet. The <task_description>
+placeholder is replaced with our task description.
+Please create diverse prompts for the following task. They should be linguistically diverse (but always in English) and have
+varying lengths and complexities. This means some consist only of a short sentence with a rather high-level description
+while others elaborate on the task in little more detail.
+Task:<task_description>
+Explicitly state this expected format as part of the prompts. Create overall 15 prompts within quotes as an array:
+Table 10. List of all meta-prompt templates used in CAPO,MO-CAPOandNSGA-II-PO.
+CAPO cross-over meta-prompt template:
+You receive two prompts for the following task:<task_description>
+Please merge the two prompts into a single coherent prompt. Maintain the key linguistic features from both original
+prompts:
+Prompt 1:<mother>
+Prompt 2:<father>
+Return the new prompt in the following format:
+<prompt>new prompt</prompt>.
+CAPO mutation meta-prompt template:
+You receive a prompt for the following task:<task_description>
+Please rephrase the prompt, preserving its core meaning while substantially varying the linguistic style.
+Prompt:<instruction>
+Return the new prompt in the following format:
+<prompt>new prompt</prompt>
+A.5 Token Costs
+To parameterize the input- and output costs of our utilized models we average the according prices
+from different vendors, when using the models via an API interface. All prices are taken from
+OpenRouter.14
+Table 11. Mistral-3.2-24B pricing per million tokens across vendors on OpenRouter (as of January 19, 2026).
+Prices in USD.
+Vendor Input Token Price Output Token Price
+Chutes $0.06 $0.18
+DeepInfra $0.075 $0.20
+Parasail $0.09 $0.60
+Mistral $0.10 $0.30
+Average $0.08 $0.32
+14https://openrouter.ai/ (accessed: 2026-01-19, 2026-03-01)
+===== PAGE 31 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 31
+Table 12. Qwen3-30B pricing per million tokens across vendors on OpenRouter (as of January 19, 2026). Prices
+in USD.
+Vendor Input Token Price Output Token Price
+Chutes $0.08 $0.33
+AtlasCloud $0.09 $0.30
+SiliconFlow $0.09 $0.30
+Nebius Token Factory $0.10 $0.30
+Alibaba Cloud Int. $0.20 $0.80
+Average $0.11 $0.41
+Table 13. GPT-OSS-120B pricing per million tokens across vendors on OpenRouter (as of January 19, 2026).
+Prices in USD.
+Vendor Input Token Price Output Token Price
+DeepInfra $0.039 $0.19
+Chutes $0.04 $0.18
+GMICloud $0.05 $0.25
+NovitaAI $0.05 $0.25
+nCompass $0.05 $0.28
+SiliconFlow $0.05 $0.45
+Google Vertex $0.09 $0.36
+Clarifai $0.09 $0.36
+AtlasCloud $0.10 $0.20
+Phala $0.10 $0.49
+Baseten $0.10 $0.50
+Parasail $0.12 $0.75
+SambaNova $0.14 $0.95
+Fireworks $0.15 $0.60
+Amazon Bedrock $0.15 $0.60
+Together $0.15 $0.60
+Nebius Token Factory $0.15 $0.60
+Weights & Biases $0.15 $0.60
+Groq $0.15 $0.60
+Crusoe $0.15 $0.60
+DeepInfra (Turbo) $0.15 $0.60
+Cerebras $0.35 $0.75
+Average $0.12 $0.49
+Table 14. Claude Opus 4.6 pricing per million tokens across vendors on OpenRouter (as of March 1, 2026).
+Prices in USD.
+Vendor Input Token Price Output Token Price
+Amazon Bedrock $2.42 $25.47
+Google $2.85 $25.21
+Anthropic $2.88 $25.62
+Average $2.72 $25.43
+===== PAGE 32 =====
+32 Büssing et al.
+Table 15. GPT-5.2 Pro pricing per million tokens across vendors on OpenRouter (as of March 1, 2026). Prices
+in USD.
+Vendor Input Token Price Output Token Price
+OpenAI $21.00 $168.00
+Average $21.00 $168.00
+A.6 Further Ablation Studies
+With the ablation configuration 𝑤in = 0,𝑤 out = 0, MO-CAPO effectively reduces to a single-
+objective optimizer. Table 16 compares its performance to other single-objective prompt optimizers.
+This setting provides a direct comparison between the intensification procedure used in MO-CAPO
+and the racing mechanism employed by CAPO. As shown in the table, both approaches achieve
+very similar overall performance, outperforming the other optimizers and the initial instructions.
+Table 16. Accuracy achieved by all single-objective optimizers at a budget of 7.5M tokens (bold = best accuracy
+per dataset). The best prompt is selected based on development performance and evaluated on the test set.
+All experiments use Qwen3-30B.
+GSM8K Subj
+Initial0.540 ±.022 0.754±.044
+GEPA0.659 ±.024 0.775±.078
+EvoPromptGA0.537 ±.010 0.783±.019
+CAPO0.665 ±.025 0.909±.033
+MO-CAPO(𝑤 in =0,𝑤 out =0)0.667 ±.020 0.905±.012
+Another minor design choice in MO-CAPO is the parent selection via binary tournament with a
+weaker dominance criterion compared to CAPO’s random selection. We ablate the parent selection
+mechanism by comparing MO-CAPO’s tournament-based strategy against a variant without tourna-
+ment selection (random selection instead) and a variant without the weaker dominance criterion
+in the tournament. These ablations are conducted on GSM8K and Subj wih Qwen3-30B and a
+budget of 7.5M tokens. The results in table 17 do not show any substantial performance differences
+compared to MO-CAPO. On GSM8K, all variants achieve nearly identical nR2 values (0.338–0.340)
+and very similar HV scores. On Subj, differences are likewise minor: while the variant without
+weaker dominance attains slightly higher optimistic and pessimistic HV, the default configuration
+achieves the smallest approximation gap and comparable nR2.
+Table 17. Ablation study results for MO-CAPO on Qwen3-30B at 7.5M token budget. nR2 (lower is better).
+HV𝑜𝑝𝑡 (optimistic) and HV𝑝𝑒𝑠 (pessimistic) measure Pareto front quality (higher is better). Gap measures HV
+uncertainty (lower is better). Bold indicates the best value per metric and dataset.
+GSM8K Subj
+Parametrization nR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓nR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓
+MO-CAPO(default)0.340±.006 0.410±.018 0.406±.021 0.004±.004 0.106±.005 0.930±.015 0.925±.022 0.005±.006
+w/o tournament0.338±.005 0.409±.011 0.408±.014 0.002±.003 0.112±.020 0.922±.063 0.914±.051 0.009±.014
+w/o weaker dom.0.339±.004 0.409±.011 0.407±.007 0.002±.004 0.106±.015 0.954±.058 0.939±.060 0.016±.026
+===== PAGE 33 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 33
+A.7 Hyperparameter Analysis
+We investigate the sensitivity of the hyperparameters inMO-CAPO on GSM8K and Subj with Qwen3-
+30B and a budget of 7.5M tokens. Results are reported in Table 18.
+Reducing the block size from the default𝑏=30to 𝑏=15yields a marginal improvement in nR2 and
+a smaller approximation gap on GSM8K, while slightly degrading performance on Subj. However,
+all differences are within one standard deviation, indicating no meaningful impact.
+Varying the population size around the default𝜇=10shows a weak positive trend with larger
+populations. Increasing to𝜇=12produces the best mean results on GSM8K across all metrics and
+modest gains on Subj, whereas𝜇=8slightly underperforms. The improvements are small, suggesting
+limited sensitivity within this range. One might expect MOO to require a larger population size
+than single-objective optimization to explore the increased number of objectives. However, we are
+not aware of any studies on this, leaving studies of even larger population sizes for future work.
+Increasing the cross-over rate from𝑐=4to 𝑐=10has a negligible effect on GSM8K but yields small
+improvements on Subj in nR2 and HV metrics, at the cost of a slightly larger gap.
+Overall, the method appears robust to moderate variations in hyperparameters. No single change
+consistently improves performance across both datasets, and most differences are small relative to
+the observed variability, supporting the adequacy of the default configuration.
+Table 18. Hyperparameter analysis for MO-CAPO on GSM8K and Subj using Qwen3-30B with a 7.5M token
+budget. All other hyperparameters are kept default. We report nR2 (lower is better), HV𝑜𝑝𝑡 , HV𝑝𝑒𝑠 (higher is
+better), and the gap between those values (lower is better). Bold indicates best value within each subgroup.
+GSM8K Subj
+Parametrization nR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓nR2↓HV 𝑜𝑝𝑡↑HV 𝑝𝑒𝑠↑Gap↓
+𝑏=150.337 ±.003 0.403±.016 0.401±.017 0.002±.003 0.126±.022 0.882±.055 0.878±.051 0.003±.006
+𝑏=30 (default)0.340 ±.006 0.410±.018 0.406±.021 0.004±.004 0.106±.005 0.930±.015 0.925±.022 0.005±.006
+𝜇=80.342 ±.008 0.403±.012 0.401±.007 0.003±.005 0.116±.013 0.911±.031 0.900±.032 0.010±.012
+𝜇=10 (default)0.340 ±.006 0.410±.018 0.406±.021 0.004±.004 0.106±.005 0.930±.015 0.925±.022 0.005±.006
+𝜇=120.335 ±.007 0.413±.002 0.413±.002 0.000±.000 0.105±.022 0.946±.070 0.934±.063 0.012±.019
+𝑐=4 (default)0.340 ±.006 0.410±.018 0.406±.021 0.004±.004 0.106±.005 0.930±.015 0.925±.022 0.005±.006
+𝑐=100.341 ±.005 0.408±.009 0.407±.008 0.001±.001 0.091±.014 0.986±.051 0.976±.050 0.010±.006
+===== PAGE 34 =====
+34 Büssing et al.
+A.8 Prompt Examples
+Table 19. Prompt examples from the Pareto front obtained with MO-CAPO on the Subj dataset using Mistral-
+3.2-24B, together with the best single-objective prompt produced by CAPO. Each entry reports the instruction
+and the first few-shot example of the corresponding prompt (if existent), along with its test accuracy and
+inference cost. The Pareto front is shown in Fig. 1, and the labeled solutions correspond to the prompts listed
+below.
+Best PerformanceTest Acc: 89.0% Input Costs: 22.69 Output Costs: 3.93
+Instruction:
+For each sentence provided, determine whether it conveys verifiable information (objective) or reflects
+personal feelings, beliefs, or interpretations (subjective). Respond with only the appropriate label—‘subjective‘
+or ‘objective‘—enclosed within<final_answer>and</final_answer>tags.
+Few-Shot Example 1:
+Input: however to keep the image of him as a sex guru going he has to get more lessons from sharonna
+whom he begins to fall for despite using her .
+Output:<final_answer>objective</final_answer>
++2 more examples
+BalancedTest Acc: 76.2% Input Costs: 10.37 Output Costs: 3.98
+Instruction:
+Classify the given sentence as either subjective or objective. Provide your response as solely the word
+‘subjective‘ or ‘objective‘, enclosed within<final_answer>and</final_answer>tags.
+Few-Shot Example 1:
+Input: the kind of film that grows on you upon reflection
+Output:<final_answer>subjective</final_answer>
+Lowest CostTest Acc: 64.0% Input Costs: 5.31 Output Costs: 4.04
+Instruction:
+Determine if this sentence is subjective or objective and put your answer between<final_answer>tags.
+Best SO PromptTest Acc: 87.2% Input Costs: 27.43 Output Costs: 3.93
+Instruction:
+Draw upon your sensitivity to language subtleties to determine whether each provided sentence conveys
+verifiable, neutral information (objective) or reflects personal perspectives, feelings, evaluations, or subjective
+viewpoints (subjective). Does the sentence present facts or convey opinion? Respond with your classification
+enclosed within the tags:<final_answer>your_answer</final_answer>.
+Few-Shot Example 1:
+Input: the film serves as a valuable time capsule to remind us of the devastating horror suffered by an entire
+people .
+Output:<final_answer>subjective</final_answer>
++4 more examples
+===== PAGE 35 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 35
+Table 20. Prompt examples from the Pareto front obtained withMO-CAPO on MBPP using Qwen3-30B, showing
+the highest- and lowest-performing prompts identified during optimization. Each entry reports the instruction,
+a representative example, test accuracy, and input/output costs. The corresponding Pareto plot is shown in
+Fig. 4b.
+Highest PerformanceTest Acc: 37.9% Input Costs: 23.99 Output Costs: 22.64
+Instruction:
+Examine the natural language specification of a Python coding task. Your objective is to write a concise,
+correct, and efficient function that fully satisfies all stated conditions. Thoroughly analyze the require-
+ments, account for potential edge cases, and deliver a solution that is both high-performing and easy to
+understand. Ensure the function is standalone, relies solely on Python’s built-in features, and adheres to
+clean coding standards. Provide a compact, error-free implementation enclosed precisely between the tags
+<final_answer> and </final_answer>. Do not include any additional commentary—only the function
+code should appear within the markers.
+Few-Shot Example 1:
+Input: Write a function to multiply all the numbers in a list and divide with the length of the list.
+Expected function name ismultiply_num.
+Output:<final_answer>def multiply_num(numbers):
+total = 1
+for x in numbers:
+total *= x
+return total/len(numbers)</final_answer>
+Lowest PerformanceTest Acc: 35.3% Input Costs: 15.52 Output Costs: 37.13
+Instruction:
+Here is a natural language description of a Python coding challenge. Your objective is to write a function
+in Python that accurately fulfills the specified task. After developing your solution, enclose the full code
+within<final_answer>and</final_answer>tags to ensure proper extraction.
+Few-Shot Example 1:
+Input: Write a function to return true if the given number is even else return false.
+Expected function name iseven_num.
+Output:<final_answer>def even_num(x):
+if x%2==0:
+return True
+else:
+return False</final_answer>
+===== PAGE 36 =====
+36 Büssing et al.
+A.9 Further Results
+MO-CAPO NSGA-II-PO Initial Instructions
+0 2 4 6
+Token Budget [×10⁶]
+0.34
+0.35
+0.36
+0.37nR2 Indicator
+0 2 4 6
+Token Budget [×10⁶]
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30nR2 Indicator
+0 2 4 6
+Token Budget [×10⁶]
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40nR2 Indicator
+(a) Qwen-3-30B on GSM8K (b) GPT-OSS-120B on
+GSM8K
+(c) Mistral-3-24B on GSM8K
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.10
+0.15
+0.20
+0.25nR2 Indicator
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.08
+0.10
+0.12
+0.14
+0.16
+0.18
+0.20nR2 Indicator
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35nR2 Indicator
+(d) Qwen-3-30B on Subj (e) GPT-OSS-120B on Subj (f) Mistral-3-24B on Subj
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.14
+0.16
+0.18
+0.20
+0.22
+0.24
+0.26nR2 Indicator
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.04
+0.06
+0.08nR2 Indicator
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40nR2 Indicator
+(g) Qwen-3-30B on AG
+News
+(h) GPT-OSS-120B on AG
+News
+(i) Mistral-3-24B on AG
+News
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35nR2 Indicator
+0 2 4 6
+Token Budget [×10⁶]
+0.0
+0.1
+0.2
+0.3
+0.4nR2 Indicator
+0.0 2.5 5.0 7.5
+Token Budget [×10⁶]
+0.050
+0.075
+0.100
+0.125
+0.150
+0.175nR2 Indicator
+(j) Qwen-3-30B on MBPP (k) GPT-OSS-120B on MBPP (l) Mistral-3-24B on MBPP
+Fig. 6. Optimization trajectories for the nR2 metric across datasets and models. Lines and shaded regions
+denote mean±std across three independent runs.
+===== PAGE 37 =====
+MO-CAPO: Multi-Objective Cost-Aware Prompt Optimization 37
+MO-CAPO NSGA-II-PO CAPO GEPA EvoPromptGA Initial Instructions
+100 120 140 160
+Avg. Cost [$] per 1M Calls
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70Test Score (Accuracy)
+80 100 120 140
+Avg. Cost [$] per 1M Calls
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9Test Score (Accuracy)
+80 90 100 110
+Avg. Cost [$] per 1M Calls
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70
+0.75Test Score (Accuracy)
+(a) Qwen-3-30B on GSM8K (b) GPT-OSS-120B on
+GSM8K
+(c) Mistral-3-24B on GSM8K
+10 20 30 40 50
+Avg. Cost [$] per 1M Calls
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90Test Score (Accuracy)
+50 75 100 125 150
+Avg. Cost [$] per 1M Calls
+0.50
+0.55
+0.60
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90Test Score (Accuracy)
+10 15 20 25
+Avg. Cost [$] per 1M Calls
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95Test Score (Accuracy)
+(d) Qwen-3-30B on Subj (e) GPT-OSS-120B on Subj (f) Mistral-3-24B on Subj
+20 30 40 50
+Avg. Cost [$] per 1M Calls
+0.82
+0.84
+0.86
+0.88
+0.90
+0.92Test Score (Accuracy)
+50 60 70 80 90 100
+Avg. Cost [$] per 1M Calls
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9Test Score (Accuracy)
+10 15 20 25 30
+Avg. Cost [$] per 1M Calls
+0.81
+0.82
+0.83
+0.84
+0.85
+0.86
+0.87
+0.88Test Score (Accuracy)
+(g) Qwen-3-30B on AG
+News
+(h) GPT-OSS-120B on AG
+News
+(i) Mistral-3-24B on AG
+News
+60 80 100
+Avg. Cost [$] per 1M Calls
+0.33
+0.34
+0.35
+0.36
+0.37
+0.38
+0.39Test Score (Accuracy)
+100 120 140 160 180 200
+Avg. Cost [$] per 1M Calls
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30Test Score (Accuracy)
+40 50 60 70
+Avg. Cost [$] per 1M Calls
+0.20
+0.22
+0.24
+0.26
+0.28
+0.30
+0.32
+0.34Test Score (Accuracy)
+(j) Qwen-3-30B on MBPP (k) GPT-OSS-120B on MBPP (l) Mistral-3-24B on MBPP
+Fig. 7. Empirical attainment surfaces for solution sets across datasets and models. Lines indicate median
+attainment across three independent seeds. Shaded bands span minimum to maximum attainment.
+

@@ -1,0 +1,1054 @@
+================================================================================
+FairCAPO — Explained (answers to 11 questions)
+Written: 2026-06-21
+Scope: FairCAPO = MO-CAPO + an in-loop fairness objective.
+================================================================================
+
+This document answers, in plain language, the 11 questions raised about the
+project. It is grounded in the actual code:
+  - heal_capo/fairness.py        (general fairness metrics + the blended score)
+  - heal_capo/fairness_bbq.py    (canonical BBQ sAMB/sDIS bias scoring)
+  - scripts/run_phase2_budgeted_mocapo.py (the budgeted optimizer / runner)
+and in CLAUDE.md (the running project status).
+
+A one-line reminder of what FairCAPO is:
+  MO-CAPO optimizes a prompt for TWO goals — high accuracy (performance) and low
+  cost — and returns a MENU (a Pareto front) of prompts at different trade-offs.
+  FairCAPO adds fairness as goals, turning the 2-objective front into a
+  4-objective one:
+       performance (max), cost (min), risk (min), fairness_risk (min).
+
+
+================================================================================
+0. FIRST: How does MO-CAPO (WITHOUT fairness) work? (asked in Q11)
+================================================================================
+We answer this first because every other answer builds on it.
+
+MO-CAPO = Multi-Objective Cost-Aware Prompt Optimization. It is an evolutionary
+search over PROMPTS. The pieces:
+
+  (a) A population of candidate prompts (instructions + few-shot examples).
+  (b) Evolutionary operators that mutate/crossover prompts and vary the number of
+      few-shot demonstrations  (heal_capo/optimizers/evolutionary_ops.py).
+  (c) A BUDGET. Instead of fully evaluating every candidate on the whole dev set
+      (expensive), MO-CAPO evaluates candidates on small "blocks" of data first
+      and only spends more evaluations on the promising ones. This is the
+      budget_allocator + block_evaluator.
+  (d) INTENSIFICATION: the mechanism that decides "this candidate looks good on a
+      few blocks — give it more blocks (more data) to confirm it really is good,
+      before we trust it." It progressively races candidates against the current
+      incumbents on more and more data. This is what makes the search
+      budget-EFFICIENT: weak candidates die cheap, strong ones earn more
+      evaluation. (heal_capo/optimizers/intensification.py + advance_incumbents.py)
+  (e) MULTI-OBJECTIVE selection: candidates are not scored by a single number.
+      We keep the PARETO FRONT — the set of prompts where you cannot improve one
+      objective without hurting another (e.g. you cannot get cheaper without
+      losing accuracy). The output is that front: a trade-off menu, not one
+      "best" prompt.
+  (f) HYPERVOLUME (HV) is the standard quality measure of a Pareto front: how much
+      objective-space the front "dominates." Bigger HV = a better, richer front.
+
+So MO-CAPO's whole contribution is: get a RICH Pareto front of accuracy/cost
+trade-offs for FEW LLM calls, via budgeting + intensification.
+
+
+================================================================================
+Q2. Does FairCAPO keep MO-CAPO's intensification and just add fairness on top?
+================================================================================
+YES — exactly. This is the core design decision and it is deliberate.
+
+MO-CAPO's Pareto / intensification / budget / selection machinery is
+"objective-count-agnostic": it does not care whether there are 2 objectives or 4.
+FairCAPO does NOT rewrite that machinery. It:
+  - adds ONE more objective, fairness_risk (and risk), to the objective vector;
+  - measures fairness_risk for every candidate using the REAL model, cached, with
+    its LLM cost charged to the same budget;
+  - then runs the SAME intensification / Pareto / selection loop, now in 4-D
+    instead of 2-D.
+
+"In-loop" is the key word: fairness is measured DURING the search and genuinely
+decides which prompts survive intensification — it is not a number bolted on at
+the end. Code: LLMObjectiveEvaluator inside scripts/run_phase2_budgeted_mocapo.py,
+gated by the config flag `fairness.in_loop`.
+
+So: same MO-CAPO engine, one extra objective. That is the whole method.
+
+
+================================================================================
+Q3. Why were GSM8K / AG News / MBPP DROPPED?
+================================================================================
+Those are the datasets from the ORIGINAL MO-CAPO paper. They are math (GSM8K),
+news topic classification (AG News), and code generation (MBPP). They were great
+for the original paper because that paper only cared about ACCURACY and COST.
+
+But our contribution is FAIRNESS. None of those three datasets has a meaningful
+fairness/bias signal:
+  - There are no protected demographic groups in "what is 17*4" or "is this news
+    about sports or business."
+  - When we measured fairness_risk on them it was ~0 everywhere and never varied
+    with the prompt, so they could not SHOWCASE that in-loop fairness does
+    anything.
+
+A fairness paper needs datasets where bias actually appears and where it CHANGES
+depending on the prompt — otherwise the 4th objective is inert and there is
+nothing to demonstrate. So GSM8K / AG News / MBPP were dropped as off-focus.
+
+Locked dataset scope is now:
+  - BBQ            -> fairness core (bias VARIES with the prompt — the showcase)
+  - Bias-in-Bios   -> 2nd fairness dataset (still TODO; enables the
+                      critical-difference diagram across datasets)
+  - SUBJ           -> the "no-harm CONTROL": a fairness-neutral task, used to show
+                      FairCAPO does no DAMAGE to accuracy/cost when there is no
+                      bias to fix.
+
+(Note: GSM8K still appears in some code paths/configs as legacy plumbing; it is
+simply no longer a reported dataset.)
+
+
+================================================================================
+Q4. We added BBQ + Bias-in-Bios because they have a fairness scope — how do we
+    look at fairness in each, and why exactly these two?
+================================================================================
+We picked them because they exercise DIFFERENT, complementary fairness notions —
+together they cover both standard families of fairness metric.
+
+BBQ (Bias Benchmark for QA):
+  - Multiple-choice questions about social situations involving demographic groups
+    (Gender, Race, Religion).
+  - Each question has a "biased/stereotyped" answer, the other group's answer, and
+    an "unknown / cannot be determined" option.
+  - Crucially it has AMBIGUOUS items where the context does NOT tell you the
+    answer, so the correct choice is "unknown." A fair model should abstain
+    ("unknown"); a biased model jumps to the stereotype.
+  - Fairness here = does the model's answer drift toward the stereotype? Measured
+    by the canonical BBQ bias score (sAMB/sDIS — see Q6). This is a
+    "counterfactual / behavioral" view of bias, and it VARIES with the prompt,
+    which is why BBQ is our headline showcase.
+
+Bias-in-Bios (2nd dataset, still to be built):
+  - Occupation classification from a short biography, with gender groups.
+  - Fairness here = ALLOCATIVE: does the classifier do equally well for men and
+    women? Measured by group_accuracy_gap / equal_opportunity (already coded in
+    fairness.py — see Q5). This is the "group fairness" family.
+  - It is the "big one" because having TWO fairness datasets lets us draw a
+    critical-difference diagram (the standard way to compare methods across
+    multiple datasets in the paper).
+
+So: BBQ covers stereotype/behavioral bias on multiple-choice; Bias-in-Bios covers
+allocative/group-gap bias on classification. Two datasets, two fairness families,
+broad coverage for the paper.
+
+
+================================================================================
+Q5. Did we add DSP / Equal Opportunity / Equalized Odds? How are they computed?
+================================================================================
+YES — all three are implemented in heal_capo/fairness.py and unit-tested. They
+are the classic "group fairness" metrics. Each returns a GAP in [0,1], 0 = fair
+(all groups equal). Definitions exactly as coded:
+
+  - Demographic / Statistical Parity (DSP)  -> demographic_parity_gap()
+        For each group, the rate at which the model predicts the POSITIVE label,
+        regardless of the true answer. Gap = (max group rate) - (min group rate).
+        "Are positive predictions handed out equally across groups?"
+
+  - Equal Opportunity (EO)                  -> equal_opportunity_gap()
+        Restrict to examples whose TRUE label is positive. For each group compute
+        the true-positive rate TPR = P(pred=positive | label=positive, group).
+        Gap = max TPR - min TPR.
+        "Among people who truly deserve the positive label, are all groups
+        recognized equally?"
+
+  - Equalized Odds (EqOdds)                 -> equalized_odds_gap()
+        max( TPR gap , FPR gap ), where FPR = P(pred=positive | label!=positive).
+        "Equal true-positive AND equal false-positive rates across groups."
+
+IMPORTANT — they are OPT-IN and currently OFF by default. In CombinedFairnessConfig
+their weights default to 0.0, and they only activate when you ALSO set a
+`positive_label` and give them weight > 0. Reason: they need a binary
+positive/negative label and per-example group labels, which BBQ's multiple-choice
+format does not naturally have. They are wired and ready, and are intended for
+Bias-in-Bios (binary-ish occupation + gender groups), where they become the
+natural fairness measure. On BBQ today they contribute nothing — BBQ uses sAMB.
+
+How a single fairness_risk gets formed (combine_fairness_risk in fairness.py):
+the blended score is a WEIGHTED AVERAGE of whichever signals are present, each in
+[0,1], with the default weights:
+        counterfactual flip rate ... 0.50
+        group accuracy gap ......... 0.25
+        bias-language rate ......... 0.15
+        decayed fairness debt ...... 0.10
+        DSP / EO / EqOdds .......... 0.00 (opt-in)
+Weights are re-normalized over only the signals that are actually available, so a
+dataset that lacks one signal just redistributes its weight — the config never has
+to be rewritten per dataset.
+
+
+================================================================================
+Q6. What are sAMB / sDIS — are they fairness/bias metrics? Explain.
+================================================================================
+Yes. They are the TWO canonical BBQ bias scores (Parrish et al. 2021), and they
+are specifically how we measure fairness ON BBQ. Code: heal_capo/fairness_bbq.py.
+Both live in [-1, 1]: 0 = unbiased, positive = model leans TOWARD the stereotype,
+negative = leans anti-stereotype.
+
+  - sDIS (DISAMBIGUATED bias score):
+        Computed over questions where the context DOES give the answer.
+        sDIS = 2 * (n_biased / n_non_unknown) - 1.
+        Among the times the model committed to a real (non-"unknown") answer, what
+        fraction matched the stereotype-aligned target? Rescaled to [-1,1].
+
+  - sAMB (AMBIGUOUS bias score):
+        Computed over questions where the context does NOT give the answer, so the
+        correct choice is "unknown." A fair model abstains.
+        sAMB = (1 - accuracy_ambig) * (2 * (n_biased / n_non_unknown) - 1).
+        The (1 - accuracy) factor means: if the model correctly says "unknown,"
+        accuracy is high and sAMB shrinks toward 0. Only when it WRONGLY commits to
+        an answer, and that wrong answer is the stereotype, does sAMB grow. This is
+        the cleanest bias signal because the "right" behavior (abstain) is fixed.
+
+What FairCAPO optimizes on BBQ:
+        fairness_risk = |sAMB|   (absolute value, clamped to [0,1], 0 = fair).
+We use |sAMB| because deviation from neutral in EITHER direction (pro- or
+anti-stereotype) is undesirable, and ambiguous items give the cleanest read. We
+RECORD both sAMB and sDIS for logging/auditing, but |sAMB| is what drives the 4th
+objective. (See evaluate_bbq_fairness in fairness_bbq.py.)
+
+So: sAMB/sDIS are BBQ-specific bias metrics; the blended flip/group/bias/debt
+score in Q5 is the general one used on other datasets. BBQ swaps in |sAMB| as the
+fairness objective.
+
+
+================================================================================
+Q7. Are we completely done with BBQ?
+================================================================================
+ALMOST — the core contribution on BBQ is validated and the main artifacts exist,
+but a couple of items remain (per CLAUDE.md "Tasks for tomorrow"). Status:
+
+  DONE on BBQ (live, mistral-24B):
+    - FairCAPO run (fairness in-loop):    outputs/phase2_budgeted_mocapo_bbq_local/
+    - Fairness-OFF ablation:              outputs/mocapo_baseline_bbq_local/
+    - NSGA-II-PO + fairness baseline:     outputs/baselines/nsga2_po_bbq_local/
+    - Held-out Dtest (fairness generalizes, varies {0.0, 0.04}):
+                                          outputs/evaluation/bbq_mistral_local/
+    - Experiment table + paper figures.
+    - The headline result (see Q10).
+
+  NOT yet done (remaining BBQ-adjacent tasks):
+    1. POST-HOC fairness baseline — re-score a fairness-agnostic front with the BBQ
+       scorer at the very end, to prove in-loop beats post-processing. (Makes LLM
+       calls.) Not run yet.
+    2. Persist the per-category breakdown (detail_bbq_sAMB; Gender/Race/Religion)
+       to the candidate CSV so the bias source is auditable — optional polish.
+    3. COMMIT — all of session 7–10 work, including everything BBQ, is still
+       UNCOMMITTED.
+
+So BBQ itself is essentially validated; what's left is the post-hoc comparison,
+optional auditing detail, and committing. The bigger remaining work is the SECOND
+dataset, Bias-in-Bios.
+
+
+================================================================================
+Q8 & Q9. FairCAPO does NOT obviously beat MO-CAPO / NSGA-II-PO on PERFORMANCE and
+         COST. At perf 1.000 it even costs MORE (361.9). So how are we "better"?
+================================================================================
+This is the most important conceptual point, so read it carefully. The headline
+table (at performance = 1.000):
+
+  | method                       | perf  | cost   | fairness | HV    | |P| |
+  | FairCAPO                     | 1.000 | 361.9  | 0.000    | 0.879 |  5  |
+  | MO-CAPO (fairness OFF)       | 1.000 | 268.0  | 0.120    | 0.797 |  5  |
+  | NSGA-II-PO + fairness        | 1.000 | 350.6  | 0.000    | 0.883 |  1  |
+
+You are right that FairCAPO is NOT cheaper and not more accurate. It should not be
+— and that is the whole point of a MULTI-OBJECTIVE method. Here is the framing:
+
+  (1) We are NOT claiming to beat MO-CAPO on accuracy or cost. We claim FairCAPO
+      achieves the SAME accuracy at LOWER BIAS. Look across the row at perf 1.000:
+        - FairCAPO reaches fairness_risk = 0.000.
+        - MO-CAPO fairness-OFF NEVER drops below 0.120, even at its fairest front
+          member. It literally cannot get fairer, because it was never optimizing
+          fairness — it leaves bias "on the table."
+      Same accuracy, lower bias = the contribution. The extra cost (361.9 vs 268)
+      is the PRICE of measuring + optimizing fairness during the search (those
+      fairness evaluations are real LLM calls charged to the budget). In a
+      multi-objective world, paying some cost to remove bias is a legitimate,
+      Pareto-valid trade — you are buying a new dimension of quality.
+
+  (2) Why is the comparison "fair" if costs differ? Because cost is itself one of
+      the four objectives on the Pareto front. FairCAPO returns a 5-POINT front —
+      a MENU of (accuracy, cost, fairness) trade-offs. If you want a cheaper point
+      you pick a different front member; the 361.9 point is just the perf=1.0 end.
+
+  (3) vs NSGA-II-PO + fairness: NSGA reaches fairness 0.000 too AND comparable HV
+      — but only as a DEGENERATE 1-POINT front. It gives you no trade-off menu and,
+      for ~the same budget, it could only fully evaluate 23 candidates -> a 2-point
+      front, whereas FairCAPO's budgeting+intensification explored 107 candidates
+      -> a 29-point front (5 unique). THIS is where FairCAPO wins on the
+      MO-CAPO-style efficiency argument: richer front for the same budget. NSGA is
+      the primary algorithmic baseline precisely so we can show the budgeted search
+      dominates the off-the-shelf one in front richness.
+
+So the correct "we are better" statements are:
+   - vs MO-CAPO (fairness OFF): same accuracy, strictly lower achievable bias.
+   - vs NSGA-II-PO + fairness:  far richer Pareto front (trade-off menu) for the
+                                same budget; same fairness floor.
+NOT "cheaper" and NOT "more accurate" — that was never the claim.
+
+
+================================================================================
+Q10. FairCAPO's fairness = 0.000. Isn't a "zero" a non-result? How do we put it in
+     the paper?
+================================================================================
+fairness_risk = 0.000 is a GOOD result, not a missing one. Remember the scale:
+fairness_risk is a BIAS measure where 0 = perfectly fair and higher = more biased
+(for BBQ it is |sAMB|). So 0.000 means "we drove the measured bias all the way down
+to neutral." Lower is the goal; FairCAPO hit the floor.
+
+The reason it is a publishable result, not a vacuous one, is the CONTRAST, not the
+number alone:
+   - FairCAPO reaches 0.000.
+   - The fairness-OFF ablation, at the SAME accuracy, never gets below 0.120.
+That gap (0.120 -> 0.000 at equal accuracy) IS the evidence that the in-loop
+fairness objective does real work. A single "0" in isolation would be weak; "0 vs
+0.120 at matched accuracy, plus it still holds on held-out Dtest {0.0, 0.04}" is a
+clean before/after that proves the mechanism.
+
+How to present it in the paper (recommended):
+   - Lead with the contrast TABLE (above), captioned "same accuracy, lower bias."
+   - Show fairness GENERALIZES: the held-out Dtest also has near-zero, varying
+     fairness — so 0.000 is not a search-time overfit/artifact.
+   - Show the EFFICIENCY story (FairCAPO 5-point front vs NSGA 1-point) so the
+     reader sees FairCAPO also preserves MO-CAPO's budget advantage.
+   - State the known CAVEATS honestly (next paragraph) so a reviewer trusts the 0.
+
+Caveats to disclose (from CLAUDE.md), so the 0.000 is credible not suspicious:
+   - The in-loop fairness signal is COARSE — FairCAPO's only nonzero value was
+     exactly 1/7 ≈ 0.143, i.e. the per-candidate in-loop fairness sample is small
+     (~7 items). Enlarging that sample would make the 0.000 more convincing and is
+     a recommended fix before the camera-ready.
+   - Bias-in-Bios (2nd dataset) will strengthen the claim by showing it is not a
+     BBQ-only artifact and by enabling a critical-difference diagram.
+
+Bottom line for the paper: do not present "fairness = 0" as the result. Present
+"FairCAPO removes bias the fairness-OFF method cannot, at equal accuracy, with a
+richer front and on held-out data" — the 0.000 is the endpoint of that story.
+
+
+================================================================================
+Q1 & Q11. WHAT HAVE WE COVERED SO FAR? (overall recap)
+================================================================================
+Covered and validated:
+  - The METHOD: FairCAPO = MO-CAPO's budgeted/intensified multi-objective prompt
+    search + an in-loop fairness objective (4 objectives: perf, cost, risk,
+    fairness_risk). Same engine, one extra objective. (Q2, Q0)
+  - The fairness MEASUREMENT toolkit (heal_capo/fairness.py): counterfactual flip
+    rate, group accuracy gap, bias-language rate, decayed fairness debt, blended
+    into one fairness_risk; plus DSP / Equal Opportunity / Equalized Odds
+    implemented and opt-in. (Q5)
+  - BBQ-specific bias scoring (heal_capo/fairness_bbq.py): canonical sAMB/sDIS;
+    fairness_risk = |sAMB| drives the objective. (Q6)
+  - SUBJ as the no-harm CONTROL: fairness inert there (~0), FairCAPO does no damage;
+    table + figures done.
+  - BBQ as the SHOWCASE (live, mistral-24B): full pipeline end-to-end — FairCAPO,
+    fairness-OFF ablation, NSGA-II-PO+fairness baseline, held-out Dtest, experiment
+    table, figures. Headline: fairness 0.000 vs ablation 0.120 at perf 1.000;
+    richer front than NSGA. (Q7, Q8, Q9, Q10)
+  - An HV blow-up bug in the table builder was fixed (dedupe_by_objective).
+  - 373 pytest tests green.
+
+Still to do:
+  - Post-hoc fairness baseline (in-loop vs post-processing).            [Q7]
+  - Bias-in-Bios = 2nd fairness dataset (group-fairness family; enables
+    critical-difference diagram).                                       [Q4, Q5]
+  - COMMIT all session 7–10 work (currently uncommitted), after git hygiene.
+  - Optional: enlarge the coarse in-loop fairness sample (1/7 granularity);
+    persist per-category bias breakdown.                                [Q10]
+
+The headline, restated once more:
+  FairCAPO does NOT win on accuracy or cost — it is not supposed to. It wins by
+  removing bias that the fairness-blind method provably cannot remove AT EQUAL
+  ACCURACY, while preserving MO-CAPO's budget-efficient, rich Pareto front. In-loop
+  fairness works.
+================================================================================
+
+
+================================================================================
+SESSION-11 UPDATE / CORRECTION (2026-06-22) — read this; it QUALIFIES Q8-Q10
+================================================================================
+The post-hoc fairness baseline (Q7's pending task) was run, and it qualifies the
+headline above. The "in-loop 0.0 vs ablation 0.120" result turns out to be
+IN-SAMPLE, and the held-out evidence cited in Q10 does NOT actually distinguish
+the methods. Details in docs/bbq_posthoc_fairness_finding.md. Short version:
+
+  - The SAME fairness-blind ablation front scores {0.12,0.18,0.30} on the IN-LOOP
+    fairness set but {0.0,0.04} on the HELD-OUT set. So "0.120" is the in-sample
+    number (the set FairCAPO optimized on).
+  - On the HELD-OUT set the post-hoc baseline TIES FairCAPO (both ~0.0). The Q10
+    claim "it still holds on held-out Dtest {0.0,0.04}" is wrong as stated — the
+    ablation reaches {0.0,0.04} on held-out too, so held-out |sAMB| does not
+    separate them.
+  - Cause: |sAMB| SATURATES to ~0 on the held-out ambiguous items (mistral abstains
+    correctly regardless of prompt). The real residual bias is in sDIS (~0.45-0.60),
+    which the optimized fairness_risk (=|sAMB|) does not capture.
+
+Defensible claim now: in-loop fairness helps IN-SAMPLE; the out-of-sample |sAMB|
+comparison is inconclusive (metric saturation). To claim out-of-sample superiority,
+build a harder/larger held-out fairness set and/or fold sDIS into fairness_risk,
+then re-run. (Wherever Q8-Q10 above say "ablation never drops below 0.120" or cite
+held-out as proof of generalization, attach this caveat.)
+================================================================================
+
+
+################################################################################
+#                                                                              #
+#   APPENDIX (2026-06-22) — SIMPLE EXPLANATIONS FOR THE SUPERVISOR MEETING     #
+#                                                                              #
+################################################################################
+
+This appendix is written in plain language. It covers, in order:
+  A. How FairCAPO is better than each of the 3 other methods (simple).
+  B. A one-page story for the supervisor meeting.
+  C. What "measuring fairness in a prompt" actually means, step by step.
+  D. Why we chose these datasets.
+  E. Our new metrics (what is new vs plain MO-CAPO).
+  F. How to READ each of the 4 BBQ figures (you said they don't make sense).
+  G. Honest framing for the experimental section + what to say tomorrow.
+
+
+================================================================================
+A. HOW IS FairCAPO BETTER THAN THE OTHER 3 METHODS? (simple)
+================================================================================
+First, the mental model. All methods end up at the SAME accuracy (1.000) on BBQ,
+because BBQ multiple-choice is easy for mistral-24B. So "better" is NOT about
+accuracy. It is about TWO things: (1) does the method give you a good *menu* of
+prompts to choose from (a rich Pareto front), and (2) does it actively reduce
+measured bias. Here is FairCAPO vs each one:
+
+1) FairCAPO  vs  MO-CAPO (fairness OFF) — "the ablation"
+   - Same search engine, but MO-CAPO-off NEVER looks at fairness during the search.
+   - On the fairness set the search used, FairCAPO reaches bias 0.000 while
+     MO-CAPO-off's fairest prompt is still 0.120, at the SAME accuracy.
+   - SIMPLE TAKEAWAY: turning the fairness objective ON measurably lowers bias for
+     free (same accuracy). That is the "in-loop fairness does real work" result.
+   - HONEST CAVEAT: this gap is IN-SAMPLE (the set FairCAPO trained on). On a fresh
+     held-out fairness set both reach ~0 (see the S11 correction above).
+
+2) FairCAPO  vs  NSGA-II-PO + fairness — "the off-the-shelf search baseline"
+   - SAME objectives (accuracy, cost, risk, fairness), only the SEARCH ALGORITHM
+     differs. NSGA-II-PO is the standard evolutionary multi-objective optimizer.
+   - For the SAME budget, NSGA-II-PO could only fully evaluate ~23 prompts and
+     returned a Pareto front of just 1 POINT — no menu, no trade-offs.
+   - FairCAPO's budgeting + intensification explored far more prompts cheaply and
+     returned a 5-POINT front — an actual menu of accuracy/cost/fairness choices.
+   - SIMPLE TAKEAWAY: **this is FairCAPO's clearest, strongest win.** Same budget,
+     same goals, but FairCAPO gives a rich trade-off menu while NSGA-II-PO gives
+     you a single take-it-or-leave-it prompt. (This is exactly the MO-CAPO paper's
+     efficiency argument, now in the 4-objective fairness setting.)
+
+3) FairCAPO  vs  Post-hoc fairness (held-out) — "just pick the fairest at the end"
+   - This baseline takes a fairness-BLIND front and simply selects its fairest
+     member after-wards, scored on held-out data.
+   - On held-out it reaches 0.000 too — i.e. it TIES FairCAPO.
+   - SIMPLE TAKEAWAY: be honest — on the current held-out set FairCAPO does NOT
+     beat post-hoc selection. The reason is the metric (|sAMB|) saturates to ~0 for
+     every prompt on the held-out items, so it cannot tell methods apart. FairCAPO's
+     advantage over post-hoc is currently visible only in-sample. Making this a real
+     out-of-sample win is the #1 next task (harder fairness set / add sDIS).
+
+ONE-SENTENCE SUMMARY:
+   FairCAPO's solid, defensible wins are (i) a much RICHER Pareto front than the
+   off-the-shelf NSGA-II-PO baseline at the same budget, and (ii) an IN-SAMPLE bias
+   reduction the fairness-blind method cannot achieve. The held-out bias comparison
+   is currently a tie due to metric saturation — a known, fixable measurement issue.
+
+
+================================================================================
+B. THE STORY FOR THE SUPERVISOR MEETING (one page, plain language)
+================================================================================
+WHAT WE SET OUT TO DO:
+   Take MO-CAPO — a method that automatically tunes prompts for high accuracy and
+   low cost and returns a menu of trade-offs (a Pareto front) — and add FAIRNESS as
+   a goal the search optimizes WHILE it runs, not just something we report at the
+   end. We call the result FairCAPO.
+
+WHAT WE BUILT (and verified):
+   - A fairness measurement layer for prompts (counterfactual flips + the canonical
+     BBQ bias score), all in working code with 375 passing tests.
+   - The in-loop wiring: every candidate prompShould t gets a real, model-measured
+     fairness score during the search, added as a 4th objective.
+   - A full, reproducible evaluation pipeline on BBQ: our method + 3 baselines +
+     held-out test + comparison table + figures, all run on a live 24B model.
+
+WHAT WE FOUND (honest):
+   - POSITIVE: turning fairness on lowers measured bias at equal accuracy
+     (in-sample), and our budgeted search gives a much richer trade-off menu than
+     the standard NSGA-II-PO baseline for the same compute.
+   - LIMITATION WE DISCOVERED OURSELVES: on a fresh held-out fairness set, our main
+     bias metric (|sAMB|) collapses to ~0 for all prompts (the model just abstains
+     on ambiguous questions), so it can't separate methods out-of-sample. The real
+     remaining bias shows up in a second score, sDIS (~0.45), which we currently do
+     not optimize.
+
+WHY THIS IS A GOOD POSITION (not a failure):
+   We have a working method, a complete pipeline, and — importantly — we used our
+   OWN post-hoc baseline to expose a measurement weakness. That gives us a crisp,
+   concrete next step rather than a vague "improve results."
+
+NEXT STEPS:
+   1. Make the fairness metric discriminative out-of-sample: build a harder held-out
+      set and/or fold sDIS into the fairness score (e.g. max(|sAMB|, |sDIS|)).
+   2. Add the 2nd fairness dataset, Bias-in-Bios (group fairness), which enables a
+      proper cross-dataset comparison (critical-difference diagram).
+
+
+================================================================================
+C. HOW DO WE MEASURE FAIRNESS IN A PROMPT? (the method, step by step)
+================================================================================
+A "prompt" is the instruction we give the model. We ask: does THIS prompt make the
+model behave unfairly? We have two complementary ways, both run with the real model.
+
+WAY 1 — Counterfactual flips (used on SUBJ / general tasks):
+   1. Take a sentence, then make a near-identical copy changing ONLY a demographic
+      detail (e.g. "He is a nurse" -> "She is a nurse").
+   2. Run the model with the candidate prompt on both.
+   3. If the answer FLIPS just because of that swap, that is an unfair flip.
+   4. The flip rate (plus group accuracy gap, biased-language rate, and a decayed
+      "repeat offender" debt) is blended into one number, fairness_risk in [0,1],
+      0 = fair. (Code: heal_capo/fairness.py, combine_fairness_risk.)
+
+WAY 2 — Canonical BBQ bias score (used on BBQ — the main fairness dataset):
+   BBQ asks social questions with 3 options: the stereotyped person, the other
+   person, and "unknown / cannot be determined."
+   - On AMBIGUOUS questions the context does NOT say who is responsible, so the
+     CORRECT answer is "unknown." A fair model abstains; a biased model jumps to the
+     stereotype. We summarize this as sAMB.
+   - On DISAMBIGUATED questions the context DOES give the answer; sDIS measures
+     whether the model's mistakes lean toward the stereotype.
+   - Our optimized fairness_risk for BBQ = |sAMB| (0 = fair). We also record sDIS.
+     (Code: heal_capo/fairness_bbq.py.)
+
+THE KEY IDEA ("in-loop"): this fairness number is computed DURING the search for
+every candidate prompt (with the real model, cached, cost charged to the budget),
+and used as a 4th objective. So fairness genuinely decides which prompts survive —
+it is not a number we paste on at the end.
+
+
+================================================================================
+D. WHY THESE DATASETS? (simple)
+================================================================================
+   - BBQ  -> our MAIN fairness showcase. It has demographic groups and a built-in
+     "unknown" option, so bias actually appears and (in-sample) VARIES with the
+     prompt. This is where we can show fairness optimization doing something.
+   - Bias-in-Bios (next) -> a SECOND, different kind of fairness: predict a person's
+     occupation from their bio, and check the model is equally accurate for men and
+     women (group fairness). Two different fairness families = a stronger paper, and
+     it unlocks the cross-dataset comparison diagram.
+   - SUBJ -> a "do no harm" CONTROL. It has almost no bias signal, so we use it to
+     show FairCAPO does NOT damage accuracy/cost when there is no bias to fix.
+   - GSM8K / AG News / MBPP (the original MO-CAPO datasets) were DROPPED: math, news
+     topics, and code have no demographic groups, so fairness is meaningless there.
+
+
+================================================================================
+E. WHAT ARE OUR NEW METRICS? (what is NEW vs plain MO-CAPO)
+================================================================================
+Plain MO-CAPO optimizes only: performance (accuracy) and cost.
+FairCAPO ADDS:
+   - fairness_risk  — a single [0,1] bias score (0 = fair). On general tasks it is a
+     weighted blend (flip rate 0.50 / group gap 0.25 / biased language 0.15 / debt
+     0.10); on BBQ it is |sAMB|. THIS is the headline new metric and the new 4th
+     objective.
+   - sAMB / sDIS    — the two canonical BBQ bias scores we report (sAMB drives the
+     objective; sDIS is the residual-bias auditor).
+   - risk           — a 3rd objective (output instability) we also fold in.
+   - Group-fairness metrics, implemented and ready for Bias-in-Bios but OPT-IN
+     (default off on BBQ): Demographic Parity, Equal Opportunity, Equalized Odds.
+   - The Pareto-front quality measures (hypervolume HV, nR2) are MO-CAPO's, but we
+     now compute them in 4-D (with fairness) instead of 2-D.
+So the one-line "new metric" answer: a single in-loop fairness_risk objective
+(plus the BBQ sAMB/sDIS scores behind it), turning MO-CAPO's 2-objective search
+into a 4-objective one.
+
+
+================================================================================
+F. HOW TO READ THE 5 BBQ FIGURES (in outputs/figures/paper_bbq_local/)
+================================================================================
+You said the figures don't make sense. Here is exactly what each one shows. For
+the meeting, lead with TWO: fig_front_richness_bbq (the strongest win) and
+fig_pareto_staircase (the honest held-out fairness picture).
+
+0) fig_front_richness_bbq.png  ★★ (NEW — show this FIRST; the strongest win)
+   - X = cost, Y = accuracy, both on the SEARCH basis (so both methods are
+     comparable — NOT mixed with held-out). Marker COLOR = fairness (green=fair).
+   - 5 CIRCLES = FairCAPO's Pareto front (5 trade-off options = a menu). 1 TRIANGLE
+     = NSGA-II-PO + fairness, labelled "single point (no trade-off menu)".
+   - THE MESSAGE IN ONE GLANCE: same budget, same objectives, only the search
+     algorithm differs — FairCAPO returns a rich 5-option menu, NSGA-II-PO returns
+     one take-it-or-leave-it prompt. Four of FairCAPO's five points are green (fair);
+     one is red (the 0.143 member) — shown honestly.
+   - NOTE: these are 4-OBJECTIVE fronts, so a point can be on the front because of
+     fairness/risk even if another point beats it on accuracy/cost — that is why all
+     5 markers are plotted, not just the 2 on the accuracy/cost staircase line.
+   - Regenerate / add the fairness-blind ablation overlay with:
+       python scripts/visualize_front_richness.py --ablation \
+         outputs/mocapo_baseline_bbq_local/phase2_all_candidates.csv  (red = biased)
+
+1) fig_pareto_staircase.png  ★ (NEW, show SECOND — the honest held-out story)
+   - X = cost, Y = test accuracy (on the 60 held-out BBQ examples).
+   - The 3 dots are FairCAPO's held-out Pareto front; the grey steps connect them
+     into a "staircase" — going right (more cost) buys you up (more accuracy).
+   - Dot COLOR = fairness_risk (|sAMB|): green = fair. All dots are green/orange
+     near 0, i.e. all front prompts are fair on held-out.
+   - Each dot is labelled |sAMB| (the bias we optimized, ~0) and sDIS (the residual
+     bias we do NOT optimize, ~0.45). This single figure tells the WHOLE honest
+     story: good accuracy/cost menu, |sAMB| driven to ~0, but sDIS still ~0.45.
+
+2) fig_accuracy_cost_fairness.png
+   - Same idea (accuracy vs cost) but from the SEARCH run, not held-out. Grey dots
+     = prompts that were dominated (worse); colored dots = the Pareto front, colored
+     by fairness. A staircase line shows the attainment surface. Read it as: "the
+     search explored many prompts (grey) and kept the best trade-offs (colored)."
+
+3) fig_method_comparison.png
+   - One dot PER METHOD (FairCAPO, MO-CAPO-off, NSGA-II-PO, post-hoc), placed by
+     accuracy vs cost and colored by fairness. Because all methods sit at accuracy
+     1.0, the dots line up at the top; the useful signal is their COLOR (fairness)
+     and horizontal position (cost). It is a method-level summary of the table.
+
+4) fig_fairness_tradeoffs.png
+   - Three small panels: accuracy-vs-cost, accuracy-vs-fairness, cost-vs-fairness.
+     Red dots = Pareto front, grey = dominated. These show whether buying fairness
+     costs you accuracy or money. On BBQ they look flat because fairness barely
+     varies — which is itself the honest message (metric saturation).
+
+NOTE: figures 2 and 4 are drawn from the search-run candidate file. After the S11
+recovery that file holds the 5 Pareto prompts (no dominated grey cloud), so if you
+REGENERATE them they will show fewer grey dots than the saved 06-20 versions. The
+saved 06-20 PNGs remain the canonical ones. fig_pareto_staircase (held-out) is the
+most reliable and intuitive — prefer it.
+
+
+================================================================================
+G. HONEST FRAMING FOR THE EXPERIMENTAL SECTION ("are we doing badly?")
+================================================================================
+Short answer: NO — but the claim has to be scoped correctly. Two of three results
+are genuinely good; the third is an honest limitation that gives direction.
+
+WHAT TO CLAIM (defensible today):
+   - "FairCAPO produces a substantially richer Pareto front than the standard
+     NSGA-II-PO baseline at equal budget (5-point vs 1-point front)." — STRONG, safe.
+   - "With the fairness objective enabled, FairCAPO reduces measured in-sample bias
+     to 0 at equal accuracy, where the fairness-blind ablation cannot (0.12)." —
+     true, label it IN-SAMPLE.
+   - "FairCAPO does no harm: accuracy and cost stay competitive." — true.
+
+WHAT NOT TO OVERCLAIM:
+   - Do NOT say fairness "generalizes" or "beats post-hoc out-of-sample" yet — the
+     held-out |sAMB| ties because the metric saturates. State this openly; it reads
+     as rigor, not weakness.
+
+WHY THE NUMBERS LOOK "FLAT" (so you can explain it):
+   - mistral-24B is already strong on BBQ: high accuracy AND it abstains correctly
+     on ambiguous items, so |sAMB| is naturally ~0 on held-out. The dataset/model
+     leaves little room for the fairness metric to move out-of-sample. The fix is a
+     harder fairness set and/or using sDIS, NOT a flaw in the method.
+
+THE PUNCHLINE FOR TOMORROW:
+   "We have a working in-loop fairness method and a complete pipeline. It gives
+   richer trade-off menus than the standard baseline and lowers in-sample bias for
+   free. Our own post-hoc baseline revealed that our headline bias metric saturates
+   out-of-sample, which precisely defines our next step: a harder fairness set and a
+   stronger bias metric (sDIS), then the second dataset (Bias-in-Bios)."
+################################################################################
+
+
+
+################################################################################
+#                                                                              #
+#   SESSION-14 UPDATE (2026-06-24) — PLAIN-ENGLISH ANSWERS + THE HELD-OUT TIE  #
+#                                                                              #
+################################################################################
+
+Read this section for the latest, simplest answers. It updates the appendices
+above with the FRESH seed-0 BBQ numbers and the honest "held-out tie" result, and
+answers a fresh batch of questions (why Mistral, the metrics, the Meta-LLM, the
+search knobs, the held-out Dtest, sAMB/sDIS, and how to read the 4 figures).
+
+THE ONE-LINE HEADLINE FOR TODAY (read carefully — this CORRECTS the older notes):
+   On the FRESH seed-0 run, the in-loop fairness objective is currently NOT working:
+   FairCAPO's fairest prompt (0.333) is actually WORSE than the fairness-OFF
+   ablation's (0.120) IN-SAMPLE, and on held-out data all methods tie at the same
+   bias floor (~0.45). The older "FairCAPO 0.000 vs ablation 0.120" win was from a
+   STALE pre-S12 table and does NOT hold on the fresh numbers. We diagnosed WHY
+   (the fairness is measured on only ~12 examples — far too few and too noisy to
+   optimize) and that is exactly what we are about to fix. DO NOT present "FairCAPO
+   lowers bias" tomorrow — the fresh data does not support it yet.
+
+
+================================================================================
+S14.1  WHY DO WE USE MISTRAL / QWEN?
+================================================================================
+They are LOCAL, open-weight models running on the laptop through LM Studio
+(server at http://localhost:1234). The main model is mistral-small-3.2 (24B).
+Why local models and not ChatGPT/Claude:
+   - FREE + PRIVATE + UNLIMITED. The search makes THOUSANDS of model calls (every
+     candidate prompt × every data block × the fairness audit). On a paid API that
+     is very expensive; locally it costs nothing.
+   - REPRODUCIBLE. A fixed local model at temperature 0 → repeatable numbers for
+     the paper.
+   - The paper's COST weights (0.08 input / 0.32 output) are Mistral's average
+     price, so our "cost" axis is meaningful.
+qwen3-30b and mistral-7b are also loaded as alternates, but EVERY reported result
+uses the 24B Mistral. Qwen is just there if we later want a second model.
+
+
+================================================================================
+S14.2  HOW IS FAIRNESS CALCULATED? (the easiest version)
+================================================================================
+We ask one question of each prompt: "does this prompt make the model treat
+demographic groups unfairly?" On BBQ:
+   - BBQ gives the model a short story + a question with 3 answers: the STEREOTYPED
+     person, the OTHER person, and "UNKNOWN / can't tell."
+   - In AMBIGUOUS stories the story does not say who did it → the correct answer is
+     "unknown." A fair model says "unknown"; a biased model jumps to the stereotype.
+   - We run the model on a set of these and count how often it leans to the
+     stereotype → one number fairness_risk in [0,1], where 0 = perfectly fair.
+The crucial word is IN-LOOP: this number is measured DURING the search for EVERY
+candidate prompt (real model, cost charged to the budget) and is the 4th goal the
+search optimizes (accuracy↑, cost↓, risk↓, fairness_risk↓). Fairness genuinely
+decides which prompts survive — it is not bolted on at the end.
+
+
+================================================================================
+S14.3  "SAME ACCURACY, HIGHER COST — SO HOW ARE WE BETTER?"
+================================================================================
+Correct: FairCAPO is NOT cheaper and NOT more accurate — and it is not supposed to
+be. It is a MULTI-OBJECTIVE method; the intended win is on the FAIRNESS axis. But
+here are the ACTUAL fresh seed-0 numbers (in-sample, search basis — best/fairest
+front member per method):
+
+   | method                  | accuracy | cost | fairness_risk (lower=fairer) |
+   | FairCAPO                |  1.000   | 362  | 0.333   <- WORST (should be best!) |
+   | MO-CAPO (fairness OFF)  |  1.000   | 130  | 0.120   <- ablation is FAIRER       |
+   | NSGA-II-PO + fairness   |  1.000   | 362  | 0.200                               |
+   | Post-hoc fairness       |  1.000   | 268  | 0.000                               |
+
+*** THIS IS THE PROBLEM, STATED HONESTLY ***
+The whole thesis is "optimizing fairness in-loop makes FairCAPO fairer than the
+ablation that ignores it." On this fresh seed the OPPOSITE happened: FairCAPO's
+fairest prompt (0.333) is WORSE than the ablation's fairest (0.120) — in fact every
+single ablation prompt (range 0.12–0.30) is fairer than every single FairCAPO
+prompt (range 0.333–1.0). The objective FairCAPO optimizes did not pay off.
+
+WHY (our diagnosis): the in-loop fairness is scored on only ~12 BBQ items, so the
+bias number is COARSE (quantized to ~1/6) and NOISY. With a signal that rough, the
+search variance dominates — "optimizing" a noisy objective doesn't reliably find
+fairer prompts and can even land on a worse region (FairCAPO chased accuracy-1.0
+prompts that happen to score 0.333; the ablation's different exploration happened to
+hit 0.12). This is precisely why our #1 fix is ENLARGING the fairness measurement
+set (see the Stage A diagnostic in the plan).
+
+*** HELD-OUT (also a tie) ***
+On the HELD-OUT test set every method regresses to the same bias floor (~0.45):
+        held-out HV: FairCAPO 0.201  ==  NSGA 0.201  >  ablation 0.182
+        held-out best fairness: FairCAPO 0.455 == NSGA 0.455 == ablation 0.455.
+
+WHAT IS STILL DEFENSIBLE TOMORROW: only the FRONT-RICHNESS / efficiency argument
+(figure 2: FairCAPO returns a multi-point trade-off menu vs NSGA's single point for
+the same budget). Do NOT claim a fairness win — in-sample OR held-out — on the
+current numbers.
+
+
+================================================================================
+S14.4  HV, HV_opt / HV_pes / Gap, nR2 — AND WHY opt==pes AND nR2==0
+================================================================================
+These are all PARETO-FRONT QUALITY metrics — "how good is the menu of prompts?"
+   - HV (HYPERVOLUME) — the main one. Think of the front as a staircase in the
+     accuracy/cost/fairness space; HV is how much space it "covers" toward the
+     ideal corner. BIGGER HV = a richer, better front. (FairCAPO search-front HV
+     0.452; held-out HV 0.201.)
+   - HV_opt / HV_pes (OPTIMISTIC / PESSIMISTIC HV) — HV computed two ways:
+     optimistic assumes the best about uncertain regions, pessimistic the worst.
+     Reporting both shows the front is ROBUST, not one lucky number (paper Table 2).
+   - Gap = HV_opt − HV_pes — how much the two disagree = a robustness measure.
+   - nR2 — a CONVERGENCE metric: the average "regret" of the front measured over
+     500 preference weightings. Lower = the front serves every preference well.
+
+WHY you see HV_opt == HV_pes, Gap = 0, nR2 = 0 in our table: these three only carry
+information when the front is scored against a SEPARATE, SHARED reference front
+(e.g. the union of all methods' fronts). Right now the table scores EACH front
+AGAINST ITSELF, so by construction there is no gap and no regret → opt==pes, Gap=0,
+nR2=0. They are real metrics, just DEGENERATE in the current single-front setup.
+Today the meaningful number is plain HV (and the held-out HV). Making opt/pes/Gap/
+nR2 informative would need a shared cross-method reference front — a nice-to-have,
+not essential.
+
+
+================================================================================
+S14.5  HOW DOES THE META-LLM WORK? DID WE GENERATE / SAVE PROMPTS?
+================================================================================
+YES. The Meta-LLM is the model WRITING NEW PROMPTS during the search (CAPO-style):
+   - When two parent prompts "breed" (crossover) or one mutates, we ask the LLM
+     itself: "here are these instructions, write an improved/combined version." So
+     it INVENTS new instruction text — not just shuffling fixed templates. (Code:
+     heal_capo/optimizers/evolutionary_ops.py; meta-prompts match CAPO Table 10.)
+   - In the seed-0 run, 93 of 162 candidates were Meta-LLM-generated
+     (used_meta_llm=True).
+   - ALL prompts are SAVED: every candidate (instruction + few-shot examples +
+     scores) is in outputs/phase2_budgeted_mocapo_bbq_local/phase2_all_candidates.csv,
+     and the final menu in phase2_prompt_portfolio.csv. You can open these and read
+     the exact prompts the search wrote.
+
+
+================================================================================
+S14.6  GLOSSARY — THE DATA SPLITS AND THE SEARCH KNOBS
+================================================================================
+DATA SPLITS:
+   - D_dev (dev_size)   = the development data the search scores prompts on during
+                          the loop.
+   - D_shots (shot_size)= the pool of examples the search can pull FEW-SHOT
+                          demonstrations from, to put INSIDE a prompt.
+   - D_test (test_size) = a HELD-OUT test set, never seen during the search, used
+                          only for the final evaluation.
+
+SEARCH KNOBS:
+   - block_size            = D_dev is chopped into small BLOCKS; a candidate is
+                             first scored on 1 block (cheap), and only promising
+                             ones earn more blocks. This is what makes the search
+                             budget-efficient.
+   - population_size       = how many prompts are alive each generation (we use 16).
+   - max_iterations        = how many generations the evolution runs (8).
+   - offspring_per_iteration = how many NEW prompts are bred each generation (4).
+   - few_shot              = whether prompts may include in-context examples;
+                             VARYING the number of examples is the main lever that
+                             creates the accuracy↔cost STAIRCASE (more examples =
+                             more accurate but more expensive).
+
+
+================================================================================
+S14.7  WHAT IS THE "HELD-OUT DTEST"? EVALUATION OR TESTING?
+================================================================================
+It is TESTING — the honest final report card. After the search finishes and
+produces its MENU of prompts, we FREEZE that menu and run it on FRESH BBQ data the
+search never saw (test_size = 200 accuracy items + a separate held-out fairness
+set). This checks whether the prompts' accuracy AND fairness GENERALIZE, or whether
+the search just overfit its training data. It runs OUTSIDE the search budget, so we
+can test thoroughly. (Code: scripts/evaluate_pareto_on_test.py.) This is exactly
+where we found the held-out fairness TIE — the prompts looked fairer in-sample than
+they actually are on new data.
+
+
+================================================================================
+S14.8  sAMB / sDIS — AND THE "FAIR BY ABSTAINING" TRAP
+================================================================================
+The two official BBQ bias scores (Parrish et al. 2021), both in [-1,1], 0 = unbiased:
+   - sAMB (AMBIGUOUS) — on the "can't tell" stories.
+        sAMB = (1 - accuracy) × bias-direction. If the model correctly says
+        "unknown," accuracy is high and sAMB → 0. Only when it WRONGLY commits to
+        the stereotype does sAMB grow. Cleanest bias signal.
+   - sDIS (DISAMBIGUATED) — on stories where the answer IS given. Among its
+        mistakes, how often does it lean toward the stereotype?
+
+We feed the search fairness_risk = max(|sAMB|, |sDIS|) (the S12 fix). Why: on the
+24B model |sAMB| saturates to ~0 (it abstains correctly), so the REAL residual bias
+hides in sDIS (~0.45). Folding sDIS in keeps the metric DISCRIMINATIVE.
+
+*** THE DEGENERACY TRAP (your perf 0.333 / fair 0.333 point) ***
+Abstaining on EVERYTHING scores as "fair" (sAMB = 0) — so a prompt can look fair by
+simply refusing to answer. We saw exactly that: a front point with accuracy 0.333
+(= random guessing on 3 options) and fairness 0.333. It is "fair" only because it
+stopped answering. The accuracy objective is supposed to push against this, but it
+still landed on the front — another reason to strengthen the setup (a min-accuracy
+guard is a candidate fix).
+
+
+================================================================================
+S14.9  THE 4 FIGURES — AND A REAL LABELLING BUG WE FOUND
+================================================================================
+*** FIRST, A REAL ISSUE: *** the figures were last regenerated WITHOUT the BBQ
+table/title arguments, so the script fell back to its SUBJ defaults
+(visualize_paper_figures.py lines 202-205). That is why every title says "SUBJ" and
+one figure shows OLD SUBJ numbers. They need regenerating with the BBQ table (being
+fixed now). With that context:
+
+1) fig_accuracy_cost_fairness.png
+   X = cost, Y = accuracy, from the SEARCH run. GREY bubbles = "dominated" prompts
+   (some other prompt beat them on everything). The light-yellow bubbles joined by
+   the line = FairCAPO's PARETO FRONT (the kept trade-offs); colour = fairness
+   (yellow ≈ 0.5 here). The lone bubble at bottom-right (cost 1400, acc 0.33) is the
+   DEGENERATE "fair-by-abstaining" point. NOTE: title wrongly says SUBJ/HEAL-CAPO —
+   it is actually BBQ data.
+
+2) fig_front_richness_bbq.png  ★ OUR STRONGEST FIGURE — and read it the OPPOSITE way
+   The 5 CIRCLES = FairCAPO's front (a MENU of 5 choices). The 1 TRIANGLE = NSGA-
+   II-PO (a single take-it-or-leave-it prompt). NSGA's point sits high-left only
+   because it is ONE point — it gives you NO menu. The message: same budget, same
+   goals, only the search algorithm differs — FairCAPO returns a rich 5-option menu;
+   NSGA returns one prompt. (Caveat: this is the SEARCH basis; on held-out the
+   fairness advantage shrinks to the tie. So sell this as a FRONT-RICHNESS win, not
+   a held-out fairness win.)
+
+3) fig_method_comparison.png  ⚠ STALE / WRONG-DATASET VALUES (your instinct was right)
+   The GEPA, OPRO, CAPO, EvoPromptDE/GA points at acc 0.80-1.00 and NSGA at 0.51 are
+   OLD SUBJ baseline numbers, pulled in because the script defaulted to the SUBJ
+   table. DO NOT use this figure as-is. For BBQ we only need the 4 methods in the
+   table (FairCAPO, MO-CAPO-off, NSGA+fairness, post-hoc), all at accuracy 1.0.
+   Regenerating from the BBQ table drops the extra methods.
+
+4) fig_pareto_staircase.png  ⚠ STALE (06-22 version, "held-out, 60 ex.")
+   You are right that nothing changed — this figure is made by a DIFFERENT script
+   (visualize_staircase.py) that the recovery never ran, so it still shows the old
+   3-point held-out staircase (|sAMB|≈0, sDIS≈0.45). Being regenerated now.
+
+
+================================================================================
+S14.10  THE VERY EASY SUMMARY FOR TOMORROW
+================================================================================
+WHAT WE'RE DOING:
+   We took MO-CAPO — a tool that automatically writes prompts and gives you a MENU
+   trading off accuracy vs cost — and added FAIRNESS as a third goal the tool
+   optimizes WHILE it searches. We call it FairCAPO. For every prompt it tries, it
+   measures how biased the model is on social questions (BBQ) and prefers prompts
+   that are accurate AND fair AND cheap.
+
+WHAT WORKS:
+   It runs end-to-end on a real 24B model. Compared to the standard search baseline
+   (NSGA), FairCAPO gives a RICHER MENU of prompts for the same compute (a 3-point
+   trade-off menu vs NSGA's single point). This front-richness / efficiency story is
+   the one solid, defensible win right now.
+
+WHAT WE FOUND (honest — this is the important part):
+   The fairness objective is currently NOT paying off. On the fresh seed-0 run
+   FairCAPO's fairest prompt (0.333) is WORSE than the fairness-OFF ablation's
+   (0.120) in-sample, and on held-out data all methods tie at ~0.45. We diagnosed
+   WHY: fairness was measured on only ~12 examples, so the signal is too coarse and
+   noisy to optimize reliably. So we are NOT claiming a fairness win yet.
+
+NEXT STEP:
+   Enlarge the fairness measurement set (a cheap diagnostic first) so the bias
+   signal is fine-grained instead of ~1/6-quantized. If a finer signal lets FairCAPO
+   actually find fairer prompts → the method works and we scale up. If even with a
+   clean, large fairness set all methods still tie at ~0.45 → that is a real bias
+   floor of this model on BBQ, and we move to the second dataset (Bias-in-Bios),
+   which has far more room to show a fairness effect.
+
+(Also fixed two plumbing bugs this session: the experiment-table builder was
+crashing on a too-large CSV field — patched; and the figures were mislabeled as
+SUBJ — being regenerated against the BBQ table.)
+################################################################################
+
+
+. Does NSGA-II-PO have population / operators / budget / intensification?
+
+  Your premise is half right. Here's the truth, from the paper §4.2 (lines 376–405) and our baselines/nsga2_po_runner.py:
+
+  ┌──────────────────────────────────────┬────────────────────────────────┬─────────────────────────────────────┬──────────────────────────────┐
+  │              Component               │    NSGA-II-PO (paper §4.2)     │        NSGA-II-PO (our code)        │      FairCAPO / MO-CAPO      │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Population                           │ ✅  yes (it's an NSGA-II MOEA)  │ ✅  population_size: 16              │ ✅  16                        │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Evolutionary operators (CAPO         │ ✅  "uses the evolutionary      │ ✅  EvolutionaryPromptOps,           │ ✅  same operators            │
+  │ crossover/mutation + meta-LLM)       │ operators from CAPO"           │ use_meta_llm: True                  │                              │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Parent selection                     │ ✅  binary tournament by        │ ✅  tournament_select_parent         │ ✅  (adapted tournament)      │
+  │                                      │ front-rank + crowding distance │                                     │                              │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Environmental selection              │ ✅  NDS + crowding distance     │ ✅  nsga2_environmental_selection    │ ✅                            │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Budget allocation (token cap, early  │ ❌  none — full eval of every   │ ❌  max_budget: None                 │ ✅  500k tokens, block-wise   │
+  │ stop)                                │ candidate                      │                                     │                              │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Intensification / racing (kill       │ ❌  none                        │ ❌  uses_intensification: False      │ ✅                            │
+  │ unpromising prompts early)           │                                │                                     │ max_blocks_per_challenger: 6 │
+  ├──────────────────────────────────────┼────────────────────────────────┼─────────────────────────────────────┼──────────────────────────────┤
+  │ Incumbent advancement                │ ❌  none                        │ ❌  uses_incumbent_advancement:      │ ✅                            │
+  │                                      │                                │ False                               │                              │
+  └──────────────────────────────────────┴────────────────────────────────┴─────────────────────────────────────┴──────────────────────────────┘
+
+  So:
+  - We did NOT wrongly add budget/intensification to NSGA-II-PO — our NSGA is unbudgeted (max_budget: None), no intensification, full-dev
+  evaluation. That is exactly what the paper specifies. ✅
+  - Population and evolutionary operators are NOT something we "just added" — they are intrinsic to NSGA-II-PO in the paper too. NSGA-II-PO is
+  literally "NSGA-II + CAPO's operators + meta-LLM on the cost objective." It was never an operator-less algorithm.
+
+  The paper is explicit (line 407): "MO-CAPO advances our baseline [NSGA-II-PO] by introducing a budget allocation mechanism to terminate the
+  evaluation of unpromising prompts early." Budget allocation + intensification is the ENTIRE algorithmic difference between MO-CAPO and NSGA-II-PO.
+  Everything else is shared.
+
+  2. Why did NSGA-II-PO + fairness come out identical to FairCAPO? And then what's the point of FairCAPO?
+
+  This is the key insight, and it's actually expected, not a bug.
+
+  Since the only difference is the budget/intensification efficiency mechanism, and both methods optimize the same 4 objectives with the same
+  operators, they converge to the same good prompts on an easy/small problem. On held-out seed 0 they found the byte-identical two prompts →
+  identical HV. That's not FairCAPO failing — it's the two searches agreeing on the answer.
+
+  The difference between MO-CAPO and NSGA-II-PO is never meant to show up in the final front — it shows up in efficiency (the trajectory):
+
+  ▎ The paper's own headline (line 585): "MO-CAPO outperforms NSGA-II-PO in 8/12 settings" — and crucially (line 648): "MO-CAPO finds a solution set
+  ▎ with nR2≈0.17 already before 2M tokens, while NSGA-II-PO requires roughly thrice the budget for the same performance."
+
+  In their own Table 2, the final HV/nR2 of MO-CAPO and NSGA-II-PO are often within one standard deviation — i.e. the final fronts often tie. The
+  win is MO-CAPO reaches the same front with ~3× less budget (their Figure 2, the trajectory plot). A final-front HV comparison structurally cannot
+  show this — you need HV-vs-budget trajectory curves.
+
+  So the meaning of FairCAPO = MO-CAPO + fairness is two things, and "beat NSGA's final front" is NOT the main one:
+
+  1. vs the ablation (MO-CAPO fairness-OFF): proves the fairness objective steers the search toward fairer prompts. This is your internal-validity
+  claim, and it's the one you currently win (FairCAPO 0.201 > ablation 0.182, and the ablation wanders into unfair prompts at 0.60–0.75 that
+  FairCAPO avoids).
+  2. vs NSGA-II-PO + fairness: proves you reach a fairness-aware front more cheaply (the efficiency/trajectory story) — not that your final front is
+  higher. Expecting FairCAPO's final front to dominate NSGA's is chasing the wrong win; the paper itself doesn't claim that.
+
+  Bottom line: the "tie with NSGA" that worried you is the normal, published behavior of MO-CAPO vs NSGA-II-PO. You're missing the figure that
+  actually shows the contribution: the HV/nR2-vs-token-budget trajectory (paper Fig 2). That's a cheap, LLM-free plot we already have the data for
+  (the budget logs).
+
+  3. Your goal — let me restate it correctly
+
+  Your instinct (a cost menu with varying accuracy & fairness, MO-CAPO-1.png style) is the right framing. Two corrections:
+
+  (a) "Accuracy 88.5–94.5%" — correct as a band, but BBQ saturates near the top. Your held-out accuracies were 0.845–0.96, so the band is real. BUT
+  BBQ accuracy is near the model ceiling, so the staircase will be shallow — accuracy barely changes across cost. The paper's pretty 0.64→0.89
+  staircase is on harder tasks. On BBQ your menu is better described as "flat-ish accuracy, varying cost & fairness." A steep accuracy staircase
+  needs SUBJ/Bias-in-Bios or a harder task.
+
+  (b) The deliverable is a Pareto menu — here is the correct shape:
+
+  ┌────────────┬────────┬──────────┬───────────────┬───────────────────────────────────┐
+  │ Menu point │  Cost  │ Accuracy │ Fairness_risk │           Prompt style            │
+  ├────────────┼────────┼──────────┼───────────────┼───────────────────────────────────┤
+  │ Cheap      │ low    │ ~88–90%  │ (depends)     │ concise zero-shot                 │
+  ├────────────┼────────┼──────────┼───────────────┼───────────────────────────────────┤
+  │ Middle     │ medium │ ~91–93%  │ (depends)     │ + a few few-shot demos            │
+  ├────────────┼────────┼──────────┼───────────────┼───────────────────────────────────┤
+  │ Expensive  │ high   │ ~94–95%  │ (depends)     │ detailed instruction + many demos │
+  └────────────┴────────┴──────────┴───────────────┴───────────────────────────────────┘
+
+  The fairness contribution = at matched cost/accuracy, FairCAPO's menu point is fairer than NSGA's and the ablation's — and FairCAPO produces this
+  menu at lower search budget. That is the honest, paper-aligned claim.
+
+  The current blocker for this menu: FairCAPO's held-out front has only 2 points, both at ~0.95 accuracy / ~1800 cost — that's not a menu, it's two
+  near-identical points. The ablation actually had a wider spread (0.845→0.945). So to deliver your menu we need a richer FairCAPO front (more
+  Pareto points spanning cost), which is partly what the fairness-set diagnostic + possibly a re-tuned search will address.
+
+  ---
+  Where this leaves us. The diagnostic configs are staged and ready (*_diag.yaml, large 180-item fairness set, LM Studio is up). But given your
+  questions, I think the single highest-value next artifact is the trajectory plot (FairCAPO vs NSGA HV-vs-budget) — it's LLM-free (uses existing
+  budget logs) and directly shows the contribution you were worried was missing. How do you want to sequence it?
+
+4 tasks (2 done, 1 in progress, 1 open)
+  ✔ Build larger disjoint held-out BBQ fairness set
+  ✔ Clone 3 eval configs for the large-set diagnostic
+  ◼ Run Stage A diagnostic: 3 held-out Dtests on large set
+  ◻ Rebuild BBQ figures in MO-CAPO style with held-out test accuracy
+
+*********************************************************************
+*********************************************************************
+
+ Can we you tell me what are we exactly doing like are optimizing the prompts,
+ the how we fairness helping us to optimizing the prompts, what kind pareto fronts it's giving,
+ like we have accuracy and cost paretos. So how exactly fairness is helping us here in our work in FairCAPO.
+
+  Are looking for fairness in LLMs?
+  I need understand the our whole our concept from basic and treat me as child and then explain

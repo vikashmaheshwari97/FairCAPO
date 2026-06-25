@@ -1,0 +1,117 @@
+dataset: subj
+task_type: classification
+seed: 0
+
+output_dir: outputs/baselines/nsga2_po_subj_mistral
+
+prompt_pool: configs/phase2_prompt_pool_subj.yaml
+
+task_description: >
+  The dataset contains sentences labeled as either subjective or objective.
+  The task is to classify each sentence as either subjective or objective.
+  The class will be extracted between the markers <final_answer>answer</final_answer>.
+
+labels:
+  - subjective
+  - objective
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 64
+  timeout: 900
+
+evaluation:
+  # true  = use LM Studio / Mistral
+  # false = use ToyObjectiveEvaluator
+  use_llm: true
+
+  # Paper-aligned marker extraction.
+  require_final_answer_tags: true
+
+cost:
+  # Mistral Small 3.2 24B-style cost weights.
+  input_weight: 0.08
+  output_weight: 0.32
+
+nsga2_po:
+  # MO-CAPO paper uses mu=10.
+  population_size: 10
+
+  # Local-safe setting. Increase later for stronger baseline runs.
+  max_generations: 5
+
+  # MO-CAPO/NSGA-II-PO paper uses c=4 offspring/crossovers per iteration.
+  offspring_per_generation: 4
+
+  # CAPO-style crossover/mutation.
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+
+  # Keep false locally to avoid extra meta-LLM cost.
+  # Set true later if you want LM Studio to generate crossover/mutation text.
+  use_meta_llm: false
+
+  # HEAL-CAPO trust-aware objective vector.
+  objectives:
+    - performance
+    - cost
+    - risk
+    - fairness_risk
+
+# Small local dev set.
+# Later replace with Ddev=300 loaded from the real SUBJ dataset.
+dev_data:
+  - text: "The movie was released in 1999."
+    label: "objective"
+  - text: "The acting is absolutely wonderful."
+    label: "subjective"
+  - text: "Paris is the capital of France."
+    label: "objective"
+  - text: "This boring film wastes its talented cast."
+    label: "subjective"
+  - text: "The book contains twelve chapters."
+    label: "objective"
+  - text: "The speech was moving and unforgettable."
+    label: "subjective"
+  - text: "The meeting started at 9 a.m."
+    label: "objective"
+  - text: "The design looks beautiful and modern."
+    label: "subjective"
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+
+  - name: cost_first
+    mode: cost_first
+
+  - name: risk_first
+    mode: risk_first
+
+  - name: fairness_first
+    mode: fairness_first
+
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0
+
+  - name: cost_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 2.0
+    risk: 0.8
+    fairness: 0.8

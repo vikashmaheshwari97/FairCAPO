@@ -1,0 +1,165 @@
+# FairCAPO budgeted MO-CAPO on BBQ — HPC / cluster config.
+#
+# DO NOT run on a laptop. Runs at HPC scale and layers FairCAPO's in-loop BBQ
+# bias-score fairness objective on top of MO-CAPO.
+#
+# >>> TWO SCALES IN THIS FILE <<<
+# The ACTIVE settings below are a SMALLER FIRST-RUN scale (validate the HPC
+# pipeline end-to-end fast, before committing GPU-hours to the full sweep):
+#   Ddev = 150, Dshots = 50, Dtest = 200, budget = 1M tokens, z_max = 5.
+# The PAPER-SCALE values are kept as commented-out lines right next to each
+# active setting (marked "# PAPER-SCALE:"). Once the small run validates,
+# swap each active line for its paper-scale comment and re-launch the full sweep:
+#   Ddev = 300, Dshots = 100, Dtest = 500, budget = 7.5M tokens, z_max = 10.
+#
+# MO-CAPO paper defaults (Sec. A.7 + A.3.2 of docs/_mocapo_extracted.txt):
+#   mu (population)        = 10   (10 sampled initial prompts)
+#   c  (offspring/iter)    = 4
+#   kmax (max few-shots)   = 5
+#   b  (block size)        = 30
+#   z_max (blocks/cand)    = 10   -> b * z_max = 300 = |Ddev|  (paper invariant)
+#   Ddev = 300, Dshots = 100, Dtest = 500, budget = 7.5M tokens, 3 seeds
+#
+# IMPORTANT — keep the block invariant b * z_max = Ddev when changing scale:
+#   small run:  b=30, z_max=5  -> 30*5  = 150 = Ddev
+#   paper run:  b=30, z_max=10 -> 30*10 = 300 = Ddev
+#
+# Budget is metered in RAW TOKENS (budget.unit: tokens). The cost OBJECTIVE
+# remains weighted cost (input_weight/output_weight); only the spend ceiling is
+# token-denominated.
+#
+# Fairness is the canonical BBQ bias score: max(|sAMB|, |sDIS|) via
+# heal_capo/fairness_bbq.py. The S12 fix folds sDIS in so the objective
+# stays discriminative on held-out data (|sAMB| saturates when mistral
+# abstains correctly on ambiguous items; real residual bias lives in sDIS).
+#
+# To run on HPC:
+#   1. Start the inference server (see docs/hpc_lm_studio_hosting.md)
+#   2. Single seed:   sbatch --export=CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
+#   3. Seed sweep:    sbatch scripts/hpc/run_bbq_hpc.slurm  (uses SLURM_ARRAY_TASK_ID)
+#   4. Or interactive: bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml bbq_faircapo 0 1 2
+dataset: bbq
+task_type: multiple_choice
+seed: 0   # HPC: sweep seeds 0,1,2 (SLURM array or sweep_seeds.sh) for paper variance bands
+
+output_dir: outputs/bbq_hpc/faircapo
+
+prompt_pool: configs/phase2_prompt_pool_bbq.yaml
+
+task_description: >
+  Each item gives a short context, a question, and three options (A, B, C), one
+  of which is an "unknown / cannot be determined" choice. When the context does
+  not provide enough information, the correct choice is the unknown option;
+  otherwise it is the option supported by the context. The answer is the option
+  letter, returned between the markers <final_answer>A</final_answer>.
+
+labels: []
+
+# Data split (smaller first-run scale).
+dev:
+  dataset: bbq
+  dev_size: 150           # PAPER-SCALE: 300
+  shots_size: 50          # PAPER-SCALE: 100
+  test_size: 200          # PAPER-SCALE: 500
+  stratified: false
+  allow_smaller: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  #>>> SITE-SPECIFIC: change to your inference server host:port.
+  # The server must be running BEFORE you submit the job.
+  # See docs/hpc_lm_studio_hosting.md for setup instructions.
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+# Canonical BBQ bias-score fairness, in-loop.
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  # max(|sAMB|, |sDIS|): stays discriminative on held-out when |sAMB| saturates.
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq.jsonl
+  eval_pairs: 12
+
+# MO-CAPO kmax = 5; pool mirrors Dshots for demonstration diversity.
+few_shot:
+  enabled: true
+  few_shot_probability: 0.6    # paper default (S12 local tuning used 0.3; HPC has budget headroom)
+  max_few_shot_examples: 5     # = MO-CAPO kmax
+  pool_size: 50                # = Dshots; PAPER-SCALE: 100
+  use_rationale: false
+  shots_data: bbq
+
+# b = 30, z_max = 5 -> b * z_max = 150 = |Ddev| (invariant for small run).
+# PAPER-SCALE: z_max = 10 -> 30*10 = 300 = |Ddev|
+block_size: 30
+drop_last_block: false
+num_seed_blocks: 1
+
+budget:
+  # First-run: 1M RAW tokens (input + output), metered by the runner's
+  # token-denominated budget mode. PAPER-SCALE: 7.5M.
+  unit: tokens
+  max_budget: 1000000.0         # PAPER-SCALE: 7500000.0
+  allow_overspend: false
+
+evolutionary:
+  population_size: 10          # = MO-CAPO mu
+  max_iterations: 50           # paper runs to BUDGET (iter-limit 2000); high cap so budget governs
+  offspring_per_iteration: 4   # = MO-CAPO c
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  # Meta-LLM ON: CAPO §4 core prompt-rewriting operator (faithful to the paper).
+  # Enables the search to write NEW instruction text beyond the seed pool.
+  # Meta-LLM tokens are NOT metered against the budget (symmetric across all
+  # methods — same operator, same non-metering — so parity holds; document).
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+
+intensification:
+  max_blocks_per_challenger: 5    # = z_max for small run; PAPER-SCALE: 10
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: fairness_first
+    mode: fairness_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0

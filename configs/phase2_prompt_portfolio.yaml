@@ -1,0 +1,63 @@
+# Phase 2 prompt portfolio config
+# Reads real Phase 1 results and converts them into a HEAL-CAPO prompt portfolio.
+
+input_table: outputs/phase1_summary/final_phase1_subj_complete.csv
+
+output_dir: outputs/phase2_prompt_portfolio
+
+# Risk source options:
+#   test_error  -> risk = 1 - test_score
+#   dev_error   -> risk = 1 - dev_score
+#   score_gap   -> risk = abs(test_score - dev_score)
+risk_source: test_error
+
+# Fairness source options:
+#   placeholder      -> use default_fairness_risk for all prompts
+#   prompt_heuristic -> lower fairness risk for prompts with fairness/bias/demographic terms
+#   fairness_risk    -> use fairness_risk column if already present
+fairness_source: prompt_heuristic
+
+default_fairness_risk: 0.10
+
+deduplicate_prompts: true
+
+save_all_candidates: true
+
+# Recommendation source options:
+#   pareto -> recommend only from Pareto-optimal candidates
+#   all    -> recommend from all candidate prompts
+recommend_from: pareto
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+
+  - name: cost_first
+    mode: cost_first
+
+  - name: risk_first
+    mode: risk_first
+
+  - name: fairness_first
+    mode: fairness_first
+
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0
+
+  - name: cost_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 2.0
+    risk: 0.8
+    fairness: 0.8

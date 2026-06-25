@@ -1,0 +1,66 @@
+# Held-out Dtest of the fairness-OFF ABLATION's BBQ portfolio.
+#
+# Identical to configs/evaluate_pareto_bbq.yaml (same Dtest split, same held-out
+# fairness set, same max(|sAMB|,|sDIS|) scoring) EXCEPT the input portfolio and
+# the output dir. Running this gives the ablation a comparable held-out
+# inference-cost + fairness number, so all three methods (FairCAPO / ablation /
+# NSGA-II-PO) can be compared on the SAME held-out basis rather than FairCAPO
+# alone. Launch when LM Studio is up.
+experiment_name: evaluate_pareto_bbq_ablation_local
+
+portfolio_csv: outputs/mocapo_baseline_bbq_local/phase2_prompt_portfolio.csv
+
+output_dir: outputs/evaluation/bbq_ablation_local
+
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+# S12 paper-parity: 60->200 (must match evaluate_pareto_bbq.yaml for a fair held-out basis).
+test_size: 200
+stratified: false
+allow_smaller: true
+
+labels: []
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq_holdout.jsonl
+  eval_pairs: 36
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 3000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0

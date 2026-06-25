@@ -1,0 +1,165 @@
+# FairCAPO COST-WEIGHT ABLATION on BBQ: w_in=0, w_out=0 (both-zero).
+#
+# Identical to configs/phase2_budgeted_mocapo_bbq_local.yaml EXCEPT that the
+# cost input/output weights are both zero. This COLLAPSES the cost objective
+# entirely, effectively reducing FairCAPO to a 3-objective (perf, risk,
+# fairness_risk) optimizer — a natural ablation that answers the reviewer
+# question "does your cost objective actually do anything?" (MO-CAPO §6.2,
+# Table 5).
+#
+# Token metering for budget capping is unaffected (budget unit is "tokens",
+# not weighted cost), so the search budget is identical. Only the OPTIMIZED
+# objective vector changes — cost is still measured and logged but no longer
+# drives selection, intensification, or Pareto dominance.
+#
+# For the w_in=0-only and w_out=0-only variants (paper Table 5 rows), edit
+# the cost section below to zero only one weight at a time.
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+
+output_dir: outputs/phase2_budgeted_mocapo_bbq_wzero
+
+prompt_pool: configs/phase2_prompt_pool_bbq.yaml
+
+task_description: >
+  Each item gives a short context, a question, and three options (A, B, C), one
+  of which is an "unknown / cannot be determined" choice. When the context does
+  not provide enough information, the correct choice is the unknown option;
+  otherwise it is the option supported by the context. The answer is the option
+  letter, returned between the markers <final_answer>A</final_answer>.
+
+labels: []
+
+# Real BBQ dev split across the three demographic categories.
+dev:
+  dataset: bbq
+  dev_size: 36
+  shots_size: 2
+  test_size: 10
+  stratified: false
+  allow_smaller: true
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  # COST-WEIGHT ABLATION: both zero → cost is measured/logged but NOT an
+  # optimization objective. FairCAPO becomes a 3-obj (perf, risk, fairness)
+  # optimizer. Token metering (budget capping) is unaffected — budget is
+  # denominated in raw tokens (see budget.unit), not weighted cost.
+  input_weight: 0.0
+  output_weight: 0.0
+
+# Canonical BBQ bias-score fairness, in-loop. The items file is built once by
+# scripts/build_bbq_fairness_set.py (seeded, inspectable, disjoint from Dtest).
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  # Distill fairness_risk = max(|sAMB|, |sDIS|) so the objective stays
+  # discriminative: on mistral-24B |sAMB| saturates to ~0 (the model abstains
+  # correctly on ambiguous items), while real residual bias lives in sDIS.
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq.jsonl
+  eval_pairs: 12
+
+# Few-shot search = the accuracy/cost staircase lever. BBQ demos carry the full
+# context (long) so each added demo costs real input tokens.
+few_shot:
+  enabled: true
+  # S12 tuning: fewer/shorter few-shot demos so cheaper short/zero-shot prompts
+  # survive selection and populate the cost < 350 region (where NSGA-II-PO
+  # currently stands alone). BBQ demos carry the full long context, so each
+  # demo is expensive; halving them also lets more candidates fit the budget.
+  # S12 (paper-parity): paper k_max=5 and the accuracy/cost staircase is DRIVEN by
+  # varying few-shot count 0..k_max (A.8). Cutting to 1 flattened our own staircase;
+  # 3 is a cost-conscious compromise (BBQ demos carry long context). Let the cost
+  # objective penalize length rather than a hard cap. few_shot_probability stays 0.3.
+  few_shot_probability: 0.3
+  max_few_shot_examples: 3
+  pool_size: 20
+  use_rationale: false
+  shots_data: bbq
+
+# Ddev=36, block_size=6 -> 6 blocks; a fully intensified candidate sees all 36.
+block_size: 6
+drop_last_block: false
+num_seed_blocks: 1
+
+# Shared fair-comparison budget: 500k RAW TOKENS, identical across FairCAPO and
+# the fairness-OFF ablation (unit: tokens meters raw input+output tokens, not
+# weighted cost). Raised from 250k for the S12 tuning re-run: the wider search
+# (~48 candidate-gens at ~10.7k tok each ≈ 510k) needs the headroom, else the
+# budget binds at ~23 candidates and the population/iteration bump is inert.
+# NSGA-II-PO stays UNBUDGETED (its own config); the cost axis carries fairness.
+budget:
+  max_budget: 500000.0
+  unit: tokens
+  allow_overspend: false
+
+evolutionary:
+  # S12 tuning: wider/deeper search so FairCAPO can actually FIND a cheap
+  # perfect-fair point near NSGA's. Candidate-generations = population +
+  # max_iterations*offspring = 16 + 8*4 = 48 (was 8 + 5*3 = 23). NOTE: under the
+  # 250k-token cap the budget may bind before all 48 are evaluated; the few-shot
+  # cut above lowers per-candidate cost so more fit. Raise budget if it binds.
+  population_size: 16
+  max_iterations: 8
+  offspring_per_iteration: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  # S12: enable CAPO's core prompt-rewriting operator. With it OFF the search only
+  # recombined the 11 seed prompts + few-shot counts (a narrow instruction space) —
+  # likely why FairCAPO never reached NSGA's cheap perfect-fair point. ON, the
+  # meta-LLM writes NEW instruction text (faithful to MO-CAPO/CAPO §4). MUST match
+  # the NSGA + ablation configs so the comparison stays fair (no baseline handicap).
+  # CAVEAT: meta-LLM tokens are NOT charged to the budget (symmetric across all 3
+  # methods — same operator, same non-metering — so parity holds; document it).
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+
+intensification:
+  max_blocks_per_challenger: 6
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: fairness_first
+    mode: fairness_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0
+  - name: fairness_sensitive_balanced
+    mode: balanced
+    performance: 0.8
+    cost: 0.2
+    risk: 1.0
+    fairness: 2.0

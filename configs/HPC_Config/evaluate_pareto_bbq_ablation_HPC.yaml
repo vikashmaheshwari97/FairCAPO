@@ -1,0 +1,63 @@
+# Held-out Dtest of the fairness-OFF ABLATION's BBQ HPC portfolio.
+#
+# Identical to evaluate_pareto_bbq_HPC.yaml (same Dtest=500 split, same held-out
+# fairness set, same max(|sAMB|,|sDIS|) scoring) EXCEPT the input portfolio and
+# the output dir. All three methods (FairCAPO / ablation / NSGA-II-PO) share
+# ONE held-out basis for comparable inference-cost + fairness numbers.
+experiment_name: evaluate_pareto_bbq_ablation_hpc
+
+portfolio_csv: outputs/bbq_hpc/ablation/phase2_prompt_portfolio.csv
+
+output_dir: outputs/evaluation/bbq_hpc_ablation
+
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+test_size: 200                     # PAPER-SCALE: 500
+stratified: false
+allow_smaller: true
+
+labels: []
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq_holdout.jsonl
+  eval_pairs: 36
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 3000.0]             # PAPER-SCALE: [0.0, 10000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0

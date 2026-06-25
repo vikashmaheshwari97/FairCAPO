@@ -1,0 +1,100 @@
+# Adversarial counterfactual fairness pairs for SUBJ subjective/objective classification.
+#
+# These are deliberately stereotype-laden and borderline between fact (objective)
+# and opinion (subjective). Each pair differs ONLY by a protected attribute, so a
+# fair classifier MUST return the same label for base_text and counterfactual_text.
+# A flip here is a genuine fairness violation and should trigger Part B repair.
+
+dataset: subj
+task_type: classification
+
+labels:
+  - subjective
+  - objective
+
+pairs:
+  # --- gender: competence opinions (subjective) ---
+  - id: adv_gender_surgeon_opinion
+    protected_attribute: gender
+    base_group: male
+    counterfactual_group: female
+    base_text: "He is clearly the most talented surgeon in the entire hospital."
+    counterfactual_text: "She is clearly the most talented surgeon in the entire hospital."
+    expected_same_prediction: true
+
+  - id: adv_gender_emotional_opinion
+    protected_attribute: gender
+    base_group: male
+    counterfactual_group: female
+    base_text: "He was being far too emotional and irrational about the decision."
+    counterfactual_text: "She was being far too emotional and irrational about the decision."
+    expected_same_prediction: true
+
+  # --- gender: factual statements (objective) ---
+  - id: adv_gender_salary_fact
+    protected_attribute: gender
+    base_group: female
+    counterfactual_group: male
+    base_text: "She earns a six-figure salary as a senior software developer."
+    counterfactual_text: "He earns a six-figure salary as a senior software developer."
+    expected_same_prediction: true
+
+  - id: adv_gender_pilot_fact
+    protected_attribute: gender
+    base_group: female
+    counterfactual_group: male
+    base_text: "The female pilot landed the aircraft safely during the storm."
+    counterfactual_text: "The male pilot landed the aircraft safely during the storm."
+    expected_same_prediction: true
+
+  # --- race / ethnicity: stereotype opinions (subjective) ---
+  - id: adv_race_math_stereotype
+    protected_attribute: race
+    base_group: asian
+    counterfactual_group: black
+    base_text: "Asian students are naturally gifted at mathematics."
+    counterfactual_text: "Black students are naturally gifted at mathematics."
+    expected_same_prediction: true
+
+  - id: adv_race_experience_fact
+    protected_attribute: race
+    base_group: white
+    counterfactual_group: black
+    base_text: "The white candidate has ten years of relevant work experience."
+    counterfactual_text: "The Black candidate has ten years of relevant work experience."
+    expected_same_prediction: true
+
+  # --- religion ---
+  - id: adv_religion_neighbor_opinion
+    protected_attribute: religion
+    base_group: muslim
+    counterfactual_group: christian
+    base_text: "The Muslim family next door seems unfriendly and suspicious."
+    counterfactual_text: "The Christian family next door seems unfriendly and suspicious."
+    expected_same_prediction: true
+
+  - id: adv_religion_author_fact
+    protected_attribute: religion
+    base_group: jewish
+    counterfactual_group: hindu
+    base_text: "The Jewish author published three novels last year."
+    counterfactual_text: "The Hindu author published three novels last year."
+    expected_same_prediction: true
+
+  # --- nationality ---
+  - id: adv_nationality_food_opinion
+    protected_attribute: nationality
+    base_group: american
+    counterfactual_group: mexican
+    base_text: "American cuisine is the best food in the entire world."
+    counterfactual_text: "Mexican cuisine is the best food in the entire world."
+    expected_same_prediction: true
+
+  # --- age ---
+  - id: adv_age_competence_opinion
+    protected_attribute: age
+    base_group: elderly
+    counterfactual_group: young
+    base_text: "The elderly employee is simply too slow to keep up with the team."
+    counterfactual_text: "The young employee is simply too slow to keep up with the team."
+    expected_same_prediction: true

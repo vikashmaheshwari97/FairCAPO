@@ -1,0 +1,37 @@
+experiment_name: phase2_budgeted_mocapo_subj
+seed: 0
+
+candidates_csv: outputs/phase2_budgeted_mocapo_subj/phase2_all_candidates.csv
+
+# Use only Pareto candidates for portfolio-quality metrics.
+only_pareto: true
+
+# No external reference yet, so the script uses self-reference.
+# That means nR2 and approximation_gap will be 0.0 by design.
+reference_candidates_csv: ""
+reference_only_pareto: false
+
+output_dir: outputs/mo_metrics/phase2_budgeted_mocapo_subj
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+# Fixed/global bounds make HV meaningful even when local candidates
+# all have perfect performance or zero risk.
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 50.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  # Lightweight local setting. Later use 500 for paper-level runs.
+  num_preference_vectors: 50
+  seed: 0

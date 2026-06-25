@@ -1,0 +1,77 @@
+# Held-out Dtest of the FairCAPO BBQ portfolio on a real BBQ test split.
+#
+# Performance = BBQ accuracy on the held-out test items; fairness_risk = the
+# canonical BBQ bias score (|sAMB|) measured on a held-out fairness item set that
+# is DISJOINT from the in-loop one (build with:
+#   python scripts/build_bbq_fairness_set.py --out data/fairness_bbq_holdout.jsonl \
+#       --exclude data/fairness_bbq.jsonl --n-ambig 12 --n-disambig 6 --seed 7
+# ). Both sAMB and sDIS are logged per candidate.
+experiment_name: evaluate_pareto_bbq_local
+
+portfolio_csv: outputs/phase2_budgeted_mocapo_bbq_local/phase2_prompt_portfolio.csv
+
+output_dir: outputs/evaluation/bbq_mistral_local
+
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+# S12 paper-parity: paper D_test=500. Raised 60->200 (we have 13.7k BBQ rows). This
+# is OUTSIDE the search budget (held-out eval only), so it doesn't starve the search;
+# it fixes the accuracy/|sAMB| saturation that 60 items partly caused (S11 finding).
+test_size: 200
+stratified: false
+allow_smaller: true
+
+labels: []
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+# Canonical BBQ bias score at test time too, on a held-out (disjoint) item set,
+# so the Dtest fairness_risk is the SAME signal as the search-time objective.
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  # Same fairness definition as the search objective: max(|sAMB|, |sDIS|). This
+  # is the S12 fix that makes held-out fairness DISCRIMINATIVE again -- |sAMB|
+  # saturates to ~0 on held-out, but sDIS carries the real residual bias.
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq_holdout.jsonl
+  eval_pairs: 36
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+# HV/nR2 normalization bounds. The cost bound must contain the observed Dtest cost
+# range (BBQ contexts are long + few-shot demos + a 36-item fairness pass folded
+# in), so it is set generously; widen if a run exceeds it.
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 3000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  # Paper-parity: nR2 averaged over 500 uniform preference vectors (was 50).
+  num_preference_vectors: 500
+  seed: 0
