@@ -13,8 +13,8 @@
 # an iso-budget cap.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings are the HALF-SIZE SEED-0 HPC smoke scale
-# (Ddev=75, Dshots=25, Dtest=100). PAPER-SCALE values are
+# The ACTIVE settings are the 1M-token seed-0 Rocket scale
+# (Ddev=150, Dshots=50, Dtest=200). PAPER-SCALE values are
 # commented ("# PAPER-SCALE:"). See the
 # FairCAPO config for the full scale-switching instructions.
 #
@@ -29,7 +29,7 @@ dataset: bbq
 task_type: multiple_choice
 seed: 0
 
-output_dir: outputs/hpc/bbq_nsga2po/seed_0
+output_dir: outputs/hpc/bbq_nsga2po_1m/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -42,9 +42,9 @@ labels: []
 
 dev:
   dataset: bbq
-  dev_size: 75            # HALF-SIZE SMOKE; SMALL-RUN: 150; PAPER-SCALE: 300
-  shots_size: 25          # HALF-SIZE SMOKE; SMALL-RUN: 50; PAPER-SCALE: 100
-  test_size: 100          # HALF-SIZE SMOKE; SMALL-RUN: 200; PAPER-SCALE: 500
+  dev_size: 150           # 1M RUN; HALF-SIZE SMOKE: 75; PAPER-SCALE: 300
+  shots_size: 50          # 1M RUN; HALF-SIZE SMOKE: 25; PAPER-SCALE: 100
+  test_size: 200          # 1M RUN; HALF-SIZE SMOKE: 100; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -84,8 +84,8 @@ fairness:
 #   allow_overspend: false
 
 nsga2_po:
-  population_size: 16           # half-size smoke matches local tuning
-  max_generations: 5            # half-size smoke matches local tuning
+  population_size: 16           # 1M run matches FairCAPO seed-0 tuning
+  max_generations: 5            # 1M run; raise only after comparing seed 0
   offspring_per_generation: 4   # = MO-CAPO c
   crossover_probability: 1.0
   mutation_probability: 1.0

@@ -1,0 +1,58 @@
+# Stage A large-held-out Dtest for the completed Rocket MO-CAPO fairness-off
+# seed-0 portfolio.
+experiment_name: evaluate_pareto_bbq_ablation_large_hpc
+
+portfolio_csv: outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/evaluation_large/seed_0/bbq_ablation
+
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+test_size: 200
+stratified: false
+allow_smaller: true
+
+labels: []
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq_holdout_large.jsonl
+  eval_pairs: 180
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 6000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0

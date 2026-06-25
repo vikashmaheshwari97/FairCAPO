@@ -6,8 +6,8 @@
 # difference is that the canonical BBQ bias-score objective is removed.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings are the HALF-SIZE SEED-0 HPC smoke scale
-# (Ddev=75, Dshots=25, Dtest=100, budget=500k, z_max=5).
+# The ACTIVE settings are the 1M-token seed-0 Rocket scale
+# (Ddev=150, Dshots=50, Dtest=200, budget=1M, z_max=5).
 # PAPER-SCALE values are commented ("# PAPER-SCALE:").
 # See the FairCAPO config for the full scale-switching instructions.
 #
@@ -22,7 +22,7 @@ dataset: bbq
 task_type: multiple_choice
 seed: 0
 
-output_dir: outputs/hpc/bbq_ablation/seed_0
+output_dir: outputs/hpc/bbq_ablation_1m/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -37,9 +37,9 @@ labels: []
 
 dev:
   dataset: bbq
-  dev_size: 75            # HALF-SIZE SMOKE; SMALL-RUN: 150; PAPER-SCALE: 300
-  shots_size: 25          # HALF-SIZE SMOKE; SMALL-RUN: 50; PAPER-SCALE: 100
-  test_size: 100          # HALF-SIZE SMOKE; SMALL-RUN: 200; PAPER-SCALE: 500
+  dev_size: 150           # 1M RUN; HALF-SIZE SMOKE: 75; PAPER-SCALE: 300
+  shots_size: 50          # 1M RUN; HALF-SIZE SMOKE: 25; PAPER-SCALE: 100
+  test_size: 200          # 1M RUN; HALF-SIZE SMOKE: 100; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -72,18 +72,18 @@ few_shot:
   enabled: true
   few_shot_probability: 0.3
   max_few_shot_examples: 3
-  pool_size: 25                # = Dshots; SMALL-RUN: 50; PAPER-SCALE: 100
+  pool_size: 50                # = Dshots; HALF-SIZE SMOKE: 25; PAPER-SCALE: 100
   use_rationale: false
   shots_data: bbq
 
-block_size: 15
+block_size: 30
 drop_last_block: false
 num_seed_blocks: 1
 
 budget:
-  # First-run smoke: 500k tokens. PAPER-SCALE: 7500000.0
+  # 1M run: 1M tokens. HALF-SIZE SMOKE: 500k. PAPER-SCALE: 7500000.0
   unit: tokens
-  max_budget: 500000.0          # PAPER-SCALE: 7500000.0
+  max_budget: 1000000.0         # HALF-SIZE SMOKE: 500000.0; PAPER-SCALE: 7500000.0
   allow_overspend: false
 
 evolutionary:
@@ -99,7 +99,7 @@ evolutionary:
   advance_after_iteration: true
 
 intensification:
-  max_blocks_per_challenger: 5    # = z_max for half-size run; PAPER-SCALE: 10
+  max_blocks_per_challenger: 5    # = z_max for 1M run; PAPER-SCALE: 10
   reject_when_dominated: true
   accept_when_not_dominated_on_common_blocks: true
   add_rejected_to_population: true

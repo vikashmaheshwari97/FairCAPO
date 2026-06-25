@@ -1,6 +1,6 @@
 # Cross-method experiment comparison table — BBQ (fairness-varying showcase) HPC.
 #
-# Half-size seed-0 smoke scale: Ddev=75, Dshot=25, Dtest=100, budget=500k.
+# 1M-token seed-0 Rocket scale: Ddev=150, Dshot=50, Dtest=200, budget=1M.
 # For paper-scale (Ddev=300, Dtest=500, budget=7.5M), swap the bounds below
 # (cost: [0, 10000]) and re-run after the paper-scale searches complete.
 #
@@ -12,7 +12,7 @@
 # Columns: performance, cost, risk, fairness_risk, HV, nR2, portfolio_size, budget_used,
 #          HV_opt, HV_pes, Gap, holdout_inference_cost.
 
-output_dir: outputs/experiment_table/bbq_mistral_hpc_seed0
+output_dir: outputs/experiment_table/bbq_mistral_hpc_1m_seed0
 dataset: BBQ
 model: mistralai/mistral-small-3.2
 seed: 0
@@ -30,7 +30,7 @@ objectives:
 # Bounds for half-size smoke scale (Dtest=100). PAPER-SCALE: cost: [0.0, 10000.0]
 bounds:
   performance: [0.0, 1.0]
-  cost: [0.0, 3000.0]       # PAPER-SCALE: [0.0, 10000.0]
+  cost: [0.0, 6000.0]       # HALF-SIZE SMOKE: [0.0, 3000.0]; PAPER-SCALE: [0.0, 10000.0]
   risk: [0.0, 1.0]
   fairness_risk: [0.0, 1.0]
 
@@ -41,23 +41,23 @@ metrics:
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_faircapo/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_faircapo_1m/seed_0/phase2_all_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/bbq_faircapo/seed_0/budget_summary.json
-    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_faircapo_1m/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo_1m/test_eval_candidates.csv
 
   - name: MO-CAPO (fairness off)
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_ablation_1m/seed_0/phase2_all_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/bbq_ablation/seed_0/budget_summary.json
-    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_ablation/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_ablation_1m/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_ablation_1m/test_eval_candidates.csv
 
   - name: NSGA-II-PO + fairness
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_nsga2po_1m/seed_0/nsga2_po_all_candidates.csv
     only_pareto: true
-    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po/test_eval_candidates.csv
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po_1m/test_eval_candidates.csv
 
   # Post-hoc fairness baseline: MO-CAPO fairness-OFF front re-scored with the
   # canonical BBQ scorer on the HELD-OUT (disjoint) fairness set.

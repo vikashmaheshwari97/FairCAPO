@@ -4,9 +4,9 @@
 # bias-score fairness objective on top of MO-CAPO.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings below are a HALF-SIZE SEED-0 HPC smoke scale (validate the
-# pipeline without spending the full 1M-token run):
-#   Ddev = 75, Dshots = 25, Dtest = 100, budget = 500k tokens, z_max = 5.
+# The ACTIVE settings below are the 1M-token seed-0 Rocket scale, promoted after
+# the 500k smoke pipeline completed successfully:
+#   Ddev = 150, Dshots = 50, Dtest = 200, budget = 1M tokens, z_max = 5.
 # The PAPER-SCALE values are kept as commented-out lines right next to each
 # active setting (marked "# PAPER-SCALE:"). Once the small run validates,
 # swap each active line for its paper-scale comment and re-launch the full sweep:
@@ -47,7 +47,7 @@ dataset: bbq
 task_type: multiple_choice
 seed: 0   # HPC: sweep seeds 0,1,2 (SLURM array or sweep_seeds.sh) for paper variance bands
 
-output_dir: outputs/hpc/bbq_faircapo/seed_0
+output_dir: outputs/hpc/bbq_faircapo_1m/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -60,12 +60,12 @@ task_description: >
 
 labels: []
 
-# Data split (smaller first-run scale).
+# Data split (1M-token Rocket scale).
 dev:
   dataset: bbq
-  dev_size: 75            # HALF-SIZE SMOKE; SMALL-RUN: 150; PAPER-SCALE: 300
-  shots_size: 25          # HALF-SIZE SMOKE; SMALL-RUN: 50; PAPER-SCALE: 100
-  test_size: 100          # HALF-SIZE SMOKE; SMALL-RUN: 200; PAPER-SCALE: 500
+  dev_size: 150           # 1M RUN; HALF-SIZE SMOKE: 75; PAPER-SCALE: 300
+  shots_size: 50          # 1M RUN; HALF-SIZE SMOKE: 25; PAPER-SCALE: 100
+  test_size: 200          # 1M RUN; HALF-SIZE SMOKE: 100; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -101,21 +101,21 @@ few_shot:
   enabled: true
   few_shot_probability: 0.3    # smoke matches local tuning; PAPER-SCALE: 0.6
   max_few_shot_examples: 3     # smoke matches local tuning; PAPER-SCALE: 5
-  pool_size: 25                # = Dshots; SMALL-RUN: 50; PAPER-SCALE: 100
+  pool_size: 50                # = Dshots; HALF-SIZE SMOKE: 25; PAPER-SCALE: 100
   use_rationale: false
   shots_data: bbq
 
-# b = 15, z_max = 5 -> b * z_max = 75 = |Ddev| (invariant for half-size run).
+# b = 30, z_max = 5 -> b * z_max = 150 = |Ddev| (invariant for 1M run).
 # PAPER-SCALE: z_max = 10 -> 30*10 = 300 = |Ddev|
-block_size: 15
+block_size: 30
 drop_last_block: false
 num_seed_blocks: 1
 
 budget:
-  # First-run smoke: 500k RAW tokens (input + output), metered by the runner's
-  # token-denominated budget mode. PAPER-SCALE: 7.5M.
+  # 1M RAW tokens (input + output), metered by the runner's token-denominated
+  # budget mode. HALF-SIZE SMOKE: 500k. PAPER-SCALE: 7.5M.
   unit: tokens
-  max_budget: 500000.0          # PAPER-SCALE: 7500000.0
+  max_budget: 1000000.0         # HALF-SIZE SMOKE: 500000.0; PAPER-SCALE: 7500000.0
   allow_overspend: false
 
 evolutionary:
@@ -135,7 +135,7 @@ evolutionary:
   advance_after_iteration: true
 
 intensification:
-  max_blocks_per_challenger: 5    # = z_max for half-size run; PAPER-SCALE: 10
+  max_blocks_per_challenger: 5    # = z_max for 1M run; PAPER-SCALE: 10
   reject_when_dominated: true
   accept_when_not_dominated_on_common_blocks: true
   add_rejected_to_population: true

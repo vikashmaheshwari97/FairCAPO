@@ -17,6 +17,8 @@
 #
 # METHOD selects which portfolio/config pair to score:
 #   faircapo | ablation | nsga
+# Optional overrides:
+#   CONFIG=... PORTFOLIO_CSV=... OUT_DIR=...
 #
 # Default is seed 0 only for cost control. Submit with --array=0-2 after all
 # three search seeds exist.
@@ -33,25 +35,29 @@ SEED="${SLURM_ARRAY_TASK_ID:-0}"
 
 case "${METHOD}" in
   faircapo)
-    CONFIG="configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml"
-    PORTFOLIO_CSV="outputs/hpc/bbq_faircapo/seed_${SEED}/phase2_prompt_portfolio.csv"
-    OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_faircapo"
+    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_faircapo_1m/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_faircapo_1m"
     ;;
   ablation)
-    CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_HPC.yaml"
-    PORTFOLIO_CSV="outputs/hpc/bbq_ablation/seed_${SEED}/phase2_prompt_portfolio.csv"
-    OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_ablation"
+    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_HPC.yaml"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_ablation_1m/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_ablation_1m"
     ;;
   nsga)
-    CONFIG="configs/HPC_Config/evaluate_pareto_bbq_nsga_HPC.yaml"
-    PORTFOLIO_CSV="outputs/hpc/bbq_nsga2po/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
-    OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_nsga2po"
+    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_nsga_HPC.yaml"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_nsga2po_1m/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_nsga2po_1m"
     ;;
   *)
     echo "Unknown METHOD=${METHOD}; expected faircapo, ablation, or nsga." >&2
     exit 2
     ;;
 esac
+
+CONFIG="${CONFIG:-${DEFAULT_CONFIG}}"
+PORTFOLIO_CSV="${PORTFOLIO_CSV:-${DEFAULT_PORTFOLIO_CSV}}"
+OUT_DIR="${OUT_DIR:-${DEFAULT_OUT_DIR}}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"

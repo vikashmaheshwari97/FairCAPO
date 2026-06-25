@@ -1,0 +1,61 @@
+# Stage A large-held-out Dtest for the completed Rocket FairCAPO seed-0 portfolio.
+#
+# Purpose: test whether the FairCAPO-vs-NSGA held-out tie is a fairness
+# resolution artifact. This evaluates the existing 500k search output on a
+# larger disjoint BBQ fairness set; it does NOT rerun search.
+experiment_name: evaluate_pareto_bbq_large_hpc
+
+portfolio_csv: outputs/hpc/bbq_faircapo/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/evaluation_large/seed_0/bbq_faircapo
+
+dataset: bbq
+task_type: multiple_choice
+seed: 0
+test_size: 200
+stratified: false
+allow_smaller: true
+
+labels: []
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+fairness:
+  in_loop: true
+  mode: bbq_bias_score
+  bbq_score: max_amb_dis
+  fairness_data: data/fairness_bbq_holdout_large.jsonl
+  eval_pairs: 180
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 6000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0

@@ -6,14 +6,14 @@
 # ONE held-out basis for comparable inference-cost + fairness numbers.
 experiment_name: evaluate_pareto_bbq_nsga_hpc
 
-portfolio_csv: outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_pareto_portfolio.csv
+portfolio_csv: outputs/hpc/bbq_nsga2po_1m/seed_0/nsga2_po_pareto_portfolio.csv
 
-output_dir: outputs/hpc/evaluation/seed_0/bbq_nsga2po
+output_dir: outputs/hpc/evaluation/seed_0/bbq_nsga2po_1m
 
 dataset: bbq
 task_type: multiple_choice
 seed: 0
-test_size: 100                     # HALF-SIZE SMOKE; SMALL-RUN: 200; PAPER-SCALE: 500
+test_size: 200                     # 1M RUN; HALF-SIZE SMOKE: 100; PAPER-SCALE: 500
 stratified: false
 allow_smaller: true
 
@@ -28,7 +28,7 @@ fairness:
   mode: bbq_bias_score
   bbq_score: max_amb_dis
   fairness_data: data/fairness_bbq_holdout.jsonl
-  eval_pairs: 24                   # HALF-SIZE SMOKE; SMALL-RUN: 36; HIGH-RES: 180
+  eval_pairs: 36                   # 1M RUN; HALF-SIZE SMOKE: 24; HIGH-RES: 180
 
 llm:
   backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
@@ -56,7 +56,7 @@ objectives:
 
 bounds:
   performance: [0.0, 1.0]
-  cost: [0.0, 3000.0]             # PAPER-SCALE: [0.0, 10000.0]
+  cost: [0.0, 6000.0]             # HALF-SIZE SMOKE: [0.0, 3000.0]; PAPER-SCALE: [0.0, 10000.0]
   risk: [0.0, 1.0]
   fairness_risk: [0.0, 1.0]
 
