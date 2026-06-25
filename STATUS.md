@@ -270,6 +270,9 @@ so all 3 methods share one held-out basis.
 
 - **Rocket/HPC:** do not use LM Studio. The SLURM wrappers start vLLM inside the allocated Pegasus2
   GPU job and export `FAIRCAPO_LLM_API_URL=http://127.0.0.1:<port>/v1`.
+- Mistral Small 3.2 loads as a Pixtral/multimodal architecture in vLLM. BBQ is text-only, so the
+  SLURM wrappers pass Mistral-format load flags and `--limit-mm-per-prompt '{"image":0}'` to avoid
+  the image processor startup path.
 - **Local-only fallback:** if running on the laptop, keep LM Studio loaded the whole run. Confirm:
   `curl http://localhost:1234/v1/models`.
 - **Local-only sleep guard:** `MSYS_NO_PATHCONV=1 powercfg /change standby-timeout-ac 0` (long laptop

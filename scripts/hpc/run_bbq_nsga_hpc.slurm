@@ -28,6 +28,7 @@ OUT_DIR="outputs/hpc/${RUN_TAG}/seed_${SEED}"
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"
 SERVER_PORT="${SERVER_PORT:-$((13000 + (${SLURM_JOB_ID:-0} % 1000) + SEED))}"
+VLLM_LIMIT_MM_IMAGE="${VLLM_LIMIT_MM_IMAGE:-0}"
 
 mkdir -p "$(dirname "$OUT_DIR")" outputs/hpc/logs
 
@@ -72,6 +73,12 @@ python -m vllm.entrypoints.openai.api_server \
   --served-model-name "${SERVED_MODEL_NAME}" \
   --host 127.0.0.1 \
   --port "${SERVER_PORT}" \
+  --tokenizer-mode mistral \
+  --config-format mistral \
+  --load-format mistral \
+  --tool-call-parser mistral \
+  --enable-auto-tool-choice \
+  --limit-mm-per-prompt "{\"image\":${VLLM_LIMIT_MM_IMAGE}}" \
   --max-model-len 8192 \
   --dtype auto \
   --gpu-memory-utilization 0.90 \
@@ -80,6 +87,11 @@ python -m vllm.entrypoints.openai.api_server \
 SERVER_PID=$!
 
 until curl -sf "${FAIRCAPO_LLM_API_URL}/models" >/dev/null; do
+  if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+    echo "vLLM exited before becoming ready. Check this job's .err log above." >&2
+    wait "${SERVER_PID}" || true
+    exit 4
+  fi
   echo "Waiting for vLLM at ${FAIRCAPO_LLM_API_URL} ..."
   sleep 10
 done
