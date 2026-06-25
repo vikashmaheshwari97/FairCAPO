@@ -97,6 +97,7 @@ python -m vllm.entrypoints.openai.api_server \
   --limit-mm-per-prompt "{\"image\":${VLLM_LIMIT_MM_IMAGE}}" \
   --max-model-len 8192 \
   --dtype auto \
+  --enforce-eager \
   --gpu-memory-utilization 0.90 \
   --max-num-seqs 4 &
 

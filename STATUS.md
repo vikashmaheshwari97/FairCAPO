@@ -274,6 +274,8 @@ so all 3 methods share one held-out basis.
 - Mistral Small 3.2 loads as a Pixtral/multimodal architecture in vLLM. BBQ is text-only, so the
   SLURM wrappers pass Mistral-format load flags and `--limit-mm-per-prompt '{"image":0}'` to avoid
   the image processor startup path.
+- vLLM eager mode is enabled on Rocket (`--enforce-eager`) because job `66935498` reached 45.6GB
+  VRAM allocated by `VLLM::EngineCore` but stalled before `/v1/models` became ready.
 - Active seed-0 smoke scale is half of the prior 1M run: Ddev=75, Dshots=25, Dtest=100,
   budget=500k tokens. Raise only after the Rocket pipeline is stable.
 - **Local-only fallback:** if running on the laptop, keep LM Studio loaded the whole run. Confirm:
