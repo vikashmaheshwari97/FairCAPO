@@ -211,46 +211,40 @@ so all 3 methods share one held-out basis.
 > **Integrity guardrail:** never handicap the baseline (no lowering NSGA accuracy / inflating its cost).
 > Only legitimate moves: make the comparison genuinely FAIR, or genuinely IMPROVE FairCAPO.
 
-1. **▶️ Run the Rocket seed-0 FairCAPO smoke first.** Pull the latest GitHub export on Rocket, then run
-   only seed 0. The active files are `configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml` and
-   `scripts/hpc/run_bbq_hpc.slurm`. The SLURM job starts vLLM itself; do **not** start LM Studio on
-   Rocket. Command:
-   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm`
-2. **Watch logs before spending more GPU time.** Expected logs:
-   `outputs/hpc/logs/bbq-faircapo_<JOBID>_seed0.out` and
-   `outputs/hpc/logs/bbq-faircapo_<JOBID>_seed0.err`. A healthy run should show vLLM startup,
-   `vLLM ready`, then a long quiet optimization phase. Expected output dir:
-   `outputs/hpc/bbq_faircapo/seed_0/`.
-3. **Inspect seed-0 FairCAPO outputs.** Check for `budget_summary.json`,
-   `phase2_all_candidates.csv`, `phase2_prompt_portfolio.csv`, and
-   `budgeted_mocapo_events.csv`. If seed 0 fails due to model download, HF auth, vLLM install, or
-   module issues, fix that before launching any baseline.
-4. **Only after FairCAPO seed 0 succeeds, run the seed-0 held-out eval for FairCAPO.** Command:
-   `sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm`.
-   Output: `outputs/hpc/evaluation/seed_0/bbq_faircapo/`.
-5. **Then run seed-0 baselines, one at a time.** First fairness-OFF ablation:
-   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm`.
-   Then NSGA-II-PO:
+1. **✅ Rocket 500k seed-0 pipeline completed.** FairCAPO, MO-CAPO fairness-off, and NSGA-II-PO
+   searches and held-out evals all completed on Pegasus2. Held-out HV: FairCAPO ≈ NSGA ≫
+   fairness-off ablation. Treat this as a successful systems smoke plus an unresolved FairCAPO-vs-NSGA
+   tie, not a final paper result.
+2. **▶️ Stage A large-held-out diagnostic is now unpaused.** Run the completed 500k seed-0 portfolios
+   against `data/fairness_bbq_holdout_large.jsonl` using:
+   `configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml`,
+   `configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml`, and
+   `configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml`. These write to
+   `outputs/hpc/evaluation_large/seed_0/...`.
+3. **▶️ Next search scale is 1M, not 500k.** Active Rocket configs now use Ddev=150, Dshots=50,
+   Dtest=200, budget=1M, block_size=30, z_max=5, and write to `_1m` output dirs:
+   `outputs/hpc/bbq_faircapo_1m/seed_0`,
+   `outputs/hpc/bbq_ablation_1m/seed_0`, and
+   `outputs/hpc/bbq_nsga2po_1m/seed_0`.
+4. **Run 1M FairCAPO seed 0 first.** Command:
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm`.
+   Inspect logs/output before launching baselines.
+5. **If 1M FairCAPO succeeds, run 1M baselines one at a time.** Ablation:
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_1m scripts/hpc/run_bbq_hpc.slurm`.
+   NSGA-II-PO:
    `sbatch --array=0 scripts/hpc/run_bbq_nsga_hpc.slurm`.
-   Evaluate each only after its search output exists:
-   `sbatch --array=0 --export=ALL,METHOD=ablation scripts/hpc/run_bbq_eval_hpc.slurm`
-   and `sbatch --array=0 --export=ALL,METHOD=nsga scripts/hpc/run_bbq_eval_hpc.slurm`.
-6. **Build seed-0 tables after all three seed-0 evals exist.** Use
+6. **Evaluate 1M seed 0 after each search exists.** Standard eval wrapper now defaults to `_1m` paths:
+   `sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm`,
+   then `METHOD=ablation`, then `METHOD=nsga`.
+7. **Build 1M seed-0 tables after all three 1M evals exist.** Use
    `configs/HPC_Config/experiment_table_bbq_HPC.yaml` and
-   `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`. Both now point to the Rocket
-   `outputs/hpc/.../seed_0` layout and aggregate only `seeds: [0]` by default.
-7. **Do not run three seeds yet.** The wrappers now default to `#SBATCH --array=0`. Run seeds 1 and 2
-   only after seed 0 proves the pipeline and result quality. Later command pattern:
-   `sbatch --array=0-2 ...`. After all three seeds complete, change
-   `aggregate_multiseed_bbq_HPC.yaml` from `seeds: [0]` to `seeds: [0, 1, 2]`.
-8. **Stage A large-held-out diagnostic is paused, not deleted.** The old local LM Studio diagnostic
-   was designed to test whether the FairCAPO-vs-NSGA seed-0 tie was a fairness-resolution artifact.
-   For now, prioritize getting the Rocket seed-0 pipeline working. Revisit the diagnostic only after
-   HPC seed-0 search/eval is stable.
-9. **Scale budget only after seed 0 is healthy.** The active HPC config is a half-size seed-0 smoke
-   scale: Ddev=75, Dshots=25, Dtest=100, budget=500k tokens, z_max=5. The prior 1M small-run scale
-   was Ddev=150, Dshots=50, Dtest=200. Paper-scale is still commented in the configs: Ddev=300,
-   Dshots=100, Dtest=500, budget=7.5M tokens, z_max=10.
+   `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`; both point to `_1m` output dirs and
+   aggregate only `seeds: [0]`.
+8. **Do not run seeds 1 and 2 yet.** Run `--array=0-2` only after Stage A and the 1M seed-0 pipeline
+   clarify whether the tie is measurement noise or a real algorithmic tie.
+9. **Improvement path if the tie remains real:** improve FairCAPO directly, not by handicapping NSGA:
+   increase final intensification depth/budget, improve fairness-specific prompt mutation/crossover
+   operators, or move to the second fairness dataset.
 10. **Then Bias-in-Bios = second fairness dataset.** This remains a later research step: occupation
    classification, gender groups, `group_accuracy_gap`/`equal_opportunity`, and a new loader/config
    path. Do not start it until BBQ Rocket execution is settled.
@@ -276,8 +270,8 @@ so all 3 methods share one held-out basis.
   the image processor startup path.
 - vLLM eager mode is enabled on Rocket (`--enforce-eager`) because job `66935498` reached 45.6GB
   VRAM allocated by `VLLM::EngineCore` but stalled before `/v1/models` became ready.
-- Active seed-0 smoke scale is half of the prior 1M run: Ddev=75, Dshots=25, Dtest=100,
-  budget=500k tokens. Raise only after the Rocket pipeline is stable.
+- Active Rocket search scale is now the 1M seed-0 scale: Ddev=150, Dshots=50, Dtest=200,
+  budget=1M tokens. The completed 500k smoke outputs are preserved in non-`_1m` folders.
 - **Local-only fallback:** if running on the laptop, keep LM Studio loaded the whole run. Confirm:
   `curl http://localhost:1234/v1/models`.
 - **Local-only sleep guard:** `MSYS_NO_PATHCONV=1 powercfg /change standby-timeout-ac 0` (long laptop
