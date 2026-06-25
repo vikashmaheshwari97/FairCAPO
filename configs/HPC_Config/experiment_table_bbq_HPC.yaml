@@ -1,6 +1,6 @@
 # Cross-method experiment comparison table — BBQ (fairness-varying showcase) HPC.
 #
-# First-run smoke scale: Ddev=36, Dshot=2, Dtest=10, budget=500k.
+# Half-size seed-0 smoke scale: Ddev=75, Dshot=25, Dtest=100, budget=500k.
 # For paper-scale (Ddev=300, Dtest=500, budget=7.5M), swap the bounds below
 # (cost: [0, 10000]) and re-run after the paper-scale searches complete.
 #
@@ -27,7 +27,7 @@ objectives:
   - name: fairness_risk
     direction: minimize
 
-# Bounds for first-run smoke scale (Dtest=10). PAPER-SCALE: cost: [0.0, 10000.0]
+# Bounds for half-size smoke scale (Dtest=100). PAPER-SCALE: cost: [0.0, 10000.0]
 bounds:
   performance: [0.0, 1.0]
   cost: [0.0, 3000.0]       # PAPER-SCALE: [0.0, 10000.0]

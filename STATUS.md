@@ -247,9 +247,10 @@ so all 3 methods share one held-out basis.
    was designed to test whether the FairCAPO-vs-NSGA seed-0 tie was a fairness-resolution artifact.
    For now, prioritize getting the Rocket seed-0 pipeline working. Revisit the diagnostic only after
    HPC seed-0 search/eval is stable.
-9. **Scale budget only after seed 0 is healthy.** The active HPC config is the cheap seed-0 smoke scale:
-   Ddev=36, Dshots=2, Dtest=10, budget=500k tokens, z_max=6. Paper-scale is still commented in the
-   configs: Ddev=300, Dshots=100, Dtest=500, budget=7.5M tokens, z_max=10.
+9. **Scale budget only after seed 0 is healthy.** The active HPC config is a half-size seed-0 smoke
+   scale: Ddev=75, Dshots=25, Dtest=100, budget=500k tokens, z_max=5. The prior 1M small-run scale
+   was Ddev=150, Dshots=50, Dtest=200. Paper-scale is still commented in the configs: Ddev=300,
+   Dshots=100, Dtest=500, budget=7.5M tokens, z_max=10.
 10. **Then Bias-in-Bios = second fairness dataset.** This remains a later research step: occupation
    classification, gender groups, `group_accuracy_gap`/`equal_opportunity`, and a new loader/config
    path. Do not start it until BBQ Rocket execution is settled.
@@ -273,8 +274,8 @@ so all 3 methods share one held-out basis.
 - Mistral Small 3.2 loads as a Pixtral/multimodal architecture in vLLM. BBQ is text-only, so the
   SLURM wrappers pass Mistral-format load flags and `--limit-mm-per-prompt '{"image":0}'` to avoid
   the image processor startup path.
-- Active seed-0 smoke scale is intentionally cheap: Ddev=36, Dshots=2, Dtest=10, budget=500k tokens.
-  Raise only after the Rocket pipeline is stable.
+- Active seed-0 smoke scale is half of the prior 1M run: Ddev=75, Dshots=25, Dtest=100,
+  budget=500k tokens. Raise only after the Rocket pipeline is stable.
 - **Local-only fallback:** if running on the laptop, keep LM Studio loaded the whole run. Confirm:
   `curl http://localhost:1234/v1/models`.
 - **Local-only sleep guard:** `MSYS_NO_PATHCONV=1 powercfg /change standby-timeout-ac 0` (long laptop

@@ -4,9 +4,9 @@
 # bias-score fairness objective on top of MO-CAPO.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings below are a CHEAP SEED-0 SMOKE scale matching the local
-# validation profile (validate the HPC pipeline before spending GPU-hours):
-#   Ddev = 36, Dshots = 2, Dtest = 10, budget = 500k tokens, z_max = 6.
+# The ACTIVE settings below are a HALF-SIZE SEED-0 HPC smoke scale (validate the
+# pipeline without spending the full 1M-token run):
+#   Ddev = 75, Dshots = 25, Dtest = 100, budget = 500k tokens, z_max = 5.
 # The PAPER-SCALE values are kept as commented-out lines right next to each
 # active setting (marked "# PAPER-SCALE:"). Once the small run validates,
 # swap each active line for its paper-scale comment and re-launch the full sweep:
@@ -21,7 +21,8 @@
 #   Ddev = 300, Dshots = 100, Dtest = 500, budget = 7.5M tokens, 3 seeds
 #
 # IMPORTANT — keep the block invariant b * z_max = Ddev when changing scale:
-#   smoke run:  b=6,  z_max=6  -> 6*6   = 36  = Ddev
+#   half run:   b=15, z_max=5  -> 15*5  = 75  = Ddev
+#   small run:  b=30, z_max=5  -> 30*5  = 150 = Ddev
 #   paper run:  b=30, z_max=10 -> 30*10 = 300 = Ddev
 #
 # Budget is metered in RAW TOKENS (budget.unit: tokens). The cost OBJECTIVE
@@ -62,9 +63,9 @@ labels: []
 # Data split (smaller first-run scale).
 dev:
   dataset: bbq
-  dev_size: 36            # FIRST-RUN SMOKE; PAPER-SCALE: 300
-  shots_size: 2           # FIRST-RUN SMOKE; PAPER-SCALE: 100
-  test_size: 10           # FIRST-RUN SMOKE; PAPER-SCALE: 500
+  dev_size: 75            # HALF-SIZE SMOKE; SMALL-RUN: 150; PAPER-SCALE: 300
+  shots_size: 25          # HALF-SIZE SMOKE; SMALL-RUN: 50; PAPER-SCALE: 100
+  test_size: 100          # HALF-SIZE SMOKE; SMALL-RUN: 200; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -100,13 +101,13 @@ few_shot:
   enabled: true
   few_shot_probability: 0.3    # smoke matches local tuning; PAPER-SCALE: 0.6
   max_few_shot_examples: 3     # smoke matches local tuning; PAPER-SCALE: 5
-  pool_size: 20                # smoke matches local tuning; PAPER-SCALE: 100
+  pool_size: 25                # = Dshots; SMALL-RUN: 50; PAPER-SCALE: 100
   use_rationale: false
   shots_data: bbq
 
-# b = 6, z_max = 6 -> b * z_max = 36 = |Ddev| (invariant for smoke run).
+# b = 15, z_max = 5 -> b * z_max = 75 = |Ddev| (invariant for half-size run).
 # PAPER-SCALE: z_max = 10 -> 30*10 = 300 = |Ddev|
-block_size: 6
+block_size: 15
 drop_last_block: false
 num_seed_blocks: 1
 
@@ -118,8 +119,8 @@ budget:
   allow_overspend: false
 
 evolutionary:
-  population_size: 16          # smoke matches local tuning; PAPER-SCALE/MO-CAPO mu: 10
-  max_iterations: 8            # smoke matches local tuning; paper-scale can raise this
+  population_size: 16          # half-size smoke matches local tuning; PAPER-SCALE/MO-CAPO mu: 10
+  max_iterations: 8            # half-size smoke matches local tuning; paper-scale can raise this
   offspring_per_iteration: 4   # = MO-CAPO c
   crossover_probability: 1.0
   mutation_probability: 1.0
@@ -134,7 +135,7 @@ evolutionary:
   advance_after_iteration: true
 
 intensification:
-  max_blocks_per_challenger: 6    # = z_max for smoke run; PAPER-SCALE: 10
+  max_blocks_per_challenger: 5    # = z_max for half-size run; PAPER-SCALE: 10
   reject_when_dominated: true
   accept_when_not_dominated_on_common_blocks: true
   add_rejected_to_population: true

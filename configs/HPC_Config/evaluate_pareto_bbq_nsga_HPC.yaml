@@ -1,6 +1,6 @@
 # Held-out Dtest of the NSGA-II-PO + fairness baseline's BBQ HPC portfolio.
 #
-# Identical to evaluate_pareto_bbq_HPC.yaml (same active Dtest=10 split, same held-out
+# Identical to evaluate_pareto_bbq_HPC.yaml (same active Dtest=100 split, same held-out
 # fairness set, same max(|sAMB|,|sDIS|) scoring) EXCEPT the input portfolio and
 # the output dir. All three methods (FairCAPO / ablation / NSGA-II-PO) share
 # ONE held-out basis for comparable inference-cost + fairness numbers.
@@ -13,7 +13,7 @@ output_dir: outputs/hpc/evaluation/seed_0/bbq_nsga2po
 dataset: bbq
 task_type: multiple_choice
 seed: 0
-test_size: 10                      # FIRST-RUN SMOKE; PAPER-SCALE: 500
+test_size: 100                     # HALF-SIZE SMOKE; SMALL-RUN: 200; PAPER-SCALE: 500
 stratified: false
 allow_smaller: true
 
@@ -28,7 +28,7 @@ fairness:
   mode: bbq_bias_score
   bbq_score: max_amb_dis
   fairness_data: data/fairness_bbq_holdout.jsonl
-  eval_pairs: 12                   # FIRST-RUN SMOKE; PAPER-SCALE/HIGH-RES: 36+
+  eval_pairs: 24                   # HALF-SIZE SMOKE; SMALL-RUN: 36; HIGH-RES: 180
 
 llm:
   backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
