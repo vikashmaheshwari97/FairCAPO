@@ -33,11 +33,15 @@
 # stays discriminative on held-out data (|sAMB| saturates when mistral
 # abstains correctly on ambiguous items; real residual bias lives in sDIS).
 #
-# To run on HPC:
-#   1. Start the inference server (see docs/hpc_lm_studio_hosting.md)
-#   2. Single seed:   sbatch --export=CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
-#   3. Seed sweep:    sbatch scripts/hpc/run_bbq_hpc.slurm  (uses SLURM_ARRAY_TASK_ID)
-#   4. Or interactive: bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml bbq_faircapo 0 1 2
+# To run on UT Rocket/Pegasus2:
+#   The SLURM wrapper starts a local vLLM OpenAI-compatible server inside the
+#   allocated GPU job and overrides llm.api_url via FAIRCAPO_LLM_API_URL.
+#   You do not need to start LM Studio manually for scripts/hpc/run_bbq_hpc.slurm.
+#
+#   Single seed smoke:
+#     sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
+#   Seed sweep:
+#     sbatch --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
 dataset: bbq
 task_type: multiple_choice
 seed: 0   # HPC: sweep seeds 0,1,2 (SLURM array or sweep_seeds.sh) for paper variance bands
@@ -67,9 +71,8 @@ dev:
 llm:
   backend: lmstudio
   model_id: mistralai/mistral-small-3.2
-  #>>> SITE-SPECIFIC: change to your inference server host:port.
-  # The server must be running BEFORE you submit the job.
-  # See docs/hpc_lm_studio_hosting.md for setup instructions.
+  # Default for manual/local OpenAI-compatible servers. On UT Rocket, the
+  # SLURM wrapper starts vLLM and overrides this with FAIRCAPO_LLM_API_URL.
   api_url: http://localhost:1234/v1
   temperature: 0.0
   num_predict: 96
