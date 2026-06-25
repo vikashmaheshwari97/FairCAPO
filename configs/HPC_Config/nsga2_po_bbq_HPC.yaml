@@ -13,8 +13,9 @@
 # an iso-budget cap.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings are the SMALLER FIRST-RUN scale (Ddev=150, Dshots=50,
-# Dtest=200). PAPER-SCALE values are commented ("# PAPER-SCALE:"). See the
+# The ACTIVE settings are the CHEAP SEED-0 SMOKE scale matching the local
+# validation profile (Ddev=36, Dshots=2, Dtest=10). PAPER-SCALE values are
+# commented ("# PAPER-SCALE:"). See the
 # FairCAPO config for the full scale-switching instructions.
 #
 # To run on UT Rocket/Pegasus2:
@@ -41,9 +42,9 @@ labels: []
 
 dev:
   dataset: bbq
-  dev_size: 150           # PAPER-SCALE: 300
-  shots_size: 50          # PAPER-SCALE: 100
-  test_size: 200          # PAPER-SCALE: 500
+  dev_size: 36            # FIRST-RUN SMOKE; PAPER-SCALE: 300
+  shots_size: 2           # FIRST-RUN SMOKE; PAPER-SCALE: 100
+  test_size: 10           # FIRST-RUN SMOKE; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -83,8 +84,8 @@ fairness:
 #   allow_overspend: false
 
 nsga2_po:
-  population_size: 10           # = MO-CAPO mu
-  max_generations: 50           # high cap; let the search converge naturally
+  population_size: 16           # smoke matches local tuning
+  max_generations: 5            # smoke matches local tuning
   offspring_per_generation: 4   # = MO-CAPO c
   crossover_probability: 1.0
   mutation_probability: 1.0

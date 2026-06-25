@@ -6,8 +6,9 @@
 # difference is that the canonical BBQ bias-score objective is removed.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings are the SMALLER FIRST-RUN scale (Ddev=150, Dshots=50,
-# Dtest=200, budget=1M, z_max=5). PAPER-SCALE values are commented ("# PAPER-SCALE:").
+# The ACTIVE settings are the CHEAP SEED-0 SMOKE scale matching the local
+# validation profile (Ddev=36, Dshots=2, Dtest=10, budget=500k, z_max=6).
+# PAPER-SCALE values are commented ("# PAPER-SCALE:").
 # See the FairCAPO config for the full scale-switching instructions.
 #
 # To run on UT Rocket/Pegasus2:
@@ -36,9 +37,9 @@ labels: []
 
 dev:
   dataset: bbq
-  dev_size: 150           # PAPER-SCALE: 300
-  shots_size: 50          # PAPER-SCALE: 100
-  test_size: 200          # PAPER-SCALE: 500
+  dev_size: 36            # FIRST-RUN SMOKE; PAPER-SCALE: 300
+  shots_size: 2           # FIRST-RUN SMOKE; PAPER-SCALE: 100
+  test_size: 10           # FIRST-RUN SMOKE; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -69,25 +70,25 @@ fairness:
 
 few_shot:
   enabled: true
-  few_shot_probability: 0.6
-  max_few_shot_examples: 5
-  pool_size: 50                # = Dshots; PAPER-SCALE: 100
+  few_shot_probability: 0.3
+  max_few_shot_examples: 3
+  pool_size: 20                # FIRST-RUN SMOKE; PAPER-SCALE: 100
   use_rationale: false
   shots_data: bbq
 
-block_size: 30
+block_size: 6
 drop_last_block: false
 num_seed_blocks: 1
 
 budget:
-  # First-run: 1M tokens. PAPER-SCALE: 7500000.0
+  # First-run smoke: 500k tokens. PAPER-SCALE: 7500000.0
   unit: tokens
-  max_budget: 1000000.0         # PAPER-SCALE: 7500000.0
+  max_budget: 500000.0          # PAPER-SCALE: 7500000.0
   allow_overspend: false
 
 evolutionary:
-  population_size: 10
-  max_iterations: 50
+  population_size: 16
+  max_iterations: 8
   offspring_per_iteration: 4
   crossover_probability: 1.0
   mutation_probability: 1.0
@@ -98,7 +99,7 @@ evolutionary:
   advance_after_iteration: true
 
 intensification:
-  max_blocks_per_challenger: 5    # = z_max for small run; PAPER-SCALE: 10
+  max_blocks_per_challenger: 6    # = z_max for smoke run; PAPER-SCALE: 10
   reject_when_dominated: true
   accept_when_not_dominated_on_common_blocks: true
   add_rejected_to_population: true

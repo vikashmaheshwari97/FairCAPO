@@ -1,6 +1,6 @@
 # Held-out Dtest of the FairCAPO BBQ HPC portfolio.
 #
-# >>> TWO SCALES: the ACTIVE test_size=200 matches the smaller first-run search
+# >>> TWO SCALES: the ACTIVE test_size=10 is the cheap seed-0 smoke eval
 # (configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml). For paper-scale,
 # change to test_size=500 and widen the cost bounds.
 #
@@ -22,7 +22,7 @@ output_dir: outputs/hpc/evaluation/seed_0/bbq_faircapo
 dataset: bbq
 task_type: multiple_choice
 seed: 0
-test_size: 200                     # PAPER-SCALE: 500
+test_size: 10                      # FIRST-RUN SMOKE; PAPER-SCALE: 500
 stratified: false
 allow_smaller: true
 
@@ -40,7 +40,7 @@ fairness:
   # max(|sAMB|, |sDIS|) — stays discriminative on held-out when |sAMB| saturates.
   bbq_score: max_amb_dis
   fairness_data: data/fairness_bbq_holdout.jsonl
-  eval_pairs: 36
+  eval_pairs: 12                   # FIRST-RUN SMOKE; PAPER-SCALE/HIGH-RES: 36+
 
 llm:
   backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
@@ -66,7 +66,7 @@ objectives:
   - name: fairness_risk
     direction: minimize
 
-# HV/nR2 normalization bounds. First-run scale with Dtest=200; widen for paper-scale.
+# HV/nR2 normalization bounds. First-run smoke uses Dtest=10; widen for paper-scale.
 # PAPER-SCALE: cost: [0.0, 10000.0]
 bounds:
   performance: [0.0, 1.0]
