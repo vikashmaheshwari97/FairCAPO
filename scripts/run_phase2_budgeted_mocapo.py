@@ -1831,21 +1831,44 @@ def run_budgeted_mocapo(
 
             previous_depth = depth
 
-            final_advance_decisions = advance_front_one_level(
-                incumbents=front,
-                portfolio=all_portfolio,
-                block_evaluator=block_evaluator,
-                budget_allocator=budget_allocator,
-                config=AdvanceIncumbentsConfig(
-                    random_seed=random_seed,
-                    update_pareto_archive=False,
-                ),
-                rng=rng,
-                max_blocks=max_blocks_per_challenger,
-                refresh_incumbents=lambda: front_candidates_from_portfolio(
-                    all_portfolio
-                ),
-            )
+            try:
+                final_advance_decisions = advance_front_one_level(
+                    incumbents=front,
+                    portfolio=all_portfolio,
+                    block_evaluator=block_evaluator,
+                    budget_allocator=budget_allocator,
+                    config=AdvanceIncumbentsConfig(
+                        random_seed=random_seed,
+                        update_pareto_archive=False,
+                    ),
+                    rng=rng,
+                    max_blocks=max_blocks_per_challenger,
+                    refresh_incumbents=lambda: front_candidates_from_portfolio(
+                        all_portfolio
+                    ),
+                )
+            except RuntimeError as exc:
+                if "Budget exhausted" not in str(exc):
+                    raise
+
+                event_rows.append(
+                    {
+                        "candidate_id": "",
+                        "method": "final_front_advance",
+                        "event_type": "budget_stop",
+                        "iteration": max_iterations + 1,
+                        "accepted": False,
+                        "rejected": True,
+                        "reason": (
+                            "Budget exhausted during final front advancement."
+                        ),
+                        "error": str(exc),
+                        "evaluated_blocks": "[]",
+                        "budget_used": budget_allocator.used_budget,
+                        "remaining_budget": budget_allocator.remaining_budget,
+                    }
+                )
+                break
 
             for advance_decision in final_advance_decisions:
                 event_rows.append(
