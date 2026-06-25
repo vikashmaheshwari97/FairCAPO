@@ -48,21 +48,31 @@ module purge || true
 module load cuda || true
 module load python || true
 
-if [ -d ".venv" ]; then
-  source .venv/bin/activate
-else
+LOCK_DIR=".venv_install.lock"
+until mkdir "${LOCK_DIR}" 2>/dev/null; do
+  echo "Waiting for another array task to finish .venv setup..."
+  sleep 10
+done
+trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true; kill ${SERVER_PID:-} 2>/dev/null || true' EXIT
+
+if [ ! -f ".venv/.faircapo_hpc_ready" ]; then
   python -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  python -m pip install -e .
+  if [ -d "third_party/promptolution" ]; then
+    python -m pip install -e third_party/promptolution
+  fi
+  python -m pip install \
+    "vllm>=0.8" "huggingface_hub>=0.24" \
+    pandas requests pyyaml numpy pydantic matplotlib altair streamlit
+  mkdir -p .venv
+  date > .venv/.faircapo_hpc_ready
+else
   source .venv/bin/activate
 fi
 
-python -m pip install --upgrade pip
-python -m pip install -e .
-if [ -d "third_party/promptolution" ]; then
-  python -m pip install -e third_party/promptolution
-fi
-python -m pip install \
-  "vllm>=0.8" "huggingface_hub>=0.24" \
-  pandas requests pyyaml numpy pydantic matplotlib altair streamlit
+rmdir "${LOCK_DIR}" 2>/dev/null || true
 
 export PYTHONPATH=.
 export HF_HOME="${HF_HOME:-$PWD/.hf_cache}"
@@ -81,7 +91,6 @@ python -m vllm.entrypoints.openai.api_server \
   --max-num-seqs 4 &
 
 SERVER_PID=$!
-trap 'kill ${SERVER_PID} 2>/dev/null || true' EXIT
 
 until curl -sf "${FAIRCAPO_LLM_API_URL}/models" >/dev/null; do
   echo "Waiting for vLLM at ${FAIRCAPO_LLM_API_URL} ..."
