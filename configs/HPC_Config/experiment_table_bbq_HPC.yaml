@@ -12,7 +12,7 @@
 # Columns: performance, cost, risk, fairness_risk, HV, nR2, portfolio_size, budget_used,
 #          HV_opt, HV_pes, Gap, holdout_inference_cost.
 
-output_dir: outputs/experiment_table/bbq_mistral_hpc
+output_dir: outputs/experiment_table/bbq_mistral_hpc_seed0
 dataset: BBQ
 model: mistralai/mistral-small-3.2
 seed: 0
@@ -41,28 +41,28 @@ metrics:
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/bbq_hpc/faircapo/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_faircapo/seed_0/phase2_all_candidates.csv
     only_pareto: true
-    budget_json: outputs/bbq_hpc/faircapo/budget_summary.json
-    holdout_csv: outputs/evaluation/bbq_hpc_faircapo/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_faircapo/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo/test_eval_candidates.csv
 
   - name: MO-CAPO (fairness off)
     type: pareto_set
-    candidates_csv: outputs/bbq_hpc/ablation/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_all_candidates.csv
     only_pareto: true
-    budget_json: outputs/bbq_hpc/ablation/budget_summary.json
-    holdout_csv: outputs/evaluation/bbq_hpc_ablation/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_ablation/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_ablation/test_eval_candidates.csv
 
   - name: NSGA-II-PO + fairness
     type: pareto_set
-    candidates_csv: outputs/bbq_hpc/nsga2_po/nsga2_po_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_all_candidates.csv
     only_pareto: true
-    holdout_csv: outputs/evaluation/bbq_hpc_nsga/test_eval_candidates.csv
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po/test_eval_candidates.csv
 
   # Post-hoc fairness baseline: MO-CAPO fairness-OFF front re-scored with the
   # canonical BBQ scorer on the HELD-OUT (disjoint) fairness set.
   # Uncomment after running scripts/measure_baseline_fairness.py on the HPC output.
   # - name: Post-hoc fair. (held-out)
   #   type: pareto_set
-  #   candidates_csv: outputs/bbq_hpc/ablation/phase2_prompt_portfolio_bbqfair.csv
+  #   candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair.csv
   #   only_pareto: true

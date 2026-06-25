@@ -4,11 +4,13 @@
 #   outputs/hpc/evaluation/seed_0/bbq_faircapo/
 #   outputs/hpc/evaluation/seed_0/bbq_ablation/
 #   outputs/hpc/evaluation/seed_0/bbq_nsga2po/
-#   ... same for seeds 1 and 2.
+#   ... same for seeds 1 and 2 after the later paper sweep.
 
 base: outputs/hpc/evaluation/seed_{seed}
-seeds: [0, 1, 2]
-output_dir: outputs/experiment_table/bbq_mistral_hpc_multiseed
+# Current cost-control default: aggregate only the seed-0 smoke run.
+# Change to [0, 1, 2] after all three seeds have completed.
+seeds: [0]
+output_dir: outputs/experiment_table/bbq_mistral_hpc_seed0
 
 methods:
   - name: FairCAPO

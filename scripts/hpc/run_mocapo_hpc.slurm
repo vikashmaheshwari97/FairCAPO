@@ -2,18 +2,25 @@
 #SBATCH --job-name=heal-capo-mocapo
 #SBATCH --output=outputs/hpc/logs/%x_%A_seed%a.out
 #SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
-#SBATCH --array=0-2                 # one task per seed -> seeds 0,1,2 (paper uses 3 seeds)
+#SBATCH --array=0                   # seed 0 smoke; use --array=0-2 later for paper sweep
 #SBATCH --gres=gpu:1                # mistral-small-3.2 (24B) fits on 1 large GPU; bump for 120B
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
 # ---------------------------------------------------------------------------
+# LEGACY SUBJ template, not the BBQ Rocket path.
+#
+# For the current BBQ Mistral 3.2 Small 24B run on UT Rocket, use:
+#   scripts/hpc/run_bbq_hpc.slurm
+#   scripts/hpc/run_bbq_nsga_hpc.slurm
+#   scripts/hpc/run_bbq_eval_hpc.slurm
+#
 # Paper-scale HEAL-CAPO (MO-CAPO + in-loop fairness) on SUBJ.
 # Runs ONE seed per array task (SLURM_ARRAY_TASK_ID), each into its own
 # output dir, so the three seeds run in parallel and never overwrite.
 #
 # ADAPT TO YOUR CLUSTER: the marked (#>>>) blocks are site-specific.
-# This job assumes an OpenAI-compatible inference server is reachable at the
+# This legacy job assumes an OpenAI-compatible inference server is reachable at the
 # api_url in the config (default http://localhost:1234/v1). The MO-CAPO authors
 # served local models with vLLM; an equivalent OpenAI-compatible endpoint works
 # because our llm.backend is "lmstudio" (OpenAI Chat Completions protocol).

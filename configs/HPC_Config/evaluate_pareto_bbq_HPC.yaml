@@ -15,9 +15,9 @@
 # and the SAME held-out fairness set so they are comparable on one held-out basis.
 experiment_name: evaluate_pareto_bbq_hpc
 
-portfolio_csv: outputs/bbq_hpc/faircapo/phase2_prompt_portfolio.csv
+portfolio_csv: outputs/hpc/bbq_faircapo/seed_0/phase2_prompt_portfolio.csv
 
-output_dir: outputs/evaluation/bbq_hpc_faircapo
+output_dir: outputs/hpc/evaluation/seed_0/bbq_faircapo
 
 dataset: bbq
 task_type: multiple_choice
@@ -43,8 +43,10 @@ fairness:
   eval_pairs: 36
 
 llm:
-  backend: lmstudio
+  backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
   model_id: mistralai/mistral-small-3.2
+  # Default for manual/local OpenAI-compatible servers. On UT Rocket, the
+  # SLURM wrapper starts vLLM and overrides this with FAIRCAPO_LLM_API_URL.
   api_url: http://localhost:1234/v1
   temperature: 0.0
   num_predict: 96

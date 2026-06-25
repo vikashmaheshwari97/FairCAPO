@@ -2,7 +2,7 @@
 #SBATCH --job-name=bbq-faircapo
 #SBATCH --output=outputs/hpc/logs/%x_%A_seed%a.out
 #SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
-#SBATCH --array=0-2
+#SBATCH --array=0
 #SBATCH --partition=gpu
 #SBATCH --nodelist=pegasus2
 #SBATCH --nodes=1
@@ -21,15 +21,18 @@
 #   - 1 GPU per task
 #   - 16 CPU cores per GPU
 #
-# One SLURM array task runs one seed. Each task starts its own local vLLM server
+# One SLURM array task runs one seed. The default is seed 0 only for cost
+# control; later submit with --array=0-2 for the three-seed paper sweep.
+# Each task starts its own local vLLM server
 # on a unique localhost port, then points the project LLM client at that port via
 # FAIRCAPO_LLM_API_URL. This avoids port collisions when several array tasks land
 # on the same 8-GPU pegasus2 node.
 #
 # Usage:
 #   sbatch scripts/hpc/run_bbq_hpc.slurm
-#   sbatch --array=0 --export=CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
-#   sbatch --export=CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm
+#   sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
+#   sbatch --array=0-2 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
+#   sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm
 
 set -euo pipefail
 

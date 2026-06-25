@@ -46,7 +46,7 @@ dataset: bbq
 task_type: multiple_choice
 seed: 0   # HPC: sweep seeds 0,1,2 (SLURM array or sweep_seeds.sh) for paper variance bands
 
-output_dir: outputs/bbq_hpc/faircapo
+output_dir: outputs/hpc/bbq_faircapo/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -69,7 +69,7 @@ dev:
   allow_smaller: true
 
 llm:
-  backend: lmstudio
+  backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
   model_id: mistralai/mistral-small-3.2
   # Default for manual/local OpenAI-compatible servers. On UT Rocket, the
   # SLURM wrapper starts vLLM and overrides this with FAIRCAPO_LLM_API_URL.

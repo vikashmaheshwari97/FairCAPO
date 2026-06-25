@@ -1,14 +1,14 @@
 # Held-out Dtest of the fairness-OFF ABLATION's BBQ HPC portfolio.
 #
-# Identical to evaluate_pareto_bbq_HPC.yaml (same Dtest=500 split, same held-out
+# Identical to evaluate_pareto_bbq_HPC.yaml (same active Dtest=200 split, same held-out
 # fairness set, same max(|sAMB|,|sDIS|) scoring) EXCEPT the input portfolio and
 # the output dir. All three methods (FairCAPO / ablation / NSGA-II-PO) share
 # ONE held-out basis for comparable inference-cost + fairness numbers.
 experiment_name: evaluate_pareto_bbq_ablation_hpc
 
-portfolio_csv: outputs/bbq_hpc/ablation/phase2_prompt_portfolio.csv
+portfolio_csv: outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio.csv
 
-output_dir: outputs/evaluation/bbq_hpc_ablation
+output_dir: outputs/hpc/evaluation/seed_0/bbq_ablation
 
 dataset: bbq
 task_type: multiple_choice
@@ -31,8 +31,10 @@ fairness:
   eval_pairs: 36
 
 llm:
-  backend: lmstudio
+  backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
   model_id: mistralai/mistral-small-3.2
+  # Default for manual/local OpenAI-compatible servers. On UT Rocket, the
+  # SLURM wrapper starts vLLM and overrides this with FAIRCAPO_LLM_API_URL.
   api_url: http://localhost:1234/v1
   temperature: 0.0
   num_predict: 96

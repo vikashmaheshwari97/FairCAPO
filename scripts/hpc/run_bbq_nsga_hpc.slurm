@@ -2,7 +2,7 @@
 #SBATCH --job-name=bbq-nsga2po
 #SBATCH --output=outputs/hpc/logs/%x_%A_seed%a.out
 #SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
-#SBATCH --array=0-2
+#SBATCH --array=0
 #SBATCH --partition=gpu
 #SBATCH --nodelist=pegasus2
 #SBATCH --nodes=1
@@ -15,7 +15,8 @@
 
 # NSGA-II-PO + fairness BBQ baseline on UT Rocket Pegasus 2.
 # Same vLLM-per-array-task pattern as run_bbq_hpc.slurm, but uses the NSGA
-# runner instead of the budgeted FairCAPO/MO-CAPO runner.
+# runner instead of the budgeted FairCAPO/MO-CAPO runner. Default is seed 0
+# only; submit with --array=0-2 later for the three-seed paper sweep.
 
 set -euo pipefail
 

@@ -3,23 +3,25 @@
 # Portable (non-SLURM) seed sweep for paper-scale FairCAPO / ablation on BBQ.
 # Runs the seeds SEQUENTIALLY into per-seed output dirs. Use on an interactive
 # HPC node or a workstation; for a real cluster prefer run_bbq_hpc.slurm
-# (which runs the seeds in parallel as a job array).
+# (which starts vLLM inside the SLURM job).
 #
 # Usage:
 #   bash scripts/hpc/sweep_seeds_bbq.sh [CONFIG] [RUN_TAG] [SEEDS...]
 # Examples:
 #   bash scripts/hpc/sweep_seeds_bbq.sh
+#   bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml bbq_faircapo 0
+#   bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml bbq_ablation 0
 #   bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml bbq_faircapo 0 1 2
-#   bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml bbq_ablation 0 1 2
 #
 # Assumes an OpenAI-compatible server is already up at the config's api_url.
+# This manual helper does not start vLLM for you.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 CONFIG="${1:-configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml}"
 RUN_TAG="${2:-bbq_faircapo}"
 shift 2 2>/dev/null || true
-SEEDS=("${@:-0 1 2}")
+SEEDS=("${@:-0}")
 # Normalize when SEEDS came through as a single "0 1 2" string.
 if [ "${#SEEDS[@]}" -eq 1 ]; then read -r -a SEEDS <<< "${SEEDS[0]}"; fi
 

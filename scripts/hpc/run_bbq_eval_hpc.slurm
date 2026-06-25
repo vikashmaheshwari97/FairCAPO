@@ -2,7 +2,7 @@
 #SBATCH --job-name=bbq-eval
 #SBATCH --output=outputs/hpc/logs/%x_%A_seed%a.out
 #SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
-#SBATCH --array=0-2
+#SBATCH --array=0
 #SBATCH --partition=gpu
 #SBATCH --nodelist=pegasus2
 #SBATCH --nodes=1
@@ -18,10 +18,13 @@
 # METHOD selects which portfolio/config pair to score:
 #   faircapo | ablation | nsga
 #
+# Default is seed 0 only for cost control. Submit with --array=0-2 after all
+# three search seeds exist.
+#
 # Usage:
-#   sbatch --export=METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm
-#   sbatch --export=METHOD=ablation scripts/hpc/run_bbq_eval_hpc.slurm
-#   sbatch --export=METHOD=nsga scripts/hpc/run_bbq_eval_hpc.slurm
+#   sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm
+#   sbatch --array=0 --export=ALL,METHOD=ablation scripts/hpc/run_bbq_eval_hpc.slurm
+#   sbatch --array=0 --export=ALL,METHOD=nsga scripts/hpc/run_bbq_eval_hpc.slurm
 
 set -euo pipefail
 

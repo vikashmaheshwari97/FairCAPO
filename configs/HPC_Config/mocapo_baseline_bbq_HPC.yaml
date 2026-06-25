@@ -10,15 +10,18 @@
 # Dtest=200, budget=1M, z_max=5). PAPER-SCALE values are commented ("# PAPER-SCALE:").
 # See the FairCAPO config for the full scale-switching instructions.
 #
-# To run on HPC:
-#   sbatch --export=CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm
-# Or interactive:
-#   bash scripts/hpc/sweep_seeds_bbq.sh configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml bbq_ablation 0 1 2
+# To run on UT Rocket/Pegasus2:
+#   The SLURM wrapper starts a local vLLM OpenAI-compatible server inside the
+#   allocated GPU job and overrides llm.api_url via FAIRCAPO_LLM_API_URL.
+#   Start with seed 0 only:
+#     sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm
+#   Later, for paper variance bands:
+#     sbatch --array=0-2 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation scripts/hpc/run_bbq_hpc.slurm
 dataset: bbq
 task_type: multiple_choice
 seed: 0
 
-output_dir: outputs/bbq_hpc/ablation
+output_dir: outputs/hpc/bbq_ablation/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -40,8 +43,10 @@ dev:
   allow_smaller: true
 
 llm:
-  backend: lmstudio
+  backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
   model_id: mistralai/mistral-small-3.2
+  # Default for manual/local OpenAI-compatible servers. On UT Rocket, the
+  # SLURM wrapper starts vLLM and overrides this with FAIRCAPO_LLM_API_URL.
   api_url: http://localhost:1234/v1
   temperature: 0.0
   num_predict: 96

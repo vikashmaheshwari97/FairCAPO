@@ -17,15 +17,18 @@
 # Dtest=200). PAPER-SCALE values are commented ("# PAPER-SCALE:"). See the
 # FairCAPO config for the full scale-switching instructions.
 #
-# To run on HPC:
-#   sbatch scripts/hpc/run_bbq_nsga_hpc.slurm
-# Or interactive:
-#   bash scripts/hpc/sweep_seeds_nsga.sh configs/HPC_Config/nsga2_po_bbq_HPC.yaml bbq_nsga2po 0 1 2
+# To run on UT Rocket/Pegasus2:
+#   The SLURM wrapper starts a local vLLM OpenAI-compatible server inside the
+#   allocated GPU job and overrides llm.api_url via FAIRCAPO_LLM_API_URL.
+#   Start with seed 0 only:
+#     sbatch --array=0 scripts/hpc/run_bbq_nsga_hpc.slurm
+#   Later, for paper variance bands:
+#     sbatch --array=0-2 scripts/hpc/run_bbq_nsga_hpc.slurm
 dataset: bbq
 task_type: multiple_choice
 seed: 0
 
-output_dir: outputs/bbq_hpc/nsga2_po
+output_dir: outputs/hpc/bbq_nsga2po/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -45,8 +48,10 @@ dev:
   allow_smaller: true
 
 llm:
-  backend: lmstudio
+  backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
   model_id: mistralai/mistral-small-3.2
+  # Default for manual/local OpenAI-compatible servers. On UT Rocket, the
+  # SLURM wrapper starts vLLM and overrides this with FAIRCAPO_LLM_API_URL.
   api_url: http://localhost:1234/v1
   temperature: 0.0
   num_predict: 96
