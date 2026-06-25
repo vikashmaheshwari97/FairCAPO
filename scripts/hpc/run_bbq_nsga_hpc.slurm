@@ -31,8 +31,8 @@ SERVER_PORT="${SERVER_PORT:-$((13000 + (${SLURM_JOB_ID:-0} % 1000) + SEED))}"
 mkdir -p "$(dirname "$OUT_DIR")" outputs/hpc/logs
 
 module purge || true
-module load cuda || true
-module load python || true
+module load cuda/12.1.0
+module load python/3.10.19
 
 LOCK_DIR=".venv_install.lock"
 until mkdir "${LOCK_DIR}" 2>/dev/null; do
