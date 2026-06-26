@@ -1,6 +1,6 @@
 # FairCAPO — Project Status
 
-_Last updated: 2026-06-25 — UT Rocket/Pegasus2 path is now the active plan. The local LM Studio diagnostic path is superseded for the next run. GitHub export `vikashmaheshwari97/FairCAPO` has Rocket-ready vLLM SLURM wrappers and all BBQ HPC configs default to seed 0 for cost control._
+_Last updated: 2026-06-26 — UT Rocket/Pegasus2 path is the active plan. The local LM Studio diagnostic path is superseded. GitHub export `vikashmaheshwari97/FairCAPO` has Rocket-ready vLLM SLURM wrappers for search, eval, NSGA, and post-hoc BBQ fairness; active BBQ HPC configs default to seed 0 for cost control._
 _Prior result to remember: seed-0 local comparison closed at S14 — held-out HV FairCAPO 0.201 == NSGA 0.201 > ablation 0.182. FairCAPO beats the fairness-OFF ablation but ties NSGA on held-out, so the next expensive step must be run carefully on HPC._
 
 > **HEADLINE.** FairCAPO = **MO-CAPO + an in-loop fairness objective** (perf↑, cost↓, risk↓,
@@ -49,6 +49,20 @@ _Prior result to remember: seed-0 local comparison closed at S14 — held-out HV
 > seed-0 smoke run through `scripts/hpc/run_bbq_hpc.slurm`, which starts vLLM inside the SLURM job.
 > The large-held-out diagnostic remains useful later, but only after the Rocket seed-0 search/eval is
 > stable.
+
+> **ROCKET 500k STATUS (2026-06-26).** The 500k seed-0 Rocket smoke is complete for all three methods:
+> FairCAPO search/eval, MO-CAPO fairness-off search/eval, and NSGA-II-PO + fairness search/eval.
+> The post-hoc fairness row is now supported on Rocket via `scripts/hpc/run_bbq_posthoc_hpc.slurm`,
+> which starts its own vLLM server inside the SLURM job. The completed 500k post-hoc command wrote
+> `outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair.csv`. For 500k reporting, use the
+> temporary Rocket configs created on the cluster:
+> `configs/HPC_Config/experiment_table_bbq_500k_seed0_TMP.yaml` and
+> `configs/HPC_Config/aggregate_multiseed_bbq_500k_seed0_TMP.yaml`. The active committed table configs
+> still point to `_1m` outputs by design.
+>
+> **500k figures:** use `scripts/visualize_paper_figures.py`, `scripts/visualize_front_richness.py`,
+> and `scripts/visualize_staircase.py`, writing to `outputs/figures/paper_bbq_hpc_500k_seed0/`.
+> `visualize_staircase.py` was fixed so `--mocapo ""` correctly means no overlay file for BBQ.
 
 > **✅ SEED-0 RUN COMPLETED (S14, 2026-06-24).** Unlike the S13 death, the relaunched seed-0 FairCAPO
 > search **wrote full output** to `outputs/seed_0/phase2_budgeted_mocapo_bbq_local/` (10 files, 17:15).
@@ -215,37 +229,49 @@ so all 3 methods share one held-out basis.
    searches and held-out evals all completed on Pegasus2. Held-out HV: FairCAPO ≈ NSGA ≫
    fairness-off ablation. Treat this as a successful systems smoke plus an unresolved FairCAPO-vs-NSGA
    tie, not a final paper result.
-2. **▶️ Stage A large-held-out diagnostic is now unpaused.** Run the completed 500k seed-0 portfolios
+2. **✅ 500k post-hoc fairness row is wired and measured.** Rocket wrapper:
+   `scripts/hpc/run_bbq_posthoc_hpc.slurm`. Completed 500k output:
+   `outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair.csv`. Rebuild the 500k table
+   with the cluster temp config before citing `Post-hoc fair. (held-out)`:
+   `python scripts/build_experiment_table.py --config configs/HPC_Config/experiment_table_bbq_500k_seed0_TMP.yaml`.
+3. **▶️ Rebuild/check 500k figures with post-hoc included in the method table.** Commands:
+   `python scripts/visualize_paper_figures.py --run outputs/hpc/bbq_faircapo/seed_0 --table outputs/experiment_table/bbq_mistral_hpc_500k_seed0/experiment_table.csv --title "BBQ / Mistral-Small-3.2 / Rocket 500k seed 0" --out outputs/figures/paper_bbq_hpc_500k_seed0`;
+   `python scripts/visualize_front_richness.py --faircapo outputs/hpc/bbq_faircapo/seed_0/phase2_all_candidates.csv --nsga outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_all_candidates.csv --ablation outputs/hpc/bbq_ablation/seed_0/phase2_all_candidates.csv --title "BBQ / Mistral-Small-3.2 / Rocket 500k seed 0 (search basis)" --out outputs/figures/paper_bbq_hpc_500k_seed0/fig_front_richness_bbq.png`;
+   `python scripts/visualize_staircase.py --fair outputs/hpc/evaluation/seed_0/bbq_faircapo/test_eval_candidates.csv --portfolio outputs/hpc/bbq_faircapo/seed_0/phase2_prompt_portfolio.csv --mocapo "" --title "BBQ / Mistral-Small-3.2 / Rocket 500k seed 0 (held-out)" --out outputs/figures/paper_bbq_hpc_500k_seed0/fig_pareto_staircase.png --color-fairness`.
+4. **▶️ Stage A large-held-out diagnostic is now unpaused.** Run the completed 500k seed-0 portfolios
    against `data/fairness_bbq_holdout_large.jsonl` using:
    `configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml`,
    `configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml`, and
    `configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml`. These write to
    `outputs/hpc/evaluation_large/seed_0/...`.
-3. **▶️ Next search scale is 1M, not 500k.** Active Rocket configs now use Ddev=150, Dshots=50,
+5. **▶️ Next search scale is 1M, not 500k.** Active Rocket configs now use Ddev=150, Dshots=50,
    Dtest=200, budget=1M, block_size=30, z_max=5, and write to `_1m` output dirs:
    `outputs/hpc/bbq_faircapo_1m/seed_0`,
    `outputs/hpc/bbq_ablation_1m/seed_0`, and
    `outputs/hpc/bbq_nsga2po_1m/seed_0`.
-4. **Run 1M FairCAPO seed 0 first.** Command:
+6. **Run 1M FairCAPO seed 0 first.** Command:
    `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm`.
    Inspect logs/output before launching baselines.
-5. **If 1M FairCAPO succeeds, run 1M baselines one at a time.** Ablation:
+7. **If 1M FairCAPO succeeds, run 1M baselines one at a time.** Ablation:
    `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_1m scripts/hpc/run_bbq_hpc.slurm`.
    NSGA-II-PO:
    `sbatch --array=0 scripts/hpc/run_bbq_nsga_hpc.slurm`.
-6. **Evaluate 1M seed 0 after each search exists.** Standard eval wrapper now defaults to `_1m` paths:
+8. **Evaluate 1M seed 0 after each search exists.** Standard eval wrapper now defaults to `_1m` paths:
    `sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm`,
    then `METHOD=ablation`, then `METHOD=nsga`.
-7. **Build 1M seed-0 tables after all three 1M evals exist.** Use
+9. **Run 1M post-hoc fairness after the 1M ablation search exists.** Command:
+   `sbatch --array=0 scripts/hpc/run_bbq_posthoc_hpc.slurm`. Expected output:
+   `outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio_bbqfair.csv`.
+10. **Build 1M seed-0 tables after all three 1M evals plus the 1M post-hoc CSV exist.** Use
    `configs/HPC_Config/experiment_table_bbq_HPC.yaml` and
    `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`; both point to `_1m` output dirs and
    aggregate only `seeds: [0]`.
-8. **Do not run seeds 1 and 2 yet.** Run `--array=0-2` only after Stage A and the 1M seed-0 pipeline
+11. **Do not run seeds 1 and 2 yet.** Run `--array=0-2` only after Stage A and the 1M seed-0 pipeline
    clarify whether the tie is measurement noise or a real algorithmic tie.
-9. **Improvement path if the tie remains real:** improve FairCAPO directly, not by handicapping NSGA:
+12. **Improvement path if the tie remains real:** improve FairCAPO directly, not by handicapping NSGA:
    increase final intensification depth/budget, improve fairness-specific prompt mutation/crossover
    operators, or move to the second fairness dataset.
-10. **Then Bias-in-Bios = second fairness dataset.** This remains a later research step: occupation
+13. **Then Bias-in-Bios = second fairness dataset.** This remains a later research step: occupation
    classification, gender groups, `group_accuracy_gap`/`equal_opportunity`, and a new loader/config
    path. Do not start it until BBQ Rocket execution is settled.
 
