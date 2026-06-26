@@ -1,0 +1,57 @@
+# Cross-method experiment comparison table — BBQ Rocket 500k seed-0 Stage A.
+#
+# Stage A uses the completed 500k search portfolios, but replaces the standard
+# held-out eval with the larger BBQ held-out diagnostic:
+#   outputs/hpc/evaluation_large/seed_0/...
+#
+# Use after these three jobs finish:
+#   METHOD=faircapo  CONFIG=configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml
+#   METHOD=ablation  CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml
+#   METHOD=nsga      CONFIG=configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml
+
+output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_large
+dataset: BBQ
+model: mistralai/mistral-small-3.2
+seed: 0
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 6000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0
+
+methods:
+  - name: FairCAPO
+    type: pareto_set
+    candidates_csv: outputs/hpc/bbq_faircapo/seed_0/phase2_all_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bbq_faircapo/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo/test_eval_candidates.csv
+
+  - name: MO-CAPO (fairness off)
+    type: pareto_set
+    candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_all_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bbq_ablation/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_ablation/test_eval_candidates.csv
+
+  - name: NSGA-II-PO + fairness
+    type: pareto_set
+    candidates_csv: outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_all_candidates.csv
+    only_pareto: true
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_candidates.csv
+

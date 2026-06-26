@@ -63,6 +63,14 @@ _Prior result to remember: seed-0 local comparison closed at S14 — held-out HV
 > **500k figures:** use `scripts/visualize_paper_figures.py`, `scripts/visualize_front_richness.py`,
 > and `scripts/visualize_staircase.py`, writing to `outputs/figures/paper_bbq_hpc_500k_seed0/`.
 > `visualize_staircase.py` was fixed so `--mocapo ""` correctly means no overlay file for BBQ.
+>
+> **Stage A table/figures are committed now.** After the three large-held-out eval jobs finish, do
+> not write ad-hoc Python/YAML on the login node. Run:
+> `bash scripts/hpc/build_bbq_stagea_outputs.sh`. It uses
+> `configs/HPC_Config/experiment_table_bbq_500k_large_HPC.yaml` and
+> `configs/HPC_Config/aggregate_multiseed_bbq_500k_large_HPC.yaml`, then writes
+> `outputs/experiment_table/bbq_mistral_hpc_500k_large/` and
+> `outputs/figures/paper_bbq_hpc_500k_large/`.
 
 > **✅ SEED-0 RUN COMPLETED (S14, 2026-06-24).** Unlike the S13 death, the relaunched seed-0 FairCAPO
 > search **wrote full output** to `outputs/seed_0/phase2_budgeted_mocapo_bbq_local/` (10 files, 17:15).
@@ -251,6 +259,9 @@ so all 3 methods share one held-out basis.
 
    Decision: if FairCAPO > NSGA, the tie was likely fairness-resolution noise. If FairCAPO ~= NSGA,
    the tie is probably real at 500k. If FairCAPO < NSGA, improve FairCAPO before running more seeds.
+
+   Then build the Stage A table and figures without writing code on the login node:
+   `bash scripts/hpc/build_bbq_stagea_outputs.sh`.
 
 4. **Run 1M FairCAPO seed 0.**
    `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm`.
