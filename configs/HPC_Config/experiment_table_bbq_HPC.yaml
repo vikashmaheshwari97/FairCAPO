@@ -60,9 +60,9 @@ methods:
     holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po_1m/test_eval_candidates.csv
 
   # Post-hoc fairness baseline: MO-CAPO fairness-OFF front re-scored with the
-  # canonical BBQ scorer on the HELD-OUT (disjoint) fairness set.
-  # Uncomment after running scripts/measure_baseline_fairness.py on the HPC output.
-  # - name: Post-hoc fair. (held-out)
-  #   type: pareto_set
-  #   candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair.csv
-  #   only_pareto: true
+  # canonical BBQ scorer on the HELD-OUT (disjoint) fairness set. Generate this
+  # CSV with scripts/hpc/run_bbq_posthoc_hpc.slurm after the 1M ablation search.
+  - name: Post-hoc fair. (held-out)
+    type: pareto_set
+    candidates_csv: outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio_bbqfair.csv
+    only_pareto: true

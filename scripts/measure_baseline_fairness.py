@@ -72,7 +72,12 @@ def _parse_few_shot_examples(raw) -> list[dict]:
     return out
 
 
-def measure_file(evaluator: LLMObjectiveEvaluator, path: str, prompt_column: str) -> str:
+def measure_file(
+    evaluator: LLMObjectiveEvaluator,
+    path: str,
+    prompt_column: str,
+    output_suffix: str = "_bbqfair",
+) -> str:
     rows = _load_csv(path)
     for row in rows:
         instruction = str(row.get(prompt_column) or row.get("instruction") or "").strip()
@@ -86,7 +91,8 @@ def measure_file(evaluator: LLMObjectiveEvaluator, path: str, prompt_column: str
         row["bbq_sDIS"] = details.get("bbq_sDIS")
         row["fairness_source"] = "bbq_bias_score_posthoc"
 
-    out_path = str(Path(path).with_name(Path(path).stem + "_bbqfair.csv"))
+    suffix = output_suffix if output_suffix.startswith("_") else f"_{output_suffix}"
+    out_path = str(Path(path).with_name(Path(path).stem + suffix + ".csv"))
     _save_csv(rows, out_path)
     return out_path
 
@@ -101,6 +107,14 @@ def main() -> None:
     )
     parser.add_argument("--inputs", nargs="+", required=True, help="Baseline candidate CSV path(s).")
     parser.add_argument("--prompt-column", default="prompt")
+    parser.add_argument(
+        "--output-suffix",
+        default="_bbqfair",
+        help=(
+            "Suffix for measured CSVs. Use _bbqfair for standard held-out and "
+            "_bbqfair_large for Stage A large-held-out diagnostics."
+        ),
+    )
     args = parser.parse_args()
 
     config = _load_yaml(args.fairness_config)
@@ -119,7 +133,7 @@ def main() -> None:
         )
 
     for path in args.inputs:
-        out = measure_file(evaluator, path, args.prompt_column)
+        out = measure_file(evaluator, path, args.prompt_column, args.output_suffix)
         print(f"Measured BBQ fairness for {path} -> {out}")
 
 
