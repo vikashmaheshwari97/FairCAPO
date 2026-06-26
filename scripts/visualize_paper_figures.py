@@ -59,8 +59,9 @@ def _pareto_mask(perf, cost) -> list[bool]:
     return keep
 
 
-def load_run(run_dir: str) -> pd.DataFrame:
-    df = pd.read_csv(Path(run_dir) / "phase2_all_candidates.csv")
+def load_run(run_dir: str, run_csv: str = "") -> pd.DataFrame:
+    path = Path(run_csv) if run_csv else Path(run_dir) / "phase2_all_candidates.csv"
+    df = pd.read_csv(path)
     if "is_pareto" in df.columns:
         df["is_pareto"] = df["is_pareto"].astype(str).str.lower().isin({"true", "1"})
     else:
@@ -87,14 +88,14 @@ def fig_accuracy_cost_fairness(df: pd.DataFrame, title: str, out: Path) -> Path:
                     cmap="RdYlGn_r", vmin=0.0,
                     vmax=max(0.001, df.fairness_risk.max()),
                     s=150, edgecolor="black", linewidth=1.2, zorder=4,
-                    label="HEAL-CAPO front")
+                    label="FairCAPO front")
     cbar = fig.colorbar(sc, ax=ax)
     cbar.set_label("fairness_risk (lower = fairer)")
     # NOT "$ per 1M calls": this is the token-weighted eval cost summed over the
     # whole dev set (0.08*Sum(input_tok) + 0.32*Sum(output_tok)), in arbitrary
     # units. It equals N_eval_items * (true $/1M-calls), and on the search basis
     # also folds in the one-time fairness-eval tokens.
-    ax.set_xlabel("Eval token-cost (0.08·in + 0.32·out, summed over dev set) [a.u.]")
+    ax.set_xlabel("Token-weighted eval cost (0.08*in + 0.32*out) [a.u.]")
     ax.set_ylabel("Test Score (Accuracy)")
     ax.set_title(f"Attainment surface + fairness — {title}")
     ax.grid(True, alpha=0.3)
@@ -152,7 +153,7 @@ def fig_method_comparison(table_csv: str, title: str, out: Path) -> Path | None:
     cbar = fig.colorbar(sm, ax=ax)
     cbar.set_label("fairness_risk (fill: lower = fairer)")
     # See note above: token-weighted eval cost summed over the dev set, NOT $/1M calls.
-    ax.set_xlabel("Eval token-cost (0.08·in + 0.32·out, summed over dev set) [a.u.]")
+    ax.set_xlabel("Token-weighted eval cost (0.08*in + 0.32*out) [a.u.]")
     if by_fairness:
         ax.set_ylabel("fairness_risk  (lower = fairer)")
         ax.set_title(f"Method comparison — cost vs fairness (accuracy tied at "
@@ -200,6 +201,8 @@ def fig_fairness_tradeoffs(df: pd.DataFrame, title: str, out: Path) -> Path:
 def main():
     ap = argparse.ArgumentParser(description="Paper-style HEAL-CAPO fairness figures.")
     ap.add_argument("--run", default="outputs/phase2_budgeted_mocapo_subj")
+    ap.add_argument("--run-csv", default="",
+                    help="Optional candidates CSV to plot instead of <run>/phase2_all_candidates.csv.")
     ap.add_argument("--table",
                     default="outputs/experiment_table/subj_mistral/experiment_table.csv")
     ap.add_argument("--title", default="SUBJ / Mistral-Small-3.2")
@@ -208,8 +211,9 @@ def main():
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    df = load_run(args.run)
-    print(f"Loaded {len(df)} candidates ({int(df.is_pareto.sum())} Pareto) from {args.run}")
+    df = load_run(args.run, args.run_csv)
+    source = args.run_csv or args.run
+    print(f"Loaded {len(df)} candidates ({int(df.is_pareto.sum())} Pareto) from {source}")
 
     made = [
         fig_accuracy_cost_fairness(df, args.title, out),

@@ -37,21 +37,20 @@ metrics:
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_faircapo/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo/test_eval_candidates.csv
     only_pareto: true
     budget_json: outputs/hpc/bbq_faircapo/seed_0/budget_summary.json
     holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo/test_eval_candidates.csv
 
   - name: MO-CAPO (fairness off)
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bbq_ablation/test_eval_candidates.csv
     only_pareto: true
     budget_json: outputs/hpc/bbq_ablation/seed_0/budget_summary.json
     holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_ablation/test_eval_candidates.csv
 
   - name: NSGA-II-PO + fairness
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_all_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_candidates.csv
     only_pareto: true
     holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_candidates.csv
-

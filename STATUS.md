@@ -71,6 +71,10 @@ _Prior result to remember: seed-0 local comparison closed at S14 — held-out HV
 > `configs/HPC_Config/aggregate_multiseed_bbq_500k_large_HPC.yaml`, then writes
 > `outputs/experiment_table/bbq_mistral_hpc_500k_large/` and
 > `outputs/figures/paper_bbq_hpc_500k_large/`.
+> Corrected on 2026-06-26: the Stage A table and default figures now use
+> `outputs/hpc/evaluation_large/.../test_eval_candidates.csv` as the comparison basis. The
+> search-basis front-richness figure is skipped by default to avoid mixing dev/search and held-out
+> evidence; set `RUN_SEARCH_FIGURE=1` only if you explicitly want that separate search-basis figure.
 
 > **✅ SEED-0 RUN COMPLETED (S14, 2026-06-24).** Unlike the S13 death, the relaunched seed-0 FairCAPO
 > search **wrote full output** to `outputs/seed_0/phase2_budgeted_mocapo_bbq_local/` (10 files, 17:15).
