@@ -225,6 +225,77 @@ so all 3 methods share one held-out basis.
 > **Integrity guardrail:** never handicap the baseline (no lowering NSGA accuracy / inflating its cost).
 > Only legitimate moves: make the comparison genuinely FAIR, or genuinely IMPROVE FairCAPO.
 
+**Detailed Rocket run plan (current).**
+
+2. **Run Stage A large-held-out diagnostic on existing 500k results.** Purpose: check whether the
+   FairCAPO-vs-NSGA tie is caused by too-small held-out fairness evaluation.
+
+   Run FairCAPO large eval:
+   `sbatch --array=0 --export=ALL,METHOD=faircapo,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_faircapo/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_faircapo scripts/hpc/run_bbq_eval_hpc.slurm`.
+
+   Run ablation large eval:
+   `sbatch --array=0 --export=ALL,METHOD=ablation,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_ablation scripts/hpc/run_bbq_eval_hpc.slurm`.
+
+   Run NSGA large eval:
+   `sbatch --array=0 --export=ALL,METHOD=nsga,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_nsga2po/seed_0/nsga2_po_pareto_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_nsga2po scripts/hpc/run_bbq_eval_hpc.slurm`.
+
+3. **Inspect Stage A results.** Check all three completed:
+   `ls -lh outputs/hpc/evaluation_large/seed_0/bbq_faircapo`;
+   `ls -lh outputs/hpc/evaluation_large/seed_0/bbq_ablation`;
+   `ls -lh outputs/hpc/evaluation_large/seed_0/bbq_nsga2po`.
+
+   Read summaries:
+   `cat outputs/hpc/evaluation_large/seed_0/bbq_faircapo/test_eval_summary.json`;
+   `cat outputs/hpc/evaluation_large/seed_0/bbq_ablation/test_eval_summary.json`;
+   `cat outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_summary.json`.
+
+   Decision: if FairCAPO > NSGA, the tie was likely fairness-resolution noise. If FairCAPO ~= NSGA,
+   the tie is probably real at 500k. If FairCAPO < NSGA, improve FairCAPO before running more seeds.
+
+4. **Run 1M FairCAPO seed 0.**
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm`.
+
+   Monitor:
+   `squeue -u $USER`;
+   `ls -lt outputs/hpc/logs | head`;
+   `tail -f outputs/hpc/logs/bbq-faircapo_<JOBID>_seed0.out`.
+   Expected output: `outputs/hpc/bbq_faircapo_1m/seed_0`.
+
+5. **Evaluate 1M FairCAPO.** Only after the 1M search succeeds:
+   `sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm`.
+   Expected output: `outputs/hpc/evaluation/seed_0/bbq_faircapo_1m`.
+
+6. **Run 1M ablation seed 0.**
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_1m scripts/hpc/run_bbq_hpc.slurm`.
+   Expected output: `outputs/hpc/bbq_ablation_1m/seed_0`.
+
+7. **Evaluate 1M ablation.**
+   `sbatch --array=0 --export=ALL,METHOD=ablation scripts/hpc/run_bbq_eval_hpc.slurm`.
+   Expected output: `outputs/hpc/evaluation/seed_0/bbq_ablation_1m`.
+
+8. **Run 1M NSGA-II-PO seed 0.**
+   `sbatch --array=0 scripts/hpc/run_bbq_nsga_hpc.slurm`.
+   Expected output: `outputs/hpc/bbq_nsga2po_1m/seed_0`.
+
+9. **Evaluate 1M NSGA-II-PO.**
+   `sbatch --array=0 --export=ALL,METHOD=nsga scripts/hpc/run_bbq_eval_hpc.slurm`.
+   Expected output: `outputs/hpc/evaluation/seed_0/bbq_nsga2po_1m`.
+
+10. **Run 1M post-hoc fairness before building the 1M table.** This is required because the active
+    1M experiment table includes `Post-hoc fair. (held-out)`.
+    `sbatch --array=0 scripts/hpc/run_bbq_posthoc_hpc.slurm`.
+    Expected output: `outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio_bbqfair.csv`.
+
+11. **Build 1M table and figures.**
+    `PYTHONPATH=. python scripts/build_experiment_table.py --config configs/HPC_Config/experiment_table_bbq_HPC.yaml`;
+    `PYTHONPATH=. python scripts/aggregate_multiseed.py --config configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`;
+    `mkdir -p outputs/figures/paper_bbq_hpc_1m_seed0`;
+    `python scripts/visualize_paper_figures.py --run outputs/hpc/bbq_faircapo_1m/seed_0 --table outputs/experiment_table/bbq_mistral_hpc_1m_seed0/experiment_table.csv --title "BBQ / Mistral-Small-3.2 (Rocket 1M seed 0)" --out outputs/figures/paper_bbq_hpc_1m_seed0`.
+
+12. **Decision after 1M.** If FairCAPO beats NSGA, proceed to seeds 1 and 2. If FairCAPO ties NSGA,
+    improve FairCAPO operators/intensification before a 3-seed sweep. If FairCAPO loses to NSGA, do
+    not run more seeds yet.
+
 1. **✅ Rocket 500k seed-0 pipeline completed.** FairCAPO, MO-CAPO fairness-off, and NSGA-II-PO
    searches and held-out evals all completed on Pegasus2. Held-out HV: FairCAPO ≈ NSGA ≫
    fairness-off ablation. Treat this as a successful systems smoke plus an unresolved FairCAPO-vs-NSGA
