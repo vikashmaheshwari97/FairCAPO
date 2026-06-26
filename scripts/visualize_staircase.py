@@ -116,8 +116,8 @@ def main() -> None:
 
     # MO-CAPO-style baseline overlay (weaker zero-shot reference) — only when an
     # overlay file is actually supplied (e.g. SUBJ); skipped for BBQ.
-    mo_path = Path(args.mocapo)
-    has_overlay = mo_path.exists()
+    mo_path = Path(args.mocapo) if args.mocapo.strip() else None
+    has_overlay = mo_path is not None and mo_path.is_file()
     if has_overlay:
         mo = pd.read_csv(mo_path)
         ax.scatter(mo["cost"], mo["performance"], s=200, marker="^",
