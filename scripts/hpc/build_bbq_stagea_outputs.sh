@@ -19,6 +19,7 @@ echo "Checking Stage A eval outputs..."
 test -f outputs/hpc/evaluation_large/seed_0/bbq_faircapo/test_eval_summary.json
 test -f outputs/hpc/evaluation_large/seed_0/bbq_ablation/test_eval_summary.json
 test -f outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_summary.json
+test -f outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair_large.csv
 
 echo "Building Stage A experiment table..."
 PYTHONPATH=. python scripts/build_experiment_table.py --config "${TABLE_CONFIG}"

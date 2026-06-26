@@ -8,6 +8,8 @@
 #   METHOD=faircapo  CONFIG=configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml
 #   METHOD=ablation  CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml
 #   METHOD=nsga      CONFIG=configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml
+# Also run the large-held-out post-hoc fairness scorer for the diagnostic row:
+#   sbatch --array=0 --export=ALL,FAIRNESS_CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,INPUT_CSV=outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio.csv,OUTPUT_SUFFIX=_bbqfair_large scripts/hpc/run_bbq_posthoc_hpc.slurm
 
 output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_large
 dataset: BBQ
@@ -54,3 +56,10 @@ methods:
     candidates_csv: outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_candidates.csv
     only_pareto: true
     holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_nsga2po/test_eval_candidates.csv
+
+  # Diagnostic row: MO-CAPO fairness-OFF portfolio re-scored post-hoc on the
+  # large disjoint BBQ fairness set. This is not a separate search method.
+  - name: Post-hoc fair. (held-out)
+    type: pareto_set
+    candidates_csv: outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair_large.csv
+    only_pareto: true
