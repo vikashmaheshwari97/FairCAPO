@@ -13,10 +13,9 @@
 # an iso-budget cap.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings are the 1M-token seed-0 Rocket scale
-# (Ddev=150, Dshots=50, Dtest=200). PAPER-SCALE values are
-# commented ("# PAPER-SCALE:"). See the
-# FairCAPO config for the full scale-switching instructions.
+# The ACTIVE settings are the 500k-token seed-0 Rocket v2 scale
+# (Ddev=75, Dshots=25, Dtest=100). Keep 1M values in comments until
+# FairCAPO's 500k edge over NSGA is stronger.
 #
 # To run on UT Rocket/Pegasus2:
 #   The SLURM wrapper starts a local vLLM OpenAI-compatible server inside the
@@ -29,7 +28,7 @@ dataset: bbq
 task_type: multiple_choice
 seed: 0
 
-output_dir: outputs/hpc/bbq_nsga2po_1m/seed_0
+output_dir: outputs/hpc/bbq_nsga2po_500k_v2/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -42,9 +41,9 @@ labels: []
 
 dev:
   dataset: bbq
-  dev_size: 150           # 1M RUN; HALF-SIZE SMOKE: 75; PAPER-SCALE: 300
-  shots_size: 50          # 1M RUN; HALF-SIZE SMOKE: 25; PAPER-SCALE: 100
-  test_size: 200          # 1M RUN; HALF-SIZE SMOKE: 100; PAPER-SCALE: 500
+  dev_size: 75            # ACTIVE 500K; 1M RUN: 150; PAPER-SCALE: 300
+  shots_size: 25          # ACTIVE 500K; 1M RUN: 50; PAPER-SCALE: 100
+  test_size: 100          # ACTIVE 500K; 1M RUN: 200; PAPER-SCALE: 500
   stratified: false
   allow_smaller: true
 
@@ -72,7 +71,7 @@ fairness:
   mode: bbq_bias_score
   bbq_score: max_amb_dis
   fairness_data: data/fairness_bbq.jsonl
-  eval_pairs: 12
+  eval_pairs: 24          # ACTIVE 500K v2; OLD 500K: 12; 1M RUN: 36
 
 # NSGA-II-PO is UNBUDGETED (the MO-CAPO §4.2 baseline). The cost axis carries
 # the fairness-of-comparison; iso-budget is not required. Uncomment the budget
@@ -84,8 +83,8 @@ fairness:
 #   allow_overspend: false
 
 nsga2_po:
-  population_size: 16           # 1M run matches FairCAPO seed-0 tuning
-  max_generations: 5            # 1M run; raise only after comparing seed 0
+  population_size: 16           # ACTIVE 500K v2; 1M RUN: 16
+  max_generations: 5            # ACTIVE 500K v2; raise only after comparing seed 0
   offspring_per_generation: 4   # = MO-CAPO c
   crossover_probability: 1.0
   mutation_probability: 1.0

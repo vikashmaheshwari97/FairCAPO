@@ -36,18 +36,18 @@ SEED="${SLURM_ARRAY_TASK_ID:-0}"
 case "${METHOD}" in
   faircapo)
     DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml"
-    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_faircapo_1m/seed_${SEED}/phase2_prompt_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_faircapo_1m"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_faircapo_500k_v2/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_faircapo_500k_v2"
     ;;
   ablation)
     DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_HPC.yaml"
-    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_ablation_1m/seed_${SEED}/phase2_prompt_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_ablation_1m"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_ablation_500k_v2/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_ablation_500k_v2"
     ;;
   nsga)
     DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_nsga_HPC.yaml"
-    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_nsga2po_1m/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_nsga2po_1m"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_nsga2po_500k_v2/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_nsga2po_500k_v2"
     ;;
   *)
     echo "Unknown METHOD=${METHOD}; expected faircapo, ablation, or nsga." >&2

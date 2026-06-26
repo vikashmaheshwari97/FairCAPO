@@ -18,15 +18,15 @@
 # This starts a local vLLM server inside the GPU job, then re-scores an existing
 # MO-CAPO fairness-off portfolio with the canonical BBQ bias-score evaluator.
 #
-# Defaults target the active 1M ablation portfolio:
-#   outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio.csv
+# Defaults target the active 500k v2 ablation portfolio:
+#   outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio.csv
 #
 # Useful overrides:
 #   FAIRNESS_CONFIG=...
 #   INPUT_CSV=...
 #   OUTPUT_SUFFIX=_bbqfair_large
 #
-# 1M standard held-out:
+# Active 500k v2 standard held-out:
 #   sbatch --array=0 scripts/hpc/run_bbq_posthoc_hpc.slurm
 #
 # Completed 500k standard held-out:
@@ -39,7 +39,7 @@ set -euo pipefail
 
 SEED="${SLURM_ARRAY_TASK_ID:-0}"
 FAIRNESS_CONFIG="${FAIRNESS_CONFIG:-configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml}"
-INPUT_CSV="${INPUT_CSV:-outputs/hpc/bbq_ablation_1m/seed_${SEED}/phase2_prompt_portfolio.csv}"
+INPUT_CSV="${INPUT_CSV:-outputs/hpc/bbq_ablation_500k_v2/seed_${SEED}/phase2_prompt_portfolio.csv}"
 PROMPT_COLUMN="${PROMPT_COLUMN:-prompt}"
 OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_bbqfair}"
 

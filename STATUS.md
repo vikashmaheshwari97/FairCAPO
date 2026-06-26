@@ -57,8 +57,7 @@ _Prior result to remember: seed-0 local comparison closed at S14 — held-out HV
 > `outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio_bbqfair.csv`. For 500k reporting, use the
 > temporary Rocket configs created on the cluster:
 > `configs/HPC_Config/experiment_table_bbq_500k_seed0_TMP.yaml` and
-> `configs/HPC_Config/aggregate_multiseed_bbq_500k_seed0_TMP.yaml`. The active committed table configs
-> still point to `_1m` outputs by design.
+> `configs/HPC_Config/aggregate_multiseed_bbq_500k_seed0_TMP.yaml`. The active committed table configs now point to `_500k_v2` outputs.
 >
 > **500k figures:** use `scripts/visualize_paper_figures.py`, `scripts/visualize_front_richness.py`,
 > and `scripts/visualize_staircase.py`, writing to `outputs/figures/paper_bbq_hpc_500k_seed0/`.
@@ -267,49 +266,53 @@ so all 3 methods share one held-out basis.
    Then build the Stage A table and figures without writing code on the login node:
    `bash scripts/hpc/build_bbq_stagea_outputs.sh`.
 
-4. **Run 1M FairCAPO seed 0.**
-   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm`.
+4. **Run 500k v2 FairCAPO seed 0.** Stage A showed only a tiny FairCAPO edge over NSGA, so do
+   not spend on 1M yet. The active configs now use Ddev=75, Dshots=25, Dtest=100, budget=500k,
+   block_size=15, population_size=16, max_iterations=8, offspring_per_iteration=4, and a stronger
+   BBQ fairness signal (`eval_pairs=24`) plus extra disambiguated-bias prompts.
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v2 scripts/hpc/run_bbq_hpc.slurm`.
 
    Monitor:
    `squeue -u $USER`;
    `ls -lt outputs/hpc/logs | head`;
    `tail -f outputs/hpc/logs/bbq-faircapo_<JOBID>_seed0.out`.
-   Expected output: `outputs/hpc/bbq_faircapo_1m/seed_0`.
+   Expected output: `outputs/hpc/bbq_faircapo_500k_v2/seed_0`.
 
-5. **Evaluate 1M FairCAPO.** Only after the 1M search succeeds:
+5. **Evaluate 500k v2 FairCAPO.** Only after the search succeeds:
    `sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm`.
-   Expected output: `outputs/hpc/evaluation/seed_0/bbq_faircapo_1m`.
+   Expected output: `outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2`.
 
-6. **Run 1M ablation seed 0.**
-   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_1m scripts/hpc/run_bbq_hpc.slurm`.
-   Expected output: `outputs/hpc/bbq_ablation_1m/seed_0`.
+6. **Run 500k v2 ablation seed 0.**
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_500k_v2 scripts/hpc/run_bbq_hpc.slurm`.
+   Expected output: `outputs/hpc/bbq_ablation_500k_v2/seed_0`.
 
-7. **Evaluate 1M ablation.**
+7. **Evaluate 500k v2 ablation.**
    `sbatch --array=0 --export=ALL,METHOD=ablation scripts/hpc/run_bbq_eval_hpc.slurm`.
-   Expected output: `outputs/hpc/evaluation/seed_0/bbq_ablation_1m`.
+   Expected output: `outputs/hpc/evaluation/seed_0/bbq_ablation_500k_v2`.
 
-8. **Run 1M NSGA-II-PO seed 0.**
+8. **Run 500k v2 NSGA-II-PO seed 0.**
    `sbatch --array=0 scripts/hpc/run_bbq_nsga_hpc.slurm`.
-   Expected output: `outputs/hpc/bbq_nsga2po_1m/seed_0`.
+   Expected output: `outputs/hpc/bbq_nsga2po_500k_v2/seed_0`.
 
-9. **Evaluate 1M NSGA-II-PO.**
+9. **Evaluate 500k v2 NSGA-II-PO.**
    `sbatch --array=0 --export=ALL,METHOD=nsga scripts/hpc/run_bbq_eval_hpc.slurm`.
-   Expected output: `outputs/hpc/evaluation/seed_0/bbq_nsga2po_1m`.
+   Expected output: `outputs/hpc/evaluation/seed_0/bbq_nsga2po_500k_v2`.
 
-10. **Run 1M post-hoc fairness before building the 1M table.** This is required because the active
-    1M experiment table includes `Post-hoc fair. (held-out)`.
+10. **Run 500k v2 post-hoc fairness before building the table.** This is required because the active
+    experiment table includes `Post-hoc fair. (held-out)`.
     `sbatch --array=0 scripts/hpc/run_bbq_posthoc_hpc.slurm`.
-    Expected output: `outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio_bbqfair.csv`.
+    Expected output: `outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair.csv`.
 
-11. **Build 1M table and figures.**
+11. **Build 500k v2 table and figures.**
     `PYTHONPATH=. python scripts/build_experiment_table.py --config configs/HPC_Config/experiment_table_bbq_HPC.yaml`;
     `PYTHONPATH=. python scripts/aggregate_multiseed.py --config configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`;
-    `mkdir -p outputs/figures/paper_bbq_hpc_1m_seed0`;
-    `python scripts/visualize_paper_figures.py --run outputs/hpc/bbq_faircapo_1m/seed_0 --table outputs/experiment_table/bbq_mistral_hpc_1m_seed0/experiment_table.csv --title "BBQ / Mistral-Small-3.2 (Rocket 1M seed 0)" --out outputs/figures/paper_bbq_hpc_1m_seed0`.
+    `mkdir -p outputs/figures/paper_bbq_hpc_500k_v2_seed0`;
+    `python scripts/visualize_paper_figures.py --run outputs/hpc/bbq_faircapo_500k_v2/seed_0 --table outputs/experiment_table/bbq_mistral_hpc_500k_v2_seed0/experiment_table.csv --title "BBQ / Mistral-Small-3.2 (Rocket 500k v2 seed 0)" --out outputs/figures/paper_bbq_hpc_500k_v2_seed0`.
 
-12. **Decision after 1M.** If FairCAPO beats NSGA, proceed to seeds 1 and 2. If FairCAPO ties NSGA,
-    improve FairCAPO operators/intensification before a 3-seed sweep. If FairCAPO loses to NSGA, do
-    not run more seeds yet.
+12. **Decision after 500k v2.** If FairCAPO clearly beats NSGA on held-out HV/fairness tradeoff,
+    then consider the commented 1M settings. If FairCAPO still ties NSGA, improve FairCAPO
+    operators/intensification before any 1M or 3-seed sweep. If FairCAPO loses to NSGA, do not run
+    more seeds yet.
 
 1. **✅ Rocket 500k seed-0 pipeline completed.** FairCAPO, MO-CAPO fairness-off, and NSGA-II-PO
    searches and held-out evals all completed on Pegasus2. Held-out HV: FairCAPO ≈ NSGA ≫
@@ -330,30 +333,25 @@ so all 3 methods share one held-out basis.
    `configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml`, and
    `configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml`. These write to
    `outputs/hpc/evaluation_large/seed_0/...`.
-5. **▶️ Next search scale is 1M, not 500k.** Active Rocket configs now use Ddev=150, Dshots=50,
-   Dtest=200, budget=1M, block_size=30, z_max=5, and write to `_1m` output dirs:
-   `outputs/hpc/bbq_faircapo_1m/seed_0`,
-   `outputs/hpc/bbq_ablation_1m/seed_0`, and
-   `outputs/hpc/bbq_nsga2po_1m/seed_0`.
-6. **Run 1M FairCAPO seed 0 first.** Command:
-   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm`.
+5. **▶️ Next search scale stays 500k, not 1M.** Active Rocket configs now use Ddev=75, Dshots=25, Dtest=100, budget=500k, block_size=15, z_max=5, and write to `_500k_v2` output dirs: `outputs/hpc/bbq_faircapo_500k_v2/seed_0`, `outputs/hpc/bbq_ablation_500k_v2/seed_0`, and `outputs/hpc/bbq_nsga2po_500k_v2/seed_0`. The 1M values remain as comments in the configs.
+6. **Run 500k v2 FairCAPO seed 0 first.** Command:
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v2 scripts/hpc/run_bbq_hpc.slurm`.
    Inspect logs/output before launching baselines.
-7. **If 1M FairCAPO succeeds, run 1M baselines one at a time.** Ablation:
-   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_1m scripts/hpc/run_bbq_hpc.slurm`.
+7. **If FairCAPO succeeds, run 500k v2 baselines one at a time.** Ablation:
+   `sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_500k_v2 scripts/hpc/run_bbq_hpc.slurm`.
    NSGA-II-PO:
    `sbatch --array=0 scripts/hpc/run_bbq_nsga_hpc.slurm`.
-8. **Evaluate 1M seed 0 after each search exists.** Standard eval wrapper now defaults to `_1m` paths:
+8. **Evaluate 500k v2 seed 0 after each search exists.** Standard eval wrapper now defaults to `_500k_v2` paths:
    `sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm`,
    then `METHOD=ablation`, then `METHOD=nsga`.
-9. **Run 1M post-hoc fairness after the 1M ablation search exists.** Command:
+9. **Run 500k v2 post-hoc fairness after the ablation search exists.** Command:
    `sbatch --array=0 scripts/hpc/run_bbq_posthoc_hpc.slurm`. Expected output:
-   `outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio_bbqfair.csv`.
-10. **Build 1M seed-0 tables after all three 1M evals plus the 1M post-hoc CSV exist.** Use
+   `outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair.csv`.
+10. **Build 500k v2 seed-0 tables after all three evals plus the post-hoc CSV exist.** Use
    `configs/HPC_Config/experiment_table_bbq_HPC.yaml` and
-   `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`; both point to `_1m` output dirs and
+   `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`; both point to `_500k_v2` output dirs and
    aggregate only `seeds: [0]`.
-11. **Do not run seeds 1 and 2 yet.** Run `--array=0-2` only after Stage A and the 1M seed-0 pipeline
-   clarify whether the tie is measurement noise or a real algorithmic tie.
+11. **Do not run seeds 1 and 2 yet.** Run `--array=0-2` only after the revised 500k v2 seed-0 pipeline shows stronger FairCAPO-vs-NSGA separation.
 12. **Improvement path if the tie remains real:** improve FairCAPO directly, not by handicapping NSGA:
    increase final intensification depth/budget, improve fairness-specific prompt mutation/crossover
    operators, or move to the second fairness dataset.
@@ -382,8 +380,7 @@ so all 3 methods share one held-out basis.
   the image processor startup path.
 - vLLM eager mode is enabled on Rocket (`--enforce-eager`) because job `66935498` reached 45.6GB
   VRAM allocated by `VLLM::EngineCore` but stalled before `/v1/models` became ready.
-- Active Rocket search scale is now the 1M seed-0 scale: Ddev=150, Dshots=50, Dtest=200,
-  budget=1M tokens. The completed 500k smoke outputs are preserved in non-`_1m` folders.
+- Active Rocket search scale is now the 500k v2 seed-0 scale: Ddev=75, Dshots=25, Dtest=100, budget=500k tokens. The completed 500k smoke outputs are preserved in the original non-v2 folders; 1M values are kept as comments in the configs.
 - **Local-only fallback:** if running on the laptop, keep LM Studio loaded the whole run. Confirm:
   `curl http://localhost:1234/v1/models`.
 - **Local-only sleep guard:** `MSYS_NO_PATHCONV=1 powercfg /change standby-timeout-ac 0` (long laptop

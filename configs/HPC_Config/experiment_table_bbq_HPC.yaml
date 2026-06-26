@@ -1,8 +1,8 @@
 # Cross-method experiment comparison table — BBQ (fairness-varying showcase) HPC.
 #
-# 1M-token seed-0 Rocket scale: Ddev=150, Dshot=50, Dtest=200, budget=1M.
-# For paper-scale (Ddev=300, Dtest=500, budget=7.5M), swap the bounds below
-# (cost: [0, 10000]) and re-run after the paper-scale searches complete.
+# Active Rocket scale: 500k v2 seed 0, Ddev=75, Dshot=25, Dtest=100,
+# budget=500k. 1M settings are preserved in the search/eval configs as
+# comments but are not the default until FairCAPO improves over NSGA at 500k.
 #
 # Core rows:
 #   - FairCAPO (perf + cost + risk + canonical BBQ bias-score fairness)
@@ -12,7 +12,7 @@
 # Columns: performance, cost, risk, fairness_risk, HV, nR2, portfolio_size, budget_used,
 #          HV_opt, HV_pes, Gap, holdout_inference_cost.
 
-output_dir: outputs/experiment_table/bbq_mistral_hpc_1m_seed0
+output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_v2_seed0
 dataset: BBQ
 model: mistralai/mistral-small-3.2
 seed: 0
@@ -27,10 +27,11 @@ objectives:
   - name: fairness_risk
     direction: minimize
 
-# Bounds for half-size smoke scale (Dtest=100). PAPER-SCALE: cost: [0.0, 10000.0]
+# Bounds for active 500k v2 scale (Dtest=100). 1M RUN: cost [0, 6000].
+# PAPER-SCALE: cost [0, 10000].
 bounds:
   performance: [0.0, 1.0]
-  cost: [0.0, 6000.0]       # HALF-SIZE SMOKE: [0.0, 3000.0]; PAPER-SCALE: [0.0, 10000.0]
+  cost: [0.0, 3000.0]       # ACTIVE 500K; 1M RUN: [0.0, 6000.0]; PAPER-SCALE: [0.0, 10000.0]
   risk: [0.0, 1.0]
   fairness_risk: [0.0, 1.0]
 
@@ -41,28 +42,28 @@ metrics:
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_faircapo_1m/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_faircapo_500k_v2/seed_0/phase2_all_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/bbq_faircapo_1m/seed_0/budget_summary.json
-    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo_1m/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_faircapo_500k_v2/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2/test_eval_candidates.csv
 
   - name: MO-CAPO (fairness off)
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_ablation_1m/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_all_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/bbq_ablation_1m/seed_0/budget_summary.json
-    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_ablation_1m/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_ablation_500k_v2/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_ablation_500k_v2/test_eval_candidates.csv
 
   - name: NSGA-II-PO + fairness
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_nsga2po_1m/seed_0/nsga2_po_all_candidates.csv
+    candidates_csv: outputs/hpc/bbq_nsga2po_500k_v2/seed_0/nsga2_po_all_candidates.csv
     only_pareto: true
-    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po_1m/test_eval_candidates.csv
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po_500k_v2/test_eval_candidates.csv
 
   # Post-hoc fairness baseline: MO-CAPO fairness-OFF front re-scored with the
   # canonical BBQ scorer on the HELD-OUT (disjoint) fairness set. Generate this
-  # CSV with scripts/hpc/run_bbq_posthoc_hpc.slurm after the 1M ablation search.
+  # CSV with scripts/hpc/run_bbq_posthoc_hpc.slurm after the active ablation search.
   - name: Post-hoc fair. (held-out)
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_ablation_1m/seed_0/phase2_prompt_portfolio_bbqfair.csv
+    candidates_csv: outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair.csv
     only_pareto: true

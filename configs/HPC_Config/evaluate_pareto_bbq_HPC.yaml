@@ -1,8 +1,8 @@
 # Held-out Dtest of the FairCAPO BBQ HPC portfolio.
 #
-# >>> TWO SCALES: the ACTIVE test_size=200 is the 1M-token Rocket eval
-# (configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml). For paper-scale,
-# change to test_size=500 and widen the cost bounds.
+# >>> TWO SCALES: the ACTIVE test_size=100 is the 500k Rocket v2 eval
+# (configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml). Keep 1M values
+# in comments until the 500k FairCAPO-vs-NSGA gap improves.
 #
 # Paper-scale: Dtest=500, fairness_holdout=36 pairs, max(|sAMB|,|sDIS|) scoring.
 # Run AFTER the HPC search completes. The portfolio is scored on a held-out
@@ -15,14 +15,14 @@
 # and the SAME held-out fairness set so they are comparable on one held-out basis.
 experiment_name: evaluate_pareto_bbq_hpc
 
-portfolio_csv: outputs/hpc/bbq_faircapo_1m/seed_0/phase2_prompt_portfolio.csv
+portfolio_csv: outputs/hpc/bbq_faircapo_500k_v2/seed_0/phase2_prompt_portfolio.csv
 
-output_dir: outputs/hpc/evaluation/seed_0/bbq_faircapo_1m
+output_dir: outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2
 
 dataset: bbq
 task_type: multiple_choice
 seed: 0
-test_size: 200                     # 1M RUN; HALF-SIZE SMOKE: 100; PAPER-SCALE: 500
+test_size: 100                     # ACTIVE 500K; 1M RUN: 200; PAPER-SCALE: 500
 stratified: false
 allow_smaller: true
 
@@ -40,7 +40,7 @@ fairness:
   # max(|sAMB|, |sDIS|) — stays discriminative on held-out when |sAMB| saturates.
   bbq_score: max_amb_dis
   fairness_data: data/fairness_bbq_holdout.jsonl
-  eval_pairs: 36                   # 1M RUN; HALF-SIZE SMOKE: 24; HIGH-RES: 180
+  eval_pairs: 24                   # ACTIVE 500K; 1M RUN: 36; HIGH-RES: 180
 
 llm:
   backend: lmstudio  # OpenAI-compatible chat API; SLURM serves it with vLLM.
@@ -66,11 +66,11 @@ objectives:
   - name: fairness_risk
     direction: minimize
 
-# HV/nR2 normalization bounds. 1M run uses Dtest=200; widen for paper-scale.
+# HV/nR2 normalization bounds. Active 500k uses Dtest=100; widen for 1M/paper-scale.
 # PAPER-SCALE: cost: [0.0, 10000.0]
 bounds:
   performance: [0.0, 1.0]
-  cost: [0.0, 6000.0]             # HALF-SIZE SMOKE: [0.0, 3000.0]; PAPER-SCALE: [0.0, 10000.0]
+  cost: [0.0, 3000.0]             # ACTIVE 500K; 1M RUN: [0.0, 6000.0]; PAPER-SCALE: [0.0, 10000.0]
   risk: [0.0, 1.0]
   fairness_risk: [0.0, 1.0]
 

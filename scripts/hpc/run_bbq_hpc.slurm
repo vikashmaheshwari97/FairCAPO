@@ -30,15 +30,16 @@
 #
 # Usage:
 #   sbatch scripts/hpc/run_bbq_hpc.slurm
+#   sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v2 scripts/hpc/run_bbq_hpc.slurm
+#   sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_500k_v2 scripts/hpc/run_bbq_hpc.slurm
+# 1M override, after 500k improves:
 #   sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm
-#   sbatch --array=0-2 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_1m scripts/hpc/run_bbq_hpc.slurm
-#   sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml,RUN_TAG=bbq_ablation_1m scripts/hpc/run_bbq_hpc.slurm
 
 set -euo pipefail
 
 CONFIG="${CONFIG:-configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml}"
 SEED="${SLURM_ARRAY_TASK_ID:-0}"
-RUN_TAG="${RUN_TAG:-bbq_faircapo_1m}"
+RUN_TAG="${RUN_TAG:-bbq_faircapo_500k_v2}"
 OUT_DIR="outputs/hpc/${RUN_TAG}/seed_${SEED}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"

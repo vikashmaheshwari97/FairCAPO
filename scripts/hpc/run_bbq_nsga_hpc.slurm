@@ -22,7 +22,7 @@ set -euo pipefail
 
 CONFIG="${CONFIG:-configs/HPC_Config/nsga2_po_bbq_HPC.yaml}"
 SEED="${SLURM_ARRAY_TASK_ID:-0}"
-RUN_TAG="${RUN_TAG:-bbq_nsga2po_1m}"
+RUN_TAG="${RUN_TAG:-bbq_nsga2po_500k_v2}"
 OUT_DIR="outputs/hpc/${RUN_TAG}/seed_${SEED}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
