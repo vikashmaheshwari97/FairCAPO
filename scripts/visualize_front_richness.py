@@ -8,7 +8,7 @@ returns a single take-it-or-leave-it point.
 All series are drawn on the SAME SEARCH basis (each method's own
 `*_all_candidates.csv`, Pareto rows only, deduplicated by objective vector), so
 accuracy and cost are directly comparable — we do NOT mix in held-out numbers.
-Markers are colored by `fairness_risk` (|sAMB|) so fairness is still visible.
+Markers are colored by `fairness_risk` so fairness is still visible.
 
 Usage:
     PYTHONPATH=. python scripts/visualize_front_richness.py \
@@ -118,11 +118,11 @@ def main() -> None:
                     bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.7", alpha=0.9))
 
     cbar = fig.colorbar(sc, ax=ax)
-    cbar.set_label("fairness_risk = |sAMB|  (lower = fairer)")
+    cbar.set_label("fairness_risk (configured BBQ score; lower = fairer)")
 
-    ax.set_xlabel("Avg. Cost [$] per 1M Calls  (search basis)")
-    ax.set_ylabel("Dev Accuracy")
-    ax.set_title(f"Pareto-front richness — same budget, same objectives\n{args.title}")
+    ax.set_xlabel("Token-weighted search cost (0.08*in + 0.32*out) [a.u.]")
+    ax.set_ylabel("Search objective performance")
+    ax.set_title(f"Pareto-front richness - same budget, same objectives\n{args.title}")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right", fontsize=9)
     fig.text(0.01, 0.01,

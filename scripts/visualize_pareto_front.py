@@ -1,6 +1,6 @@
-"""Render static Pareto-front figures for a HEAL-CAPO run (no Streamlit).
+"""Render static Pareto-front figures for a FairCAPO run (no Streamlit).
 
-Reads a run's `phase2_all_candidates.csv` and writes PNGs:
+Reads a run's `phase2_all_candidates.csv` or an explicit candidates CSV and writes PNGs:
   - pareto_perf_cost.png        performance vs cost, colored by fairness_risk
   - pareto_pairwise.png         2x3 grid of all objective-pair projections
   - objective_parallel.png      parallel-coordinates over the 4 objectives
@@ -25,8 +25,8 @@ import pandas as pd
 OBJECTIVES = ["performance", "cost", "risk", "fairness_risk"]
 
 
-def load_candidates(run_dir: str) -> pd.DataFrame:
-    csv_path = Path(run_dir) / "phase2_all_candidates.csv"
+def load_candidates(run_dir: str, csv_path_arg: str = "") -> pd.DataFrame:
+    csv_path = Path(csv_path_arg) if csv_path_arg else Path(run_dir) / "phase2_all_candidates.csv"
     if not csv_path.exists():
         raise FileNotFoundError(f"No candidate CSV at {csv_path}")
     df = pd.read_csv(csv_path)
@@ -59,7 +59,7 @@ def plot_perf_cost(df: pd.DataFrame, title: str, out: Path) -> Path:
 
     ax.set_xlabel("cost (lower better)")
     ax.set_ylabel("performance (higher better)")
-    ax.set_title(f"Pareto front — {title}")
+    ax.set_title(f"Pareto front - {title}")
     ax.legend(loc="best")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -84,7 +84,7 @@ def plot_pairwise(df: pd.DataFrame, title: str, out: Path) -> Path:
         ax.set_xlabel(x)
         ax.set_ylabel(y)
         ax.grid(True, alpha=0.3)
-    fig.suptitle(f"Objective-pair projections — {title}", fontsize=14)
+    fig.suptitle(f"Objective-pair projections - {title}", fontsize=14)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     path = out / "pareto_pairwise.png"
     fig.savefig(path, dpi=150)
@@ -108,7 +108,7 @@ def plot_parallel(df: pd.DataFrame, title: str, out: Path) -> Path:
     ax.set_xticks(list(xs))
     ax.set_xticklabels(OBJECTIVES)
     ax.set_ylabel("min-max normalized (0=best-in-run extreme varies)")
-    ax.set_title(f"Parallel coordinates (gray=dominated, red=Pareto) — {title}")
+    ax.set_title(f"Parallel coordinates (gray=dominated, red=Pareto) - {title}")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = out / "objective_parallel.png"
@@ -121,6 +121,8 @@ def main():
     ap = argparse.ArgumentParser(description="Static Pareto-front visualizer.")
     ap.add_argument("--run", default="outputs/phase2_budgeted_mocapo_subj",
                     help="Run directory containing phase2_all_candidates.csv")
+    ap.add_argument("--csv", default="",
+                    help="Optional candidates CSV. Use this for held-out eval CSVs.")
     ap.add_argument("--title", default="SUBJ / Mistral-Small-3.2")
     ap.add_argument("--out", default="outputs/figures/subj_mistral")
     args = ap.parse_args()
@@ -128,9 +130,9 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    df = load_candidates(args.run)
+    df = load_candidates(args.run, args.csv)
     n_par = int(df.is_pareto.sum())
-    print(f"Loaded {len(df)} candidates ({n_par} Pareto) from {args.run}")
+    print(f"Loaded {len(df)} candidates ({n_par} Pareto) from {args.csv or args.run}")
 
     paths = [
         plot_perf_cost(df, args.title, out),

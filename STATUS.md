@@ -39,6 +39,11 @@ sbatch --array=0 \
 bash scripts/hpc/build_bbq_500k_v2_outputs.sh
 ```
 
+That helper now builds the clean held-out table plus the full figure bundle:
+three paper-style figures, held-out staircase, search-basis front richness,
+search-basis trajectory when both trajectory JSONs exist, and held-out Pareto
+diagnostics under `pareto_diagnostics/`.
+
 Use `bash scripts/hpc/build_bbq_stagea_outputs.sh` only for the older Stage A
 large-held-out diagnostic outputs.
 

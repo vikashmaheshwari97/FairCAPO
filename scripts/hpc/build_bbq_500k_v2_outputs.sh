@@ -13,6 +13,9 @@ TABLE_CSV="${TABLE_CSV:-outputs/experiment_table/bbq_mistral_hpc_500k_v2_seed0/e
 FIG_DIR="${FIG_DIR:-outputs/figures/paper_bbq_hpc_500k_v2_seed0}"
 TITLE="${TITLE:-BBQ / Mistral-Small-3.2 / Rocket 500k v2 seed 0 (held-out)}"
 RUN_AGGREGATE="${RUN_AGGREGATE:-1}"
+RUN_RICHNESS="${RUN_RICHNESS:-1}"
+RUN_TRAJECTORY="${RUN_TRAJECTORY:-1}"
+RUN_PARETO_DIAGNOSTICS="${RUN_PARETO_DIAGNOSTICS:-1}"
 
 echo "Checking 500k v2 held-out eval outputs..."
 test -f outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2/test_eval_summary.json
@@ -47,6 +50,42 @@ python scripts/visualize_staircase.py \
   --title "${TITLE}" \
   --out "${FIG_DIR}/fig_pareto_staircase.png" \
   --color-fairness
+
+if [[ "${RUN_RICHNESS}" == "1" ]]; then
+  echo "Building 500k v2 search-basis front richness figure..."
+  python scripts/visualize_front_richness.py \
+    --faircapo outputs/hpc/bbq_faircapo_500k_v2/seed_0/phase2_all_candidates.csv \
+    --nsga outputs/hpc/bbq_nsga2po_500k_v2/seed_0/nsga2_po_all_candidates.csv \
+    --ablation outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_all_candidates.csv \
+    --title "BBQ / Mistral-Small-3.2 / Rocket 500k v2 seed 0 (search basis; not held-out)" \
+    --out "${FIG_DIR}/fig_front_richness_search_basis.png"
+fi
+
+if [[ "${RUN_TRAJECTORY}" == "1" ]]; then
+  FAIR_TRAJ="outputs/hpc/bbq_faircapo_500k_v2/seed_0/budgeted_mocapo_trajectory.json"
+  ABL_TRAJ="outputs/hpc/bbq_ablation_500k_v2/seed_0/budgeted_mocapo_trajectory.json"
+  if [[ -f "${FAIR_TRAJ}" && -f "${ABL_TRAJ}" ]]; then
+    echo "Building 500k v2 search-basis trajectory figure..."
+    PYTHONPATH=. python scripts/visualize_trajectory.py \
+      --trajectory "${FAIR_TRAJ}" \
+      --label FairCAPO \
+      --trajectory "${ABL_TRAJ}" \
+      --label "MO-CAPO (fairness off)" \
+      --title "BBQ / Mistral-Small-3.2 / Rocket 500k v2 seed 0 (search trajectory)" \
+      --out "${FIG_DIR}/fig_trajectory_search_basis.png"
+  else
+    echo "Skipping trajectory figure; missing ${FAIR_TRAJ} or ${ABL_TRAJ}"
+  fi
+fi
+
+if [[ "${RUN_PARETO_DIAGNOSTICS}" == "1" ]]; then
+  echo "Building 500k v2 held-out Pareto diagnostic figures..."
+  python scripts/visualize_pareto_front.py \
+    --run outputs/hpc/bbq_faircapo_500k_v2/seed_0 \
+    --csv outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2/test_eval_candidates.csv \
+    --title "${TITLE}" \
+    --out "${FIG_DIR}/pareto_diagnostics"
+fi
 
 echo "500k v2 table:"
 echo "  ${TABLE_CSV}"

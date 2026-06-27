@@ -64,9 +64,9 @@ def main() -> None:
     ap.add_argument("--title", default="SUBJ / Mistral-Small-3.2 (held-out, 50 ex.)")
     ap.add_argument("--out", default="outputs/figures/paper_subj_ddev30_intensified/fig_pareto_staircase.png")
     ap.add_argument("--color-fairness", action="store_true",
-                    help="Color the front markers by fairness_risk (|sAMB|) with a "
-                         "colorbar, and annotate each rung with sAMB/sDIS instead of "
-                         "the few-shot count. Use for the BBQ fairness staircase.")
+                    help="Color the front markers by fairness_risk with a colorbar, "
+                         "and annotate each rung with BBQ details when available. "
+                         "Use for the BBQ fairness staircase.")
     args = ap.parse_args()
 
     fair = pd.read_csv(args.fair)
@@ -82,8 +82,8 @@ def main() -> None:
             color="0.45", linewidth=1.6, zorder=2)
 
     if args.color_fairness and "fairness_risk" in front.columns:
-        # Markers colored by the held-out fairness objective (|sAMB|); a colorbar
-        # makes "greener = fairer" explicit. fmax has a floor so a near-constant
+        # Markers colored by the held-out fairness objective; a colorbar makes
+        # "greener = fairer" explicit. fmax has a floor so a near-constant
         # (all ~0) front still renders with a sensible scale.
         fvals = front["fairness_risk"].astype(float).to_numpy()
         fmax = max(0.05, float(fvals.max()))
@@ -91,10 +91,9 @@ def main() -> None:
                         s=220, marker="o", edgecolor="black", linewidth=1.3,
                         zorder=3, label="FairCAPO front")
         cbar = fig.colorbar(sc, ax=ax)
-        cbar.set_label("fairness_risk = |sAMB|  (lower = fairer)")
+        cbar.set_label("fairness_risk (configured BBQ score; lower = fairer)")
 
-        # Annotate each rung with the bias breakdown: |sAMB| (optimized) and sDIS
-        # (the residual disambiguated bias the objective does NOT capture).
+        # Annotate each rung with the BBQ bias breakdown when the evaluator wrote it.
         samb_col = "detail_bbq_sAMB" if "detail_bbq_sAMB" in front.columns else None
         sdis_col = "detail_bbq_sDIS" if "detail_bbq_sDIS" in front.columns else None
         for _, r in front.iterrows():
@@ -124,9 +123,9 @@ def main() -> None:
                    c="#7B6FD0", edgecolor="black", linewidth=1.4, zorder=4,
                    label="MO-CAPO-style (zero-shot baseline)*")
 
-    ax.set_xlabel("Avg. Cost [$] per 1M Calls")
+    ax.set_xlabel("Token-weighted held-out cost (0.08*in + 0.32*out) [a.u.]")
     ax.set_ylabel("Test Accuracy")
-    ax.set_title(f"FairCAPO accuracy/cost staircase — {args.title}")
+    ax.set_title(f"FairCAPO held-out accuracy/cost staircase - {args.title}")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right")
     rect = (0, 0, 1, 1)
