@@ -8,9 +8,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --mem=96G
+#SBATCH --mem=128G
 #SBATCH --time=12:00:00
 
 # Large-held-out BBQ Dtest evaluation on UT Rocket Pegasus 2.

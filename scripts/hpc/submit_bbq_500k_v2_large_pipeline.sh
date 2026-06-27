@@ -3,10 +3,14 @@ set -euo pipefail
 
 # Submit the active BBQ 500k_v2 large-held-out evaluation pipeline.
 #
-# The three method evals and the post-hoc fairness scoring are independent and
-# can run at the same time on different GPUs if SLURM has capacity. The final
-# post-hoc Dtest eval depends on the post-hoc scoring job because it needs the
-# *_bbqfair_large.csv portfolio first.
+# Conservative default: run at most two GPU jobs at a time on Pegasus2. UT HPC
+# recommends 16 CPU cores per A100-80GB GPU on pegasus2; limiting concurrency is
+# the safer way to reduce cluster load without breaking CPU/GPU binding.
+#
+# Dependency chain:
+#   wave 1: FairCAPO eval + ablation eval
+#   wave 2: NSGA eval + post-hoc fairness scoring, after wave 1 succeeds
+#   wave 3: post-hoc Dtest eval, after post-hoc scoring succeeds
 
 cd "$(dirname "$0")/../.."
 
@@ -22,13 +26,15 @@ ablation_job=$(sbatch --parsable --array=0 \
   --export=ALL,METHOD=ablation,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_ablation_500k_v2 \
   scripts/hpc/run_bbq_eval_hpc.slurm)
 
-echo "Submitting NSGA-II-PO large-held-out eval..."
-nsga_job=$(sbatch --parsable --array=0 \
+wave1_dep="${fair_job}:${ablation_job}"
+
+echo "Submitting NSGA-II-PO large-held-out eval after wave 1..."
+nsga_job=$(sbatch --parsable --dependency=afterok:${wave1_dep} --array=0 \
   --export=ALL,METHOD=nsga,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_nsga2po_500k_v2/seed_0/nsga2_po_pareto_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_nsga2po_500k_v2 \
   scripts/hpc/run_bbq_eval_hpc.slurm)
 
-echo "Submitting post-hoc large fairness scoring..."
-posthoc_score_job=$(sbatch --parsable --array=0 \
+echo "Submitting post-hoc large fairness scoring after wave 1..."
+posthoc_score_job=$(sbatch --parsable --dependency=afterok:${wave1_dep} --array=0 \
   --export=ALL,FAIRNESS_CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,INPUT_CSV=outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio.csv,OUTPUT_SUFFIX=_bbqfair_large \
   scripts/hpc/run_bbq_posthoc_hpc.slurm)
 
@@ -39,11 +45,11 @@ posthoc_eval_job=$(sbatch --parsable --dependency=afterok:${posthoc_score_job} -
 
 cat <<EOF
 Submitted jobs:
-  FairCAPO eval:       ${fair_job}
-  Ablation eval:       ${ablation_job}
-  NSGA eval:           ${nsga_job}
-  Post-hoc scoring:    ${posthoc_score_job}
-  Post-hoc eval:       ${posthoc_eval_job}  (afterok:${posthoc_score_job})
+  Wave 1 FairCAPO eval:       ${fair_job}
+  Wave 1 ablation eval:       ${ablation_job}
+  Wave 2 NSGA eval:           ${nsga_job}  (afterok:${wave1_dep})
+  Wave 2 post-hoc scoring:    ${posthoc_score_job}  (afterok:${wave1_dep})
+  Wave 3 post-hoc eval:       ${posthoc_eval_job}  (afterok:${posthoc_score_job})
 
 Monitor:
   squeue -u \$USER

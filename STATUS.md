@@ -25,10 +25,11 @@ Preferred one-command submission:
 bash scripts/hpc/submit_bbq_500k_v2_large_pipeline.sh
 ```
 
-This submits FairCAPO, ablation, NSGA, and post-hoc scoring together. The final
-post-hoc Dtest eval is submitted with an `afterok` dependency on post-hoc
-scoring. Active eval/post-hoc SLURM jobs request 1 GPU, 8 CPU cores, and 96 GB
-RAM each.
+This submits the pipeline conservatively in waves: FairCAPO + ablation first,
+then NSGA + post-hoc scoring, then the final post-hoc Dtest eval. This keeps the
+default load to at most two Pegasus2 GPUs at a time. UT HPC recommends 16 CPU
+cores per 1 GPU on pegasus2, so active eval/post-hoc jobs request 1 GPU, 16 CPU
+cores, and 128 GB RAM each.
 
 Manual equivalent:
 
