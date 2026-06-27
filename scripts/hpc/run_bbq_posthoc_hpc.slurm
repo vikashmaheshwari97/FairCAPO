@@ -26,22 +26,16 @@
 #   INPUT_CSV=...
 #   OUTPUT_SUFFIX=_bbqfair_large
 #
-# Active 500k v2 standard held-out:
+# Active 500k v2 large-held-out:
 #   sbatch --array=0 scripts/hpc/run_bbq_posthoc_hpc.slurm
-#
-# Completed 500k standard held-out:
-#   sbatch --array=0 --export=ALL,INPUT_CSV=outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio.csv scripts/hpc/run_bbq_posthoc_hpc.slurm
-#
-# Stage A large-held-out for completed 500k:
-#   sbatch --array=0 --export=ALL,FAIRNESS_CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,INPUT_CSV=outputs/hpc/bbq_ablation/seed_0/phase2_prompt_portfolio.csv,OUTPUT_SUFFIX=_bbqfair_large scripts/hpc/run_bbq_posthoc_hpc.slurm
 
 set -euo pipefail
 
 SEED="${SLURM_ARRAY_TASK_ID:-0}"
-FAIRNESS_CONFIG="${FAIRNESS_CONFIG:-configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml}"
+FAIRNESS_CONFIG="${FAIRNESS_CONFIG:-configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml}"
 INPUT_CSV="${INPUT_CSV:-outputs/hpc/bbq_ablation_500k_v2/seed_${SEED}/phase2_prompt_portfolio.csv}"
 PROMPT_COLUMN="${PROMPT_COLUMN:-prompt}"
-OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_bbqfair}"
+OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_bbqfair_large}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"

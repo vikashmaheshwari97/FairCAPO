@@ -13,7 +13,7 @@
 #SBATCH --mem=128G
 #SBATCH --time=12:00:00
 
-# Held-out BBQ Dtest evaluation on UT Rocket Pegasus 2.
+# Large-held-out BBQ Dtest evaluation on UT Rocket Pegasus 2.
 #
 # METHOD selects which portfolio/config pair to score:
 #   faircapo | ablation | nsga
@@ -35,19 +35,19 @@ SEED="${SLURM_ARRAY_TASK_ID:-0}"
 
 case "${METHOD}" in
   faircapo)
-    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_HPC.yaml"
+    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml"
     DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_faircapo_500k_v2/seed_${SEED}/phase2_prompt_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_faircapo_500k_v2"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/bbq_faircapo_500k_v2"
     ;;
   ablation)
-    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_HPC.yaml"
+    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml"
     DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_ablation_500k_v2/seed_${SEED}/phase2_prompt_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_ablation_500k_v2"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/bbq_ablation_500k_v2"
     ;;
   nsga)
-    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_nsga_HPC.yaml"
+    DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml"
     DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_nsga2po_500k_v2/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation/seed_${SEED}/bbq_nsga2po_500k_v2"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/bbq_nsga2po_500k_v2"
     ;;
   *)
     echo "Unknown METHOD=${METHOD}; expected faircapo, ablation, or nsga." >&2
