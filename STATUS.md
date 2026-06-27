@@ -5,65 +5,56 @@ Last updated: 2026-06-28.
 ## Active Decision
 
 Use **only the large-held-out BBQ diagnostic** for Rocket reporting. Do not cite
-or rebuild the standard `outputs/hpc/evaluation/...` BBQ tables/figures because
-that smaller eval has coarse fairness resolution and creates misleading ties.
+or rebuild standard `outputs/hpc/evaluation/...` BBQ results.
 
-The latest large-held-out `500k_v2` result showed FairCAPO was slightly fairer
-than NSGA-II-PO but lost on hypervolume because its Pareto front was too
-expensive. Therefore:
+The `500k_v2` and `500k_v3` FairCAPO runs did not beat NSGA-II-PO on large
+held-out hypervolume because FairCAPO kept an expensive front. The active path
+is now **FairCAPO 500k_v4**, which adds a stronger cost-repair stage.
 
-- Do **not** run 1M yet.
-- Do **not** run seeds 1/2 yet.
-- Run **FairCAPO 500k_v3 only** first.
-- Compare FairCAPO v3 against the already-completed v2 baselines.
-- Rerun ablation/NSGA only if FairCAPO v3 improves enough to justify more GPU.
+Do not run 1M or seeds 1/2 until FairCAPO v4 improves the seed-0 large-held-out
+comparison.
 
-## Active Reporting Layout
+## Active Layout
 
-- FairCAPO v3 search: `outputs/hpc/bbq_faircapo_500k_v3/seed_0/`
-- FairCAPO v3 large eval: `outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v3/`
-- Existing ablation baseline: `outputs/hpc/evaluation_large/seed_0/bbq_ablation_500k_v2/`
-- Existing NSGA baseline: `outputs/hpc/evaluation_large/seed_0/bbq_nsga2po_500k_v2/`
-- Existing post-hoc baseline: `outputs/hpc/evaluation_large/seed_0/bbq_posthoc_500k_v2/`
-- Table output: `outputs/experiment_table/bbq_mistral_hpc_500k_v3_vs_v2_large_seed0/`
-- Figure output: `outputs/figures/paper_bbq_hpc_500k_v3_vs_v2_large_seed0/`
+- FairCAPO v4 search: `outputs/hpc/bbq_faircapo_500k_v4/seed_0/`
+- FairCAPO v4 large eval: `outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v4/`
+- Retained comparison baselines:
+  - `outputs/hpc/evaluation_large/seed_0/bbq_ablation_500k_v2/`
+  - `outputs/hpc/evaluation_large/seed_0/bbq_nsga2po_500k_v2/`
+  - `outputs/hpc/evaluation_large/seed_0/bbq_posthoc_500k_v2/`
+- Table output: `outputs/experiment_table/bbq_mistral_hpc_500k_v4_vs_v2_large_seed0/`
+- Figure output: `outputs/figures/paper_bbq_hpc_500k_v4_vs_v2_large_seed0/`
 
-## What Changed For FairCAPO 500k_v3
+## What Changed For FairCAPO 500k_v4
 
-- Lower few-shot pressure:
-  - `few_shot_probability: 0.15`
-  - `max_few_shot_examples: 2`
-- Added short fairness-aware seed prompts.
-- Added optional weighted parent-selection tie-breaks so otherwise-incomparable
-  candidates prefer cheaper fair prompts.
-- Added low-cost protection in environmental selection so cheap candidates are
-  not removed before they can be intensified.
+- Explicit final cost-repair stage:
+  - reserves 120k tokens / 20% of budget,
+  - creates zero-shot, one-shot, and compact zero-shot variants from the current
+    front,
+  - evaluates those repair candidates before the final Pareto front is saved.
+- Few-shot pressure is lowered to `few_shot_probability: 0.10`.
+- v3 cost-aware parent tie-breaks and low-cost environmental protection remain.
 
-## Run FairCAPO 500k_v3
+## Run FairCAPO 500k_v4
 
 ```bash
+cd ~/FairCAPO
+git pull origin main
+
 sbatch --array=0 \
-  --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v3 \
+  --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v4 \
   scripts/hpc/run_bbq_hpc.slurm
-```
-
-Monitor:
-
-```bash
-squeue -u $USER
-ls -lt outputs/hpc/logs | head
-tail -f outputs/hpc/logs/bbq-faircapo_JobID_seed0.out
 ```
 
 Expected search output:
 
 ```text
-outputs/hpc/bbq_faircapo_500k_v3/seed_0/
+outputs/hpc/bbq_faircapo_500k_v4/seed_0/
 ```
 
-## Evaluate FairCAPO 500k_v3 On Large Held-Out
+## Evaluate FairCAPO 500k_v4 On Large Held-Out
 
-Run only after the v3 search succeeds:
+Run only after the v4 search succeeds:
 
 ```bash
 sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm
@@ -72,42 +63,31 @@ sbatch --array=0 --export=ALL,METHOD=faircapo scripts/hpc/run_bbq_eval_hpc.slurm
 Expected eval output:
 
 ```text
-outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v3/
+outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v4/
 ```
 
-## Build V3 Table And Figures
-
-Run on the login node after the v3 large eval completes:
+## Build V4 Table And Figures
 
 ```bash
-bash scripts/hpc/build_bbq_500k_v3_outputs.sh
-```
-
-This compares FairCAPO v3 against existing v2 baselines and writes:
-
-```text
-outputs/experiment_table/bbq_mistral_hpc_500k_v3_vs_v2_large_seed0/experiment_table.csv
-outputs/figures/paper_bbq_hpc_500k_v3_vs_v2_large_seed0/
+bash scripts/hpc/build_bbq_500k_v4_outputs.sh
 ```
 
 ## Decision Rule
 
-- If FairCAPO v3 beats NSGA v2 on HV or gives a clearly better
-  fairness-cost tradeoff, then rerun ablation/NSGA under the same v3 prompt pool
-  and reporting path.
-- If FairCAPO v3 still loses to NSGA v2, do not run 1M or seeds 1/2. Improve
-  the FairCAPO search/intensification further.
+- If FairCAPO v4 beats NSGA v2 on large-held-out HV or gives a clearly better
+  fairness-cost tradeoff, then rerun ablation/NSGA under the active v4 code path.
+- If FairCAPO v4 still loses to NSGA v2, do not run 1M or seeds 1/2.
 
-## Active Files
+## Optional Rocket Cleanup After v4 Is Verified
 
-- `configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml`
-- `configs/phase2_prompt_pool_bbq.yaml`
-- `configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml`
-- `configs/HPC_Config/experiment_table_bbq_HPC.yaml`
-- `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`
-- `scripts/run_phase2_budgeted_mocapo.py`
-- `heal_capo/optimizers/parent_selection.py`
-- `heal_capo/optimizers/environmental_selection.py`
-- `scripts/hpc/run_bbq_hpc.slurm`
-- `scripts/hpc/run_bbq_eval_hpc.slurm`
-- `scripts/hpc/build_bbq_500k_v3_outputs.sh`
+Do this only after confirming v4 outputs are complete:
+
+```bash
+rm -rf outputs/hpc/bbq_faircapo_500k_v3
+rm -rf outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v3
+rm -rf outputs/experiment_table/bbq_mistral_hpc_500k_v3_vs_v2_large_seed0
+rm -rf outputs/figures/paper_bbq_hpc_500k_v3_vs_v2_large_seed0
+```
+
+Keep the `500k_v2` ablation/NSGA/post-hoc outputs for comparison until new v4
+baselines are explicitly rerun.

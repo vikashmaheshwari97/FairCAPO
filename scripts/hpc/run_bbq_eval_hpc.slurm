@@ -36,8 +36,8 @@ SEED="${SLURM_ARRAY_TASK_ID:-0}"
 case "${METHOD}" in
   faircapo)
     DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml"
-    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_faircapo_500k_v3/seed_${SEED}/phase2_prompt_portfolio.csv"
-    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/bbq_faircapo_500k_v3"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/bbq_faircapo_500k_v4/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/bbq_faircapo_500k_v4"
     ;;
   ablation)
     DEFAULT_CONFIG="configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml"

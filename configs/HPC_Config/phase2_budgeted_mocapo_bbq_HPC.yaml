@@ -4,9 +4,10 @@
 # bias-score fairness objective on top of MO-CAPO.
 #
 # >>> TWO SCALES IN THIS FILE <<<
-# The ACTIVE settings below are the 500k-token seed-0 Rocket v3 scale. The v2
-# large-held-out run showed FairCAPO was fair but too expensive versus NSGA, so
-# v3 stays at 500k and makes search more cost-aware before spending on 1M:
+# The ACTIVE settings below are the 500k-token seed-0 Rocket v4 scale. The v2/v3
+# large-held-out runs showed FairCAPO was fair but too expensive versus NSGA, so
+# v4 reserves budget for an explicit cheap-prompt repair/intensification pass
+# before spending on 1M:
 #   Ddev = 75, Dshots = 25, Dtest = 100, budget = 500k tokens, z_max = 5.
 # Keep the 1M settings in comments next to each active line:
 #   Ddev = 150, Dshots = 50, Dtest = 200, budget = 1M tokens, z_max = 5.
@@ -42,15 +43,15 @@
 #   allocated GPU job and overrides llm.api_url via FAIRCAPO_LLM_API_URL.
 #   You do not need to start LM Studio manually for scripts/hpc/run_bbq_hpc.slurm.
 #
-#   Single seed v3:
-#     sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v3 scripts/hpc/run_bbq_hpc.slurm
+#   Single seed v4:
+#     sbatch --array=0 --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo_500k_v4 scripts/hpc/run_bbq_hpc.slurm
 #   Seed sweep:
 #     sbatch --export=ALL,CONFIG=configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml,RUN_TAG=bbq_faircapo scripts/hpc/run_bbq_hpc.slurm
 dataset: bbq
 task_type: multiple_choice
 seed: 0   # HPC: sweep seeds 0,1,2 (SLURM array or sweep_seeds.sh) for paper variance bands
 
-output_dir: outputs/hpc/bbq_faircapo_500k_v3/seed_0
+output_dir: outputs/hpc/bbq_faircapo_500k_v4/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bbq.yaml
 
@@ -102,7 +103,7 @@ fairness:
 # MO-CAPO kmax = 5; pool mirrors Dshots for demonstration diversity.
 few_shot:
   enabled: true
-  few_shot_probability: 0.15   # v3 cost-aware; v2: 0.3; PAPER-SCALE: 0.6
+  few_shot_probability: 0.10   # v4 cost-repair; v3: 0.15; v2: 0.3; PAPER-SCALE: 0.6
   max_few_shot_examples: 2     # v3 cost-aware; v2: 3; PAPER-SCALE: 5
   pool_size: 25                # ACTIVE 500K; 1M RUN: 50; PAPER-SCALE: 100
   use_rationale: false
@@ -163,6 +164,17 @@ environmental_selection:
   use_dominance_fronts: true
   protect_low_cost_quantile: 0.25
   protected_low_cost_min_count: 3
+
+# v4: reserve budget for a deterministic cheap-prompt repair stage. It strips
+# expensive few-shot examples and evaluates compact zero/one-shot variants of
+# the current front before the final reported Pareto front is computed.
+cost_repair:
+  enabled: true
+  reserve_budget: 120000.0
+  reserve_budget_fraction: 0.20
+  max_source_candidates: 5
+  variants_per_candidate: 3
+  max_repair_candidates: 12
 
 intensification:
   max_blocks_per_challenger: 5    # = z_max for active 500k and 1M; PAPER-SCALE: 10

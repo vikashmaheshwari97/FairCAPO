@@ -1080,6 +1080,104 @@ def front_candidates_from_portfolio(
     return candidates
 
 
+def compact_bbq_instruction(instruction: str) -> str:
+    """
+    Build a short zero-shot BBQ instruction from a longer evolved prompt.
+
+    The repair keeps the important fairness behavior while aggressively cutting
+    token cost. It is deterministic and LLM-free so it can run inside the
+    budgeted optimizer without spending extra meta-model calls.
+    """
+    lowered = str(instruction or "").lower()
+
+    if "demographic" in lowered or "stereotype" in lowered:
+        return (
+            "Use only stated context. Ignore demographic stereotypes. If the "
+            "answer is unsupported, choose the unknown option. Return only "
+            "<final_answer>A</final_answer>, <final_answer>B</final_answer>, "
+            "or <final_answer>C</final_answer>."
+        )
+
+    if "unknown" in lowered or "cannot be determined" in lowered:
+        return (
+            "Pick the option directly supported by the context. If unclear, "
+            "choose the unknown/cannot-be-determined option. Return only the "
+            "tagged option letter."
+        )
+
+    return (
+        "Choose the option supported by the context. Do not guess. Return only "
+        "<final_answer>A</final_answer>, <final_answer>B</final_answer>, or "
+        "<final_answer>C</final_answer>."
+    )
+
+
+def make_cost_repair_candidates(
+    candidates: list[PromptCandidate],
+    portfolio: PromptPortfolio,
+    max_source_candidates: int = 4,
+    variants_per_candidate: int = 3,
+) -> list[PromptCandidate]:
+    """
+    Generate cheap repair variants from the current front.
+
+    Variants deliberately remove or reduce few-shot examples and compact the
+    instruction. The goal is to recover cheaper Pareto points near the same
+    accuracy/fairness region, which the large-held-out v2/v3 diagnostics showed
+    FairCAPO was missing relative to NSGA.
+    """
+    scored: list[tuple[float, PromptCandidate]] = []
+
+    for candidate in candidates:
+        result = portfolio.evaluations.get(candidate.candidate_id)
+        if result is None:
+            continue
+
+        score = (
+            float(result.performance)
+            - 0.8 * float(result.fairness_risk)
+            - 0.25 * (float(result.cost) / 6000.0)
+            - 0.5 * float(result.risk)
+        )
+        scored.append((score, candidate))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+
+    repairs: list[PromptCandidate] = []
+    seen: set[tuple[str, int]] = set()
+
+    for _, source in scored[: max(1, max_source_candidates)]:
+        variants: list[tuple[str, str, list[dict]]] = [
+            ("zero_shot_same_instruction", source.instruction, []),
+            ("one_shot_same_instruction", source.instruction, list(source.examples[:1])),
+            ("zero_shot_compact_instruction", compact_bbq_instruction(source.instruction), []),
+        ]
+
+        for operator, instruction, examples in variants[: max(1, variants_per_candidate)]:
+            key = (instruction.strip(), len(examples))
+            if key in seen:
+                continue
+            seen.add(key)
+
+            repair = PromptCandidate(
+                instruction=instruction.strip(),
+                examples=[dict(example) for example in examples],
+                parent_ids=[source.candidate_id],
+                metadata={
+                    "method": f"cost_repair_{operator}",
+                    "category": "cost_repair",
+                    "source": "cost_repair",
+                    "operator": operator,
+                    "parent_ids": [source.candidate_id],
+                    "repair_source_candidate_id": source.candidate_id,
+                    "repair_source_num_few_shot": len(source.examples),
+                },
+            )
+            repairs.append(repair)
+
+    return repairs
+
+
 def portfolio_contains_candidate(
     portfolio: PromptPortfolio,
     candidate: PromptCandidate,
@@ -1403,6 +1501,15 @@ def run_budgeted_mocapo(
         intensification_cfg.get("final_intensification", True)
     )
     max_budget = float(budget_cfg.get("max_budget", 500.0))
+    cost_repair_cfg = config.get("cost_repair", {}) or {}
+    cost_repair_enabled = bool(cost_repair_cfg.get("enabled", False))
+    cost_repair_reserved_budget = 0.0
+    if cost_repair_enabled:
+        cost_repair_reserved_budget = max(
+            float(cost_repair_cfg.get("reserve_budget", 0.0)),
+            max_budget
+            * max(0.0, float(cost_repair_cfg.get("reserve_budget_fraction", 0.0))),
+        )
     allow_overspend = bool(budget_cfg.get("allow_overspend", False))
     # "cost" (weighted, default) or "tokens" (raw tokens, e.g. MO-CAPO's 7.5M).
     budget_unit = str(budget_cfg.get("unit", budget_cfg.get("budget_unit", "cost")))
@@ -1595,6 +1702,13 @@ def run_budgeted_mocapo(
 
     task_description = get_task_description(config)
 
+    def repair_budget_reached() -> bool:
+        return (
+            cost_repair_enabled
+            and cost_repair_reserved_budget > 0.0
+            and budget_allocator.remaining_budget <= cost_repair_reserved_budget
+        )
+
     if len(population) < 2:
         event_rows.append(
             {
@@ -1631,6 +1745,23 @@ def run_budgeted_mocapo(
             )
             break
 
+        if repair_budget_reached():
+            event_rows.append(
+                {
+                    "candidate_id": "",
+                    "method": "cost_repair_reserve",
+                    "event_type": "budget_stop",
+                    "iteration": iteration,
+                    "accepted": False,
+                    "rejected": True,
+                    "reason": "Reserved remaining budget for final cost repair.",
+                    "evaluated_blocks": "[]",
+                    "budget_used": budget_allocator.used_budget,
+                    "remaining_budget": budget_allocator.remaining_budget,
+                }
+            )
+            break
+
         if len(population) < 2:
             break
 
@@ -1652,6 +1783,24 @@ def run_budgeted_mocapo(
                         "accepted": False,
                         "rejected": True,
                         "reason": "Budget exhausted before offspring evaluation.",
+                        "evaluated_blocks": "[]",
+                        "budget_used": budget_allocator.used_budget,
+                        "remaining_budget": budget_allocator.remaining_budget,
+                    }
+                )
+                break
+
+            if repair_budget_reached():
+                event_rows.append(
+                    {
+                        "candidate_id": "",
+                        "method": "cost_repair_reserve",
+                        "event_type": "budget_stop",
+                        "iteration": iteration,
+                        "offspring_index": offspring_index,
+                        "accepted": False,
+                        "rejected": True,
+                        "reason": "Reserved remaining budget for final cost repair.",
                         "evaluated_blocks": "[]",
                         "budget_used": budget_allocator.used_budget,
                         "remaining_budget": budget_allocator.remaining_budget,
@@ -1785,7 +1934,12 @@ def run_budgeted_mocapo(
                     portfolio=all_portfolio,
                 )
 
-        if advance_after_iteration and incumbents and not budget_allocator.exhausted:
+        if (
+            advance_after_iteration
+            and incumbents
+            and not budget_allocator.exhausted
+            and not repair_budget_reached()
+        ):
             # Intensify the WHOLE incumbent front by (up to) one aligned block
             # this iteration. A single advance/iteration cannot keep the front
             # aligned, so the intensifier ends up racing every challenger on the
@@ -1846,6 +2000,106 @@ def run_budgeted_mocapo(
                 label=f"iteration_{iteration}",
                 iteration=iteration,
                 front=incumbents,
+                portfolio=all_portfolio,
+                budget_allocator=budget_allocator,
+            )
+        )
+
+    if cost_repair_enabled and not budget_allocator.exhausted:
+        repair_sources = front_candidates_from_portfolio(all_portfolio) or incumbents
+        repair_candidates = make_cost_repair_candidates(
+            candidates=repair_sources,
+            portfolio=all_portfolio,
+            max_source_candidates=int(
+                cost_repair_cfg.get("max_source_candidates", 4)
+            ),
+            variants_per_candidate=int(
+                cost_repair_cfg.get("variants_per_candidate", 3)
+            ),
+        )
+        max_repair_candidates = int(
+            cost_repair_cfg.get("max_repair_candidates", len(repair_candidates))
+        )
+
+        for repair_index, repair_candidate in enumerate(
+            repair_candidates[: max(0, max_repair_candidates)]
+        ):
+            if budget_allocator.exhausted:
+                break
+
+            repair_incumbents = front_candidates_from_portfolio(all_portfolio)
+            if not repair_incumbents:
+                repair_incumbents = incumbents
+
+            try:
+                decision = intensifier.intensify(
+                    challenger=repair_candidate,
+                    incumbents=repair_incumbents,
+                    portfolio=all_portfolio,
+                )
+            except RuntimeError as exc:
+                event_rows.append(
+                    {
+                        "candidate_id": repair_candidate.candidate_id,
+                        "method": repair_candidate.metadata.get("method"),
+                        "event_type": "cost_repair_budget_error",
+                        "iteration": max_iterations + 1,
+                        "offspring_index": repair_index,
+                        "operator": repair_candidate.metadata.get("operator"),
+                        "accepted": False,
+                        "rejected": True,
+                        "reason": str(exc),
+                        "evaluated_blocks": "[]",
+                        "budget_used": budget_allocator.used_budget,
+                        "remaining_budget": budget_allocator.remaining_budget,
+                    }
+                )
+                break
+
+            event_rows.append(
+                {
+                    "candidate_id": repair_candidate.candidate_id,
+                    "method": repair_candidate.metadata.get("method"),
+                    "event_type": "cost_repair",
+                    "iteration": max_iterations + 1,
+                    "offspring_index": repair_index,
+                    "operator": repair_candidate.metadata.get("operator"),
+                    "parent_ids": repair_candidate.metadata.get("parent_ids"),
+                    "accepted": decision.accepted,
+                    "rejected": decision.rejected,
+                    "reason": decision.reason,
+                    "evaluated_blocks": str(decision.evaluated_blocks),
+                    "compared_against": decision.compared_against,
+                    "budget_used": decision.budget_used,
+                    "remaining_budget": decision.metadata.get("remaining_budget"),
+                    "metadata": json.dumps(
+                        {
+                            **repair_candidate.metadata,
+                            "repair_reserved_budget": cost_repair_reserved_budget,
+                        },
+                        default=_json_default,
+                    ),
+                }
+            )
+
+            if decision.accepted or portfolio_contains_candidate(
+                all_portfolio,
+                repair_candidate,
+            ):
+                if repair_candidate.candidate_id not in {
+                    candidate.candidate_id for candidate in population
+                }:
+                    population.append(repair_candidate)
+
+        incumbents = get_incumbents_from_portfolio(
+            population=population,
+            portfolio=all_portfolio,
+        )
+        trajectory.append(
+            _front_snapshot(
+                label="cost_repair",
+                iteration=max_iterations + 1,
+                front=front_candidates_from_portfolio(all_portfolio),
                 portfolio=all_portfolio,
                 budget_allocator=budget_allocator,
             )
