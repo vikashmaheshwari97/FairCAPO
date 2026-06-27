@@ -34,6 +34,8 @@ class EnvironmentalSelectionConfig:
     remove_unevaluated_first: bool = True
     use_crowding_distance: bool = True
     use_dominance_fronts: bool = True
+    protect_low_cost_quantile: float = 0.0
+    protected_low_cost_min_count: int = 0
 
 
 @dataclass
@@ -204,6 +206,38 @@ def most_crowded_id(
     return rng.choice(tied)
 
 
+def low_cost_protected_ids(
+    candidate_ids: list[str],
+    evaluations: dict[str, EvaluationResult],
+    quantile: float,
+    min_count: int,
+) -> set[str]:
+    """
+    Return evaluated candidates to protect from removal because they are cheap.
+
+    Protection only applies when enough alternatives remain in the removal pool;
+    it never prevents the selector from reaching the requested population size.
+    """
+    if quantile <= 0.0 and min_count <= 0:
+        return set()
+
+    scored = [
+        (cid, float(evaluations[cid].cost))
+        for cid in candidate_ids
+        if cid in evaluations and evaluations[cid].cost is not None
+    ]
+
+    if not scored:
+        return set()
+
+    scored.sort(key=lambda item: (item[1], item[0]))
+    count_from_quantile = int(math.ceil(len(scored) * max(0.0, min(1.0, quantile))))
+    count = max(count_from_quantile, max(0, min_count))
+    count = min(count, len(scored))
+
+    return {cid for cid, _ in scored[:count]}
+
+
 class EnvironmentalSelector:
     """
     Reduce population to configured size using MO-CAPO-style rules.
@@ -299,6 +333,17 @@ class EnvironmentalSelector:
 
         if not candidate_pool:
             candidate_pool = list(current_ids)
+
+        protected_ids = low_cost_protected_ids(
+            candidate_ids=candidate_pool,
+            evaluations=evaluations,
+            quantile=self.config.protect_low_cost_quantile,
+            min_count=self.config.protected_low_cost_min_count,
+        )
+
+        unprotected_pool = [cid for cid in candidate_pool if cid not in protected_ids]
+        if unprotected_pool:
+            candidate_pool = unprotected_pool
 
         if self.config.remove_unevaluated_first:
             unevaluated = [

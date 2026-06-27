@@ -1468,8 +1468,39 @@ def run_budgeted_mocapo(
         ),
     )
 
+    parent_selection_cfg = config.get("parent_selection", {}) or {}
+    weighted_tiebreak_cfg = (
+        parent_selection_cfg.get("weighted_tiebreak", {}) or {}
+    )
+
     parent_selector = ParentSelector(
         config=ParentSelectionConfig(
+            prefer_incumbents=bool(
+                parent_selection_cfg.get("prefer_incumbents", True)
+            ),
+            use_crowding_distance=bool(
+                parent_selection_cfg.get("use_crowding_distance", True)
+            ),
+            use_subset_dominance=bool(
+                parent_selection_cfg.get("use_subset_dominance", True)
+            ),
+            use_weighted_tiebreak=bool(
+                parent_selection_cfg.get("use_weighted_tiebreak", False)
+            ),
+            weighted_tiebreak={
+                "performance": float(
+                    weighted_tiebreak_cfg.get("performance", 1.0)
+                ),
+                "cost": float(weighted_tiebreak_cfg.get("cost", 0.0)),
+                "risk": float(weighted_tiebreak_cfg.get("risk", 0.0)),
+                "fairness_risk": float(
+                    weighted_tiebreak_cfg.get("fairness_risk", 0.0)
+                ),
+                "drift": float(weighted_tiebreak_cfg.get("drift", 0.0)),
+                "cost_scale": float(
+                    weighted_tiebreak_cfg.get("cost_scale", 1.0)
+                ),
+            },
             random_seed=random_seed,
         ),
         rng=rng,
@@ -1509,9 +1540,28 @@ def run_budgeted_mocapo(
         rng=rng,
     )
 
+    environmental_cfg = config.get("environmental_selection", {}) or {}
     environmental_selector = EnvironmentalSelector(
         config=EnvironmentalSelectionConfig(
             population_size=mu,
+            prefer_keep_incumbents=bool(
+                environmental_cfg.get("prefer_keep_incumbents", True)
+            ),
+            remove_unevaluated_first=bool(
+                environmental_cfg.get("remove_unevaluated_first", True)
+            ),
+            use_crowding_distance=bool(
+                environmental_cfg.get("use_crowding_distance", True)
+            ),
+            use_dominance_fronts=bool(
+                environmental_cfg.get("use_dominance_fronts", True)
+            ),
+            protect_low_cost_quantile=float(
+                environmental_cfg.get("protect_low_cost_quantile", 0.0)
+            ),
+            protected_low_cost_min_count=int(
+                environmental_cfg.get("protected_low_cost_min_count", 0)
+            ),
             random_seed=random_seed,
         ),
         rng=rng,

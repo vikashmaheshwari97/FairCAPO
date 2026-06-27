@@ -1,6 +1,7 @@
 # Cross-method experiment comparison table — BBQ (fairness-varying showcase) HPC.
 #
-# Active Rocket reporting scale: 500k v2 seed 0, LARGE held-out diagnostic.
+# Active Rocket reporting scale: FairCAPO 500k v3 seed 0 against existing 500k
+# v2 baselines, LARGE held-out diagnostic.
 # Search still used Ddev=75, Dshot=25, Dtest=100, budget=500k, but reporting
 # uses only outputs/hpc/evaluation_large/... CSVs as the objective basis.
 # Standard outputs/hpc/evaluation/... is intentionally not used for BBQ reports
@@ -14,7 +15,7 @@
 # Columns: performance, cost, risk, fairness_risk, HV, nR2, portfolio_size, budget_used,
 #          HV_opt, HV_pes, Gap, holdout_inference_cost.
 
-output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_v2_large_seed0
+output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_v3_vs_v2_large_seed0
 dataset: BBQ
 model: mistralai/mistral-small-3.2
 seed: 0
@@ -44,10 +45,10 @@ metrics:
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v2/test_eval_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v3/test_eval_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/bbq_faircapo_500k_v2/seed_0/budget_summary.json
-    holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v2/test_eval_candidates.csv
+    budget_json: outputs/hpc/bbq_faircapo_500k_v3/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v3/test_eval_candidates.csv
 
   - name: MO-CAPO (fairness off)
     type: pareto_set

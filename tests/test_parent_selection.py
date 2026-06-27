@@ -16,6 +16,7 @@ from heal_capo.optimizers.parent_selection import (
     evaluation_level,
     get_evaluated_blocks,
     select_parents,
+    weighted_tiebreak_score,
 )
 
 
@@ -262,6 +263,58 @@ def test_selector_prefers_more_evaluated_non_incumbent_when_no_dominance():
 
     assert winner.candidate_id == "more"
     assert decision.reason == "more_evaluated_non_incumbent"
+
+
+def test_weighted_tiebreak_prefers_cheaper_incomparable_candidate():
+    expensive = make_candidate("expensive", blocks=[0])
+    cheap = make_candidate("cheap", blocks=[0])
+    evaluations = {
+        "expensive": make_result(
+            "expensive",
+            performance=0.98,
+            cost=3000.0,
+            risk=0.0,
+            fairness_risk=0.05,
+            blocks=[0],
+        ),
+        "cheap": make_result(
+            "cheap",
+            performance=0.96,
+            cost=1000.0,
+            risk=0.0,
+            fairness_risk=0.05,
+            blocks=[0],
+        ),
+    }
+
+    selector = ParentSelector(
+        config=ParentSelectionConfig(
+            random_seed=1,
+            use_weighted_tiebreak=True,
+            weighted_tiebreak={
+                "performance": 1.0,
+                "cost": 0.5,
+                "risk": 0.0,
+                "fairness_risk": 0.0,
+                "drift": 0.0,
+                "cost_scale": 5000.0,
+            },
+        ),
+    )
+
+    winner, decision = selector.compare(
+        left=expensive,
+        right=cheap,
+        incumbent_ids=set(),
+        evaluations=evaluations,
+        population=[expensive, cheap],
+    )
+
+    assert winner.candidate_id == "cheap"
+    assert decision.reason == "weighted_tiebreak"
+    assert weighted_tiebreak_score(evaluations["cheap"], selector.config) > (
+        weighted_tiebreak_score(evaluations["expensive"], selector.config)
+    )
 
 
 def test_selector_returns_evaluated_candidate_over_unevaluated():

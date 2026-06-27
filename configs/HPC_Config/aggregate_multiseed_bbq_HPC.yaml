@@ -1,7 +1,7 @@
 # Aggregate large-held-out BBQ Dtest results from the UT Rocket HPC layout.
 #
 # Expected eval output layout:
-#   outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v2/
+#   outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v3/
 #   outputs/hpc/evaluation_large/seed_0/bbq_ablation_500k_v2/
 #   outputs/hpc/evaluation_large/seed_0/bbq_nsga2po_500k_v2/
 #   ... same for seeds 1 and 2 after the later paper sweep.
@@ -10,11 +10,11 @@ base: outputs/hpc/evaluation_large/seed_{seed}
 # Current cost-control default: aggregate only the seed-0 smoke run.
 # Change to [0, 1, 2] after all three seeds have completed.
 seeds: [0]
-output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_v2_large_seed0
+output_dir: outputs/experiment_table/bbq_mistral_hpc_500k_v3_vs_v2_large_seed0
 
 methods:
   - name: FairCAPO
-    eval_subdir: bbq_faircapo_500k_v2
+    eval_subdir: bbq_faircapo_500k_v3
   - name: MO-CAPO (fairness off)
     eval_subdir: bbq_ablation_500k_v2
   - name: NSGA-II-PO + fairness

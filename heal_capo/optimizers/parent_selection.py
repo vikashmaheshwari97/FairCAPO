@@ -44,6 +44,17 @@ class ParentSelectionConfig:
     prefer_incumbents: bool = True
     use_crowding_distance: bool = True
     use_subset_dominance: bool = True
+    use_weighted_tiebreak: bool = False
+    weighted_tiebreak: dict[str, float] = field(
+        default_factory=lambda: {
+            "performance": 1.0,
+            "cost": 0.0,
+            "risk": 0.0,
+            "fairness_risk": 0.0,
+            "drift": 0.0,
+            "cost_scale": 1.0,
+        }
+    )
     random_seed: Optional[int] = None
 
 
@@ -141,6 +152,31 @@ def dominates(
             strictly_better_any = True
 
     return better_or_equal_all and strictly_better_any
+
+
+def weighted_tiebreak_score(
+    result: EvaluationResult,
+    config: ParentSelectionConfig | None = None,
+) -> float:
+    """
+    Configurable scalar score used only after Pareto/crowding comparisons tie.
+
+    This is intentionally not a replacement for Pareto dominance. It gives a
+    budgeted search a way to prefer cheaper fair candidates when two candidates
+    are otherwise incomparable, which is useful for expensive LLM objectives.
+    """
+    config = config or ParentSelectionConfig()
+    weights = config.weighted_tiebreak or {}
+    cost_scale = float(weights.get("cost_scale", 1.0) or 1.0)
+
+    return (
+        float(weights.get("performance", 0.0)) * get_metric(result, "performance")
+        - float(weights.get("cost", 0.0)) * (get_metric(result, "cost") / cost_scale)
+        - float(weights.get("risk", 0.0)) * get_metric(result, "risk")
+        - float(weights.get("fairness_risk", 0.0))
+        * get_metric(result, "fairness_risk")
+        - float(weights.get("drift", 0.0)) * get_metric(result, "drift")
+    )
 
 
 def get_evaluated_blocks(
@@ -526,6 +562,19 @@ class ParentSelector:
             if cd_winner is not None:
                 return cd_winner
 
+        if self.config.use_weighted_tiebreak:
+            weighted_winner = self._weighted_tiebreak_compare(
+                left=left,
+                right=right,
+                left_result=left_result,
+                right_result=right_result,
+                incumbent_ids=incumbent_ids,
+                relation=relation,
+            )
+
+            if weighted_winner is not None:
+                return weighted_winner
+
         left_level = evaluation_level(left, left_result)
         right_level = evaluation_level(right, right_result)
 
@@ -584,6 +633,38 @@ class ParentSelector:
             )
 
         return None
+
+    def _weighted_tiebreak_compare(
+        self,
+        left: PromptCandidate,
+        right: PromptCandidate,
+        left_result: EvaluationResult,
+        right_result: EvaluationResult,
+        incumbent_ids: set[str],
+        relation: str,
+    ) -> tuple[PromptCandidate, TournamentDecision] | None:
+        left_score = weighted_tiebreak_score(left_result, self.config)
+        right_score = weighted_tiebreak_score(right_result, self.config)
+
+        if left_score == right_score:
+            return None
+
+        winner = left if left_score > right_score else right
+        loser = right if winner is left else left
+
+        return winner, TournamentDecision(
+            winner_id=winner.candidate_id,
+            loser_id=loser.candidate_id,
+            reason="weighted_tiebreak",
+            winner_is_incumbent=winner.candidate_id in incumbent_ids,
+            loser_is_incumbent=loser.candidate_id in incumbent_ids,
+            metadata={
+                "left_score": left_score,
+                "right_score": right_score,
+                "relation": relation,
+                "weights": dict(self.config.weighted_tiebreak or {}),
+            },
+        )
 
     def _crowding_compare(
         self,
