@@ -19,6 +19,19 @@ Do not move to 1M until the 500k_v2 large-held-out comparison is clear.
 
 ## Current Plan
 
+Preferred one-command submission:
+
+```bash
+bash scripts/hpc/submit_bbq_500k_v2_large_pipeline.sh
+```
+
+This submits FairCAPO, ablation, NSGA, and post-hoc scoring together. The final
+post-hoc Dtest eval is submitted with an `afterok` dependency on post-hoc
+scoring. Active eval/post-hoc SLURM jobs request 1 GPU, 8 CPU cores, and 96 GB
+RAM each.
+
+Manual equivalent:
+
 1. Run FairCAPO v2 large-held-out eval:
 
 ```bash
@@ -117,3 +130,4 @@ These are not changed yet; inspect after the large-held-out v2 table is built.
 - `scripts/hpc/run_bbq_nsga_hpc.slurm`
 - `scripts/hpc/run_bbq_posthoc_hpc.slurm`
 - `scripts/hpc/build_bbq_500k_v2_outputs.sh`
+- `scripts/hpc/submit_bbq_500k_v2_large_pipeline.sh`
