@@ -1,8 +1,10 @@
 # Cross-method experiment comparison table — BBQ (fairness-varying showcase) HPC.
 #
 # Active Rocket scale: 500k v2 seed 0, Ddev=75, Dshot=25, Dtest=100,
-# budget=500k. 1M settings are preserved in the search/eval configs as
-# comments but are not the default until FairCAPO improves over NSGA at 500k.
+# budget=500k. The table uses held-out eval CSVs as the objective basis;
+# search CSVs are used only for budget metadata. 1M settings are preserved in
+# the search/eval configs as comments but are not the default until FairCAPO
+# improves over NSGA at 500k.
 #
 # Core rows:
 #   - FairCAPO (perf + cost + risk + canonical BBQ bias-score fairness)
@@ -42,28 +44,29 @@ metrics:
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_faircapo_500k_v2/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2/test_eval_candidates.csv
     only_pareto: true
     budget_json: outputs/hpc/bbq_faircapo_500k_v2/seed_0/budget_summary.json
     holdout_csv: outputs/hpc/evaluation/seed_0/bbq_faircapo_500k_v2/test_eval_candidates.csv
 
   - name: MO-CAPO (fairness off)
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_all_candidates.csv
+    candidates_csv: outputs/hpc/evaluation/seed_0/bbq_ablation_500k_v2/test_eval_candidates.csv
     only_pareto: true
     budget_json: outputs/hpc/bbq_ablation_500k_v2/seed_0/budget_summary.json
     holdout_csv: outputs/hpc/evaluation/seed_0/bbq_ablation_500k_v2/test_eval_candidates.csv
 
   - name: NSGA-II-PO + fairness
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_nsga2po_500k_v2/seed_0/nsga2_po_all_candidates.csv
+    candidates_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po_500k_v2/test_eval_candidates.csv
     only_pareto: true
     holdout_csv: outputs/hpc/evaluation/seed_0/bbq_nsga2po_500k_v2/test_eval_candidates.csv
 
   # Post-hoc fairness baseline: MO-CAPO fairness-OFF front re-scored with the
-  # canonical BBQ scorer on the HELD-OUT (disjoint) fairness set. Generate this
-  # CSV with scripts/hpc/run_bbq_posthoc_hpc.slurm after the active ablation search.
+  # canonical BBQ scorer, then re-evaluated on the SAME held-out Dtest basis as
+  # the other rows. This is a diagnostic row, not a separate search method.
   - name: Post-hoc fair. (held-out)
     type: pareto_set
-    candidates_csv: outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair.csv
+    candidates_csv: outputs/hpc/evaluation/seed_0/bbq_posthoc_500k_v2/test_eval_candidates.csv
     only_pareto: true
+    holdout_csv: outputs/hpc/evaluation/seed_0/bbq_posthoc_500k_v2/test_eval_candidates.csv

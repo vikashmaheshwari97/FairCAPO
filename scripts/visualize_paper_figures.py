@@ -1,12 +1,12 @@
-"""Paper-style HEAL-CAPO figures matching the MO-CAPO figure aesthetic,
-extended with the FAIRNESS dimension (the HEAL-CAPO contribution).
+"""Paper-style FairCAPO figures matching the MO-CAPO figure aesthetic,
+extended with the FAIRNESS dimension (the FairCAPO contribution).
 
 Reference figures (docs/MO-CAPO Figures):
   Fig 3/7  empirical attainment surface: Test Accuracy vs Avg Cost, baselines overlaid
   Fig 2/6  nR2 / metric vs token budget trajectory
 
 This script reproduces that look and adds fairness:
-  fig_accuracy_cost_fairness.png   Fig-3 style + fairness color (HEAL-CAPO front)
+  fig_accuracy_cost_fairness.png   Fig-3 style + fairness color (FairCAPO front)
   fig_method_comparison.png        all baselines on Accuracy-vs-Cost, fairness-colored
   fig_fairness_tradeoffs.png       3-panel: Acc-Cost, Acc-Fairness, Cost-Fairness
 
@@ -73,8 +73,9 @@ def load_run(run_dir: str, run_csv: str = "") -> pd.DataFrame:
 
 
 def fig_accuracy_cost_fairness(df: pd.DataFrame, title: str, out: Path) -> Path:
-    """Fig-3 style attainment: Accuracy vs Cost, Pareto step line, fairness color."""
-    fig, ax = plt.subplots(figsize=(7, 5))
+    """Fig-3 style front view with a fairness panel for saturated BBQ accuracy."""
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    ax, ax_fair = axes
     dom = df[~df.is_pareto]
     par = df[df.is_pareto].sort_values("cost")
 
@@ -97,9 +98,24 @@ def fig_accuracy_cost_fairness(df: pd.DataFrame, title: str, out: Path) -> Path:
     # also folds in the one-time fairness-eval tokens.
     ax.set_xlabel("Token-weighted eval cost (0.08*in + 0.32*out) [a.u.]")
     ax.set_ylabel("Test Score (Accuracy)")
-    ax.set_title(f"Attainment surface + fairness — {title}")
+    ax.set_title(f"Accuracy vs cost - {title}")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right")
+
+    ax_fair.scatter(dom.cost, dom.fairness_risk, c="lightgray", s=40,
+                    edgecolor="gray", zorder=2, label="dominated")
+    if len(par) > 0:
+        ax_fair.step(par.cost, par.fairness_risk, where="post",
+                     color="black", alpha=0.5, zorder=3)
+    ax_fair.scatter(par.cost, par.fairness_risk, c=par.fairness_risk,
+                    cmap="RdYlGn_r", vmin=0.0,
+                    vmax=max(0.001, df.fairness_risk.max()),
+                    s=150, edgecolor="black", linewidth=1.2, zorder=4)
+    ax_fair.set_xlabel("Token-weighted eval cost (0.08*in + 0.32*out) [a.u.]")
+    ax_fair.set_ylabel("fairness_risk (lower = fairer)")
+    ax_fair.set_title("Fairness vs cost")
+    ax_fair.grid(True, alpha=0.3)
+
     fig.tight_layout()
     p = out / "fig_accuracy_cost_fairness.png"
     fig.savefig(p, dpi=150)
@@ -122,7 +138,7 @@ def fig_method_comparison(table_csv: str, title: str, out: Path) -> Path | None:
     # one horizontal line. Fall back to cost-vs-fairness, the two axes that
     # actually vary, so the trade-off (cheap-but-biased vs fair-but-costly) reads.
     perf_spread = float(t["performance"].max() - t["performance"].min())
-    by_fairness = perf_spread < 1e-6
+    by_fairness = perf_spread < 0.03 and float(t["performance"].max()) >= 0.97
     ycol = "fairness_risk" if by_fairness else "performance"
 
     # Draw higher-fairness (worse) markers LAST so they sit on top and are never
@@ -156,12 +172,13 @@ def fig_method_comparison(table_csv: str, title: str, out: Path) -> Path | None:
     ax.set_xlabel("Token-weighted eval cost (0.08*in + 0.32*out) [a.u.]")
     if by_fairness:
         ax.set_ylabel("fairness_risk  (lower = fairer)")
-        ax.set_title(f"Method comparison — cost vs fairness (accuracy tied at "
-                     f"{t['performance'].max():.3f}) — {title}")
+        ax.set_title(f"Method comparison - cost vs fairness "
+                     f"(accuracy near ceiling: {t['performance'].min():.3f}-"
+                     f"{t['performance'].max():.3f}) - {title}")
         ax.margins(y=0.25)
     else:
         ax.set_ylabel("Test Score (Accuracy)")
-        ax.set_title(f"Method comparison (accuracy / cost / fairness) — {title}")
+        ax.set_title(f"Method comparison (accuracy / cost / fairness) - {title}")
     ax.margins(x=0.18)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -190,7 +207,7 @@ def fig_fairness_tradeoffs(df: pd.DataFrame, title: str, out: Path) -> Path:
         ax.set_title(t)
         ax.grid(True, alpha=0.3)
     axes[0].legend(loc="best")
-    fig.suptitle(f"Fairness trade-offs — {title}", fontsize=14)
+    fig.suptitle(f"Fairness trade-offs - {title}", fontsize=14)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     p = out / "fig_fairness_tradeoffs.png"
     fig.savefig(p, dpi=150)
@@ -199,7 +216,7 @@ def fig_fairness_tradeoffs(df: pd.DataFrame, title: str, out: Path) -> Path:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Paper-style HEAL-CAPO fairness figures.")
+    ap = argparse.ArgumentParser(description="Paper-style FairCAPO fairness figures.")
     ap.add_argument("--run", default="outputs/phase2_budgeted_mocapo_subj")
     ap.add_argument("--run-csv", default="",
                     help="Optional candidates CSV to plot instead of <run>/phase2_all_candidates.csv.")

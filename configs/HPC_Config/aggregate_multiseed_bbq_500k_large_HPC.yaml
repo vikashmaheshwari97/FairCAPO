@@ -11,4 +11,5 @@ methods:
     eval_subdir: bbq_ablation
   - name: NSGA-II-PO + fairness
     eval_subdir: bbq_nsga2po
-
+  - name: Post-hoc fair. (held-out)
+    eval_subdir: bbq_posthoc

@@ -1,5 +1,47 @@
 # FairCAPO — Project Status
 
+## Active Rocket Status — 2026-06-27
+
+Do not cite the old 500k_v2 table whose `source` columns are
+`outputs/hpc/*_500k_v2/seed_0/*all_candidates.csv`. That table mixed search/dev
+objective values with held-out inference-cost columns, which is why it showed
+near-perfect or perfect accuracy and produced weak method-comparison figures.
+
+The valid reporting basis is held-out evaluation CSVs:
+
+- Standard 500k_v2 held-out: `outputs/hpc/evaluation/seed_0/.../test_eval_candidates.csv`
+- Stage A large held-out: `outputs/hpc/evaluation_large/seed_0/.../test_eval_candidates.csv`
+
+Stage A large-held-out already shows the important diagnostic result:
+
+- FairCAPO: HV 0.4658, perf 0.980, fairness_risk 0.0575
+- NSGA-II-PO + fairness: HV 0.4630, perf 0.980, fairness_risk 0.0682
+- MO-CAPO fairness off: HV 0.3733, perf 0.955, fairness_risk 0.0145
+- Post-hoc fair. (held-out): same held-out Dtest basis as the ablation-derived
+  post-hoc portfolio; keep it as a diagnostic row, not as a separate search
+  method.
+
+Interpretation: FairCAPO has a real but small large-held-out HV edge over NSGA
+at 500k seed 0. This is not strong enough to justify moving to 1M yet. First
+finish the clean 500k_v2 held-out table/figures from eval CSVs, then decide
+whether to improve FairCAPO operators/intensification before spending more GPU
+time.
+
+Current next commands on Rocket after `git pull origin main`:
+
+```bash
+# If the post-hoc v2 portfolio has not yet been re-evaluated on the same Dtest:
+sbatch --array=0 \
+  --export=ALL,METHOD=ablation,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair.csv,OUT_DIR=outputs/hpc/evaluation/seed_0/bbq_posthoc_500k_v2 \
+  scripts/hpc/run_bbq_eval_hpc.slurm
+
+# After the four standard 500k_v2 eval dirs exist:
+bash scripts/hpc/build_bbq_500k_v2_outputs.sh
+```
+
+Use `bash scripts/hpc/build_bbq_stagea_outputs.sh` only for the older Stage A
+large-held-out diagnostic outputs.
+
 _Last updated: 2026-06-26 — UT Rocket/Pegasus2 path is the active plan. The local LM Studio diagnostic path is superseded. GitHub export `vikashmaheshwari97/FairCAPO` has Rocket-ready vLLM SLURM wrappers for search, eval, NSGA, and post-hoc BBQ fairness; active BBQ HPC configs default to seed 0 for cost control._
 _Prior result to remember: seed-0 local comparison closed at S14 — held-out HV FairCAPO 0.201 == NSGA 0.201 > ablation 0.182. FairCAPO beats the fairness-OFF ablation but ties NSGA on held-out, so the next expensive step must be run carefully on HPC._
 
