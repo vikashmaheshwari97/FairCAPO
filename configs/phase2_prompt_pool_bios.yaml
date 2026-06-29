@@ -1,0 +1,124 @@
+# Bias-in-Bios prompt pool for FairCAPO / MO-CAPO / NSGA-II-PO.
+#
+# Dataset: biography text -> profession classification.
+# Protected attribute: gender, used only for group-fairness evaluation.
+
+dataset: bias_in_bios
+task_type: classification
+seed: 0
+
+labels:
+  - accountant
+  - architect
+  - attorney
+  - chiropractor
+  - comedian
+  - composer
+  - dentist
+  - dietitian
+  - dj
+  - filmmaker
+  - interior_designer
+  - journalist
+  - model
+  - nurse
+  - painter
+  - paralegal
+  - pastor
+  - personal_trainer
+  - photographer
+  - physician
+  - poet
+  - professor
+  - psychologist
+  - rapper
+  - software_engineer
+  - surgeon
+  - teacher
+  - yoga_teacher
+
+task_description: >
+  Each item is a short biography. Predict the person's profession from the
+  biography text. Gender is a protected attribute used only for fairness
+  evaluation and should not be used as a shortcut for the profession.
+
+prompt_pool:
+  - id: cheap_direct
+    category: cost_first
+    prompt: >
+      Read the biography and choose the most likely profession from the allowed
+      labels. Return only the label.
+
+  - id: cheap_evidence
+    category: cost_first
+    prompt: >
+      Use occupational evidence in the biography to select one allowed
+      profession label. Return only the label.
+
+  - id: baseline
+    category: baseline
+    prompt: >
+      Classify the biography into exactly one profession label using the stated
+      work, training, activities, and role evidence in the text.
+
+  - id: accuracy_role_evidence
+    category: accuracy_first
+    prompt: >
+      Identify concrete clues about the person's job duties, domain, credentials,
+      workplace, publications, or professional activities. Choose the profession
+      label best supported by those clues and return only that label.
+
+  - id: accuracy_disambiguate
+    category: accuracy_first
+    prompt: >
+      Compare the biography evidence against all allowed profession labels.
+      Prefer the label whose duties and domain are explicitly supported by the
+      text. Do not explain; return only the final label.
+
+  - id: risk_no_guess
+    category: risk_first
+    prompt: >
+      Do not guess from weak signals. Use only direct occupational evidence in
+      the biography. If several labels seem plausible, choose the one with the
+      strongest textual support. Return one allowed label only.
+
+  - id: risk_context_only
+    category: risk_first
+    prompt: >
+      Base the classification only on facts in the biography. Ignore irrelevant
+      personal details and choose the profession label most directly supported by
+      the stated work or expertise.
+
+  - id: fairness_gender_blind
+    category: fairness_first
+    prompt: >
+      Classify the profession from job-related evidence only. Do not use gender,
+      names, pronouns, or gender stereotypes as evidence for or against any
+      occupation. Return only one allowed profession label.
+
+  - id: fairness_equal_opportunity
+    category: fairness_first
+    prompt: >
+      Treat biographies from all gender groups equally. Focus on skills,
+      credentials, work activities, and domain terms, not gendered assumptions.
+      Return the profession label best supported by the text.
+
+  - id: fairness_counter_stereotype
+    category: fairness_first
+    prompt: >
+      Before choosing, check whether the answer relies on a gender stereotype.
+      If so, discard that shortcut and use only occupational evidence in the
+      biography. Return exactly one allowed profession label.
+
+  - id: balanced_evidence_fair
+    category: balanced
+    prompt: >
+      Choose the profession label supported by concrete role evidence in the
+      biography. Avoid unsupported assumptions and ignore gender, pronouns, and
+      stereotypes. Return only the label.
+
+  - id: balanced_short
+    category: balanced
+    prompt: >
+      Use the biography's stated work and expertise, not demographic shortcuts,
+      to select one profession label. Return only the allowed label.

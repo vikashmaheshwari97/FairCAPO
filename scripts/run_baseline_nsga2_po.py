@@ -328,12 +328,26 @@ def build_objective_evaluator(
     if use_llm:
         dataset = str(config.get("dataset", "")).strip().lower()
         task_type = str(config.get("task_type", "")).strip().lower()
-        if dataset == "bbq" or task_type == "multiple_choice":
+        fairness_mode = str(
+            (config.get("fairness", {}) or {}).get("mode", "")
+        ).strip().lower()
+        if (
+            dataset == "bbq"
+            or task_type == "multiple_choice"
+            or fairness_mode
+            in {
+                "group",
+                "group_fairness",
+                "group_accuracy_gap",
+                "demographic_parity",
+                "equal_opportunity",
+                "equalized_odds",
+            }
+        ):
             # Share FairCAPO's evaluator so NSGA-II-PO optimizes the SAME real
-            # objectives (multiple-choice accuracy + canonical BBQ bias score),
-            # differing from FairCAPO only in the search algorithm. Without this,
-            # NSGA-II-PO would use a prompt-keyword fairness heuristic and would
-            # not be comparable.
+            # objectives, differing from FairCAPO only in the search algorithm.
+            # This covers BBQ's canonical bias score and group-labeled datasets
+            # such as Bias-in-Bios.
             from scripts.run_phase2_budgeted_mocapo import (
                 LLMObjectiveEvaluator as BudgetedLLMEvaluator,
             )
@@ -391,10 +405,9 @@ def get_prompt_pool(config: dict) -> list[dict]:
 
 
 def get_dev_data(config: dict) -> list[dict]:
-    # BBQ loads a real dataset-backed dev split (via the budgeted runner's loader),
-    # so NSGA-II-PO sees the exact same Ddev as FairCAPO. Other datasets keep the
-    # existing inline/default behavior.
-    if str(config.get("dataset", "")).strip().lower() == "bbq":
+    # Dataset-backed configs load the same Ddev as FairCAPO. Inline/default demos
+    # remain available for tiny tests and legacy subjectivity runs.
+    if config.get("dev") or config.get("dev_dataset"):
         from scripts.run_phase2_budgeted_mocapo import get_dev_data as budgeted_get_dev_data
 
         return budgeted_get_dev_data(config)

@@ -131,9 +131,11 @@ def test_get_test_data_dataset_mode_converts_examples():
 
     assert rows, "dataset mode should yield test rows"
     for row in rows:
-        assert set(row.keys()) == {"text", "label"}
+        assert {"text", "label"}.issubset(row.keys())
         assert isinstance(row["text"], str)
         assert isinstance(row["label"], str)
+        if "meta" in row:
+            assert isinstance(row["meta"], dict)
 
 
 def test_objective_specs_from_config_defaults_and_custom():
