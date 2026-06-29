@@ -962,6 +962,7 @@ def get_dev_data(config: dict) -> list[dict]:
             seed=int(config.get("seed", 0)),
             allow_smaller=bool(dev_cfg.get("allow_smaller", True)),
             stratified=bool(dev_cfg.get("stratified", True)),
+            dataset_split=dev_cfg.get("split") or dev_cfg.get("dataset_split"),
         )
         return [_example_to_row(ex) for ex in split.dev]
 
@@ -1048,6 +1049,7 @@ def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
             seed=int(config.get("seed", 0)),
             allow_smaller=True,
             stratified=bool(fs_cfg.get("stratified", task_type == "classification")),
+            dataset_split=fs_cfg.get("split") or fs_cfg.get("dataset_split"),
         )
         rows = [_example_to_row(ex) for ex in split.dev]
 

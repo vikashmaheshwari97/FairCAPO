@@ -33,3 +33,30 @@ def test_bias_in_bios_helpers_expose_classes_and_description():
     assert "physician" in datasets.get_dataset_classes("bias_in_bios")
     description = datasets.get_task_description("bios")
     assert "occupation" in description
+
+
+def test_load_paper_dataset_passes_bias_in_bios_split(monkeypatch):
+    seen = {}
+
+    def fake_load_bias_in_bios(*args, **kwargs):
+        seen["split"] = kwargs.get("split")
+        return datasets.DatasetSplit(
+            dev=[],
+            shots=[],
+            test=[],
+            name="bias_in_bios",
+            task_type="classification",
+            classes=datasets.BIOS_PROFESSION_LABELS,
+        )
+
+    monkeypatch.setattr(datasets, "load_bias_in_bios", fake_load_bias_in_bios)
+
+    datasets.load_paper_dataset(
+        "bias_in_bios",
+        dev_size=1,
+        shots_size=1,
+        test_size=1,
+        dataset_split="test",
+    )
+
+    assert seen["split"] == "test"

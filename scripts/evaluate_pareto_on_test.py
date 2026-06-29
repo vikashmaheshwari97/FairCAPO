@@ -254,6 +254,7 @@ def get_test_data(config: dict) -> list[dict]:
         seed=int(config.get("seed", 0)),
         allow_smaller=bool(config.get("allow_smaller", False)),
         stratified=bool(config.get("stratified", True)),
+        dataset_split=config.get("dataset_split"),
     )
 
     return [example_to_row(example) for example in split.test]

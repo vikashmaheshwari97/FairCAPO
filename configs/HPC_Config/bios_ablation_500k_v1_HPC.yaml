@@ -44,6 +44,7 @@ labels:
 
 dev:
   dataset: bias_in_bios
+  split: train
   dev_size: 75
   shots_size: 25
   test_size: 100
@@ -82,6 +83,7 @@ few_shot:
   pool_size: 25
   use_rationale: false
   shots_data: bias_in_bios
+  split: train
 
 block_size: 15
 drop_last_block: false

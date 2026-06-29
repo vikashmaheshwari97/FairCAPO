@@ -904,6 +904,7 @@ def load_paper_dataset(
     seed: int = 42,
     allow_smaller: bool = False,
     stratified: bool = True,
+    dataset_split: Optional[str] = None,
 ) -> DatasetSplit:
     """
     Unified loader for datasets used in MO-CAPO / Promptolution / EvoPrompt papers.
@@ -953,6 +954,7 @@ def load_paper_dataset(
             seed,
             allow_smaller,
             stratified=stratified,
+            split=dataset_split or "train",
         )
 
     raise ValueError(

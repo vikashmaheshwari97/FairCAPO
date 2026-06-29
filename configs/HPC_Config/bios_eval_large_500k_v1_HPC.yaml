@@ -8,6 +8,7 @@ output_dir: outputs/hpc/evaluation_large/seed_0/bios_faircapo_500k_v1
 dataset: bias_in_bios
 task_type: classification
 seed: 0
+dataset_split: test
 dev_size: 75
 shots_size: 25
 test_size: 500
