@@ -48,12 +48,16 @@ if [ ! -f ".venv/.faircapo_hpc_ready" ]; then
   fi
   python -m pip install \
     "vllm>=0.8" "huggingface_hub>=0.24" \
-    pandas requests pyyaml numpy pydantic matplotlib altair streamlit
+    "datasets>=2.20" pandas requests pyyaml numpy pydantic matplotlib altair streamlit
   mkdir -p .venv
   date > .venv/.faircapo_hpc_ready
 else
   source .venv/bin/activate
 fi
+
+python - <<'PY' >/dev/null 2>&1 || python -m pip install "datasets>=2.20"
+import datasets
+PY
 
 rmdir "${LOCK_DIR}" 2>/dev/null || true
 
