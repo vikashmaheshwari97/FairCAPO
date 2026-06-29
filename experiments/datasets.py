@@ -604,6 +604,119 @@ def load_mbpp(
     )
 
 
+BIOS_PROFESSION_LABELS = [
+    "accountant",
+    "architect",
+    "attorney",
+    "chiropractor",
+    "comedian",
+    "composer",
+    "dentist",
+    "dietitian",
+    "dj",
+    "filmmaker",
+    "interior_designer",
+    "journalist",
+    "model",
+    "nurse",
+    "painter",
+    "paralegal",
+    "pastor",
+    "personal_trainer",
+    "photographer",
+    "physician",
+    "poet",
+    "professor",
+    "psychologist",
+    "rapper",
+    "software_engineer",
+    "surgeon",
+    "teacher",
+    "yoga_teacher",
+]
+
+
+def _bios_profession_label(value: Any) -> str:
+    try:
+        idx = int(value)
+    except (TypeError, ValueError):
+        return _normalize_label(value)
+    if 0 <= idx < len(BIOS_PROFESSION_LABELS):
+        return BIOS_PROFESSION_LABELS[idx]
+    return str(idx)
+
+
+def _bios_gender_label(value: Any) -> str:
+    try:
+        idx = int(value)
+    except (TypeError, ValueError):
+        return _normalize_lower_label(value)
+    return "male" if idx == 0 else "female" if idx == 1 else str(idx)
+
+
+def load_bias_in_bios(
+    dev_size: int = 300,
+    shots_size: int = 100,
+    test_size: int = 500,
+    seed: int = 42,
+    allow_smaller: bool = False,
+    stratified: bool = True,
+    split: str = "train",
+) -> DatasetSplit:
+    """
+    Bias-in-Bios: biography text -> profession classification.
+
+    The Hugging Face version exposes ``hard_text`` as the input biography,
+    ``profession`` as a 28-way occupation label, and ``gender`` as the binary
+    protected attribute. We preserve gender in metadata so the group-fairness
+    evaluator can compute group accuracy/equal-opportunity style gaps.
+    """
+    ds = _load_hf_dataset("LabHC/bias_in_bios", split=split)
+
+    examples: list[Example] = []
+    for idx, row in enumerate(ds):
+        text = str(row.get("hard_text", "")).strip()
+        if not text:
+            continue
+
+        profession = _bios_profession_label(row.get("profession"))
+        gender = _bios_gender_label(row.get("gender"))
+
+        examples.append(
+            Example(
+                text=f"Biography: {text}",
+                label=profession,
+                metadata={
+                    "dataset": "bias_in_bios",
+                    "source_index": idx,
+                    "profession": profession,
+                    "gender": gender,
+                    "group": gender,
+                    "sensitive_attribute": "gender",
+                },
+            )
+        )
+
+    return _sample_split(
+        examples,
+        name="bias_in_bios",
+        task_type="classification",
+        classes=BIOS_PROFESSION_LABELS,
+        task_description=(
+            "The dataset contains short biographies labeled with a professional "
+            "occupation. The task is to classify each biography into exactly one "
+            "occupation label. Gender is a protected attribute used only for "
+            "fairness evaluation, not as a target label."
+        ),
+        dev_size=dev_size,
+        shots_size=shots_size,
+        test_size=test_size,
+        seed=seed,
+        allow_smaller=allow_smaller,
+        stratified=stratified,
+    )
+
+
 # BBQ (Bias Benchmark for QA, Parrish et al. 2021).
 #
 # Three demographic categories used for FairCAPO's fairness showcase. The exact
@@ -832,9 +945,20 @@ def load_paper_dataset(
     if normalized_name in {"bbq"}:
         return load_bbq(dev_size, shots_size, test_size, seed, allow_smaller)
 
+    if normalized_name in {"bias_in_bios", "bias-in-bios", "bios", "biosbias"}:
+        return load_bias_in_bios(
+            dev_size,
+            shots_size,
+            test_size,
+            seed,
+            allow_smaller,
+            stratified=stratified,
+        )
+
     raise ValueError(
         f"Unknown paper dataset: {name}. "
-        f"Supported: toy_subjectivity, subj, ag_news, sst5, gsm8k, mbpp, bbq."
+        "Supported: toy_subjectivity, subj, ag_news, sst5, gsm8k, mbpp, "
+        "bbq, bias_in_bios."
     )
 
 
@@ -852,6 +976,9 @@ def get_dataset_classes(name: str) -> Optional[list[str]]:
 
     if normalized_name in {"sst5", "sst-5", "sst_5"}:
         return ["terrible", "bad", "okay", "good", "great"]
+
+    if normalized_name in {"bias_in_bios", "bias-in-bios", "bios", "biosbias"}:
+        return list(BIOS_PROFESSION_LABELS)
 
     # BBQ is multiple-choice (variable answer text per item) -> no fixed class set,
     # like GSM8K/MBPP.
@@ -909,6 +1036,14 @@ def get_task_description(name: str) -> str:
             "enough information to answer, the correct choice is the unknown option; "
             "otherwise the correct choice is the option supported by the context. The "
             "task is to select the single correct option."
+        )
+
+    if normalized_name in {"bias_in_bios", "bias-in-bios", "bios", "biosbias"}:
+        return (
+            "The dataset contains short biographies labeled with a professional "
+            "occupation. The task is to classify each biography into exactly one "
+            "occupation label. Gender is a protected attribute used only for "
+            "fairness evaluation, not as a target label."
         )
 
     raise ValueError(f"Unknown dataset for task description: {name}")

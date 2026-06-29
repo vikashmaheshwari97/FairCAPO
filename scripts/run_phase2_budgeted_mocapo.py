@@ -262,6 +262,21 @@ def get_example_label(example: dict) -> str:
     )
 
 
+def get_example_metadata(example: dict) -> dict:
+    meta = example.get("meta") or example.get("metadata") or {}
+    return dict(meta) if isinstance(meta, dict) else {}
+
+
+def get_example_group(example: dict, group_key: str = "group") -> str:
+    metadata = get_example_metadata(example)
+    for key in (group_key, "group", "gender", "sex", "sensitive_group"):
+        value = metadata.get(key)
+        if value not in (None, ""):
+            return str(value)
+    value = example.get(group_key) or example.get("group")
+    return str(value) if value not in (None, "") else ""
+
+
 def make_llm_prompt(
     candidate: PromptCandidate,
     text: str,
@@ -471,16 +486,29 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         )
 
         # In-loop fairness setup. BBQ uses the canonical bias-score path (a set of
-        # items); everything else uses counterfactual pairs.
+        # items); group-labeled classification datasets use metadata groups;
+        # everything else uses counterfactual pairs.
         self.fairness_mode = _fairness_mode(config)
         if self.fairness_mode == "bbq_bias_score":
             self.fairness_pairs = []
             self.bbq_fairness_items = load_inloop_bbq_items(config)
             self.fairness_in_loop = bool(self.bbq_fairness_items)
+        elif self.fairness_mode in {
+            "group",
+            "group_fairness",
+            "group_accuracy_gap",
+            "demographic_parity",
+            "equal_opportunity",
+            "equalized_odds",
+        }:
+            self.fairness_pairs = []
+            self.bbq_fairness_items = []
+            self.fairness_in_loop = True
         else:
             self.fairness_pairs = load_inloop_fairness_pairs(config)
             self.bbq_fairness_items = []
             self.fairness_in_loop = bool(self.fairness_pairs)
+        self.group_key = str(self.fairness_cfg.get("group_key", "group"))
         self.use_expected_same = bool(
             self.fairness_cfg.get("use_expected_same_prediction", True)
         )
@@ -493,6 +521,16 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             group_gap_weight=float(self.fairness_cfg.get("group_gap_weight", 0.25)),
             bias_weight=float(self.fairness_cfg.get("bias_weight", 0.15)),
             debt_weight=float(self.fairness_cfg.get("debt_weight", 0.10)),
+            demographic_parity_weight=float(
+                self.fairness_cfg.get("demographic_parity_weight", 0.0)
+            ),
+            equal_opportunity_weight=float(
+                self.fairness_cfg.get("equal_opportunity_weight", 0.0)
+            ),
+            equalized_odds_weight=float(
+                self.fairness_cfg.get("equalized_odds_weight", 0.0)
+            ),
+            positive_label=self.fairness_cfg.get("positive_label"),
             clamp=bool(self.fairness_cfg.get("clamp", True)),
         )
         # Cache real fairness by instruction text so it is computed once per
@@ -674,6 +712,10 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         input_tokens = 0
         output_tokens = 0
         rows = []
+        predictions: list[str] = []
+        labels: list[str] = []
+        groups: list[str] = []
+        raw_outputs: list[str] = []
 
         for example in data:
             text = get_example_text(example)
@@ -689,9 +731,15 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
 
             raw_response = get_llm_response(self.llm, prompt)
             pred, is_correct = self._score_prediction(raw_response, gold)
+            group = get_example_group(example, self.group_key)
 
             correct += int(is_correct)
             total += 1
+            predictions.append(pred)
+            labels.append(gold)
+            if group:
+                groups.append(group)
+            raw_outputs.append(raw_response)
 
             prompt_tokens = simple_token_count(prompt)
             response_tokens = simple_token_count(raw_response)
@@ -706,6 +754,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                     "prediction": pred,
                     "raw_response": raw_response,
                     "correct": is_correct,
+                    "group": group,
                     "input_tokens": prompt_tokens,
                     "output_tokens": response_tokens,
                 }
@@ -735,6 +784,44 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                     self._evaluate_candidate_fairness_bbq(candidate)
                 )
                 fairness_source = "bbq_bias_score"
+            elif self.fairness_mode in {
+                "group",
+                "group_fairness",
+                "group_accuracy_gap",
+                "demographic_parity",
+                "equal_opportunity",
+                "equalized_odds",
+            }:
+                if len(groups) == len(predictions):
+                    fairness_result = evaluate_combined_fairness(
+                        predictions=predictions,
+                        labels=labels,
+                        groups=groups,
+                        outputs=raw_outputs,
+                        config=self.combined_fairness_config,
+                    )
+                    fairness_risk = fairness_result.fairness_risk
+                    fairness_details = {
+                        "fairness_method": fairness_result.details.get("method"),
+                        "group_accuracy_gap": fairness_result.group_accuracy_gap,
+                        "fairness_num_groups": len(set(groups)),
+                        "fairness_groups": sorted(set(groups)),
+                        "fairness_breakdown": fairness_result.details.get("breakdown"),
+                        "fairness_eval_cost": 0.0,
+                        "fairness_eval_input_tokens": 0,
+                        "fairness_eval_output_tokens": 0,
+                    }
+                else:
+                    fairness_risk = 0.0
+                    fairness_details = {
+                        "fairness_method": "group_metadata_missing",
+                        "fairness_num_groups": 0,
+                        "fairness_eval_cost": 0.0,
+                        "fairness_eval_input_tokens": 0,
+                        "fairness_eval_output_tokens": 0,
+                    }
+                fairness_cost = 0.0
+                fairness_source = "group_fairness_in_loop"
             else:
                 fairness_risk, fairness_details, fairness_cost = (
                     self._evaluate_candidate_fairness(candidate)

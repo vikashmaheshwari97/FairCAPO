@@ -110,3 +110,43 @@ def test_inloop_disabled_falls_back_to_heuristic():
 
     assert result.details["fairness_source"] == "prompt_heuristic"
     assert 0.0 <= result.fairness_risk <= 1.0
+
+
+class ConstantLabelLLM:
+    def __init__(self, label: str):
+        self.label = label
+
+    def get_response(self, prompt: str) -> str:
+        return self.label
+
+
+def test_group_fairness_mode_uses_example_metadata():
+    cfg = {
+        "labels": ["nurse", "engineer"],
+        "cost": {"input_weight": 0.08, "output_weight": 0.32},
+        "evaluation": {"require_final_answer_tags": False},
+        "fairness": {
+            "in_loop": True,
+            "mode": "group_accuracy_gap",
+            "group_key": "gender",
+            "group_gap_weight": 1.0,
+            "flip_weight": 0.0,
+            "bias_weight": 0.0,
+            "debt_weight": 0.0,
+        },
+    }
+    evaluator = LLMObjectiveEvaluator(cfg, llm=ConstantLabelLLM("nurse"))
+    candidate = PromptCandidate(instruction="Classify the biography.")
+    data = [
+        {"text": "A", "label": "nurse", "meta": {"gender": "female"}},
+        {"text": "B", "label": "nurse", "meta": {"gender": "female"}},
+        {"text": "C", "label": "engineer", "meta": {"gender": "male"}},
+        {"text": "D", "label": "engineer", "meta": {"gender": "male"}},
+    ]
+
+    result = evaluator.evaluate(candidate, data)
+
+    assert result.details["fairness_source"] == "group_fairness_in_loop"
+    assert result.details["group_accuracy_gap"] == 1.0
+    assert result.fairness_risk == 1.0
+    assert result.details["fairness_eval_cost"] == 0.0

@@ -196,7 +196,7 @@ def portfolio_rows_to_candidates(rows: list[dict]) -> list[PromptCandidate]:
 def example_to_row(example: Any) -> dict:
     """Convert a datasets.Example (or dict) to a {text, label} row."""
     if isinstance(example, dict):
-        return {
+        row = {
             "text": str(
                 example.get("text")
                 or example.get("input")
@@ -210,12 +210,20 @@ def example_to_row(example: Any) -> dict:
                 or ""
             ),
         }
+        meta = example.get("meta") or example.get("metadata")
+        if isinstance(meta, dict):
+            row["meta"] = dict(meta)
+        return row
 
     # datasets.Example dataclass.
-    return {
+    row = {
         "text": str(getattr(example, "text", "")),
         "label": str(getattr(example, "label", "")),
     }
+    metadata = getattr(example, "metadata", None)
+    if isinstance(metadata, dict):
+        row["meta"] = dict(metadata)
+    return row
 
 
 def get_test_data(config: dict) -> list[dict]:
