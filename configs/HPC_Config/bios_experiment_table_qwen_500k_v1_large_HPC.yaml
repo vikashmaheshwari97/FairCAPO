@@ -1,0 +1,56 @@
+# Cross-method table -- Bias-in-Bios Qwen FairCAPO seed 0.
+# Includes frozen Mistral v1 rows for context, but do not treat them as a
+# same-model baseline comparison.
+
+output_dir: outputs/experiment_table/bios_qwen_hpc_500k_v1_large_seed0
+dataset: Bias-in-Bios
+model: Qwen/Qwen3-30B-A3B-Instruct-2507
+seed: 0
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: risk
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 12000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0
+
+methods:
+  - name: FairCAPO Qwen
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_faircapo_qwen_500k_v1/test_eval_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bios_faircapo_qwen_500k_v1/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_faircapo_qwen_500k_v1/test_eval_candidates.csv
+
+  - name: FairCAPO Mistral v1
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_faircapo_500k_v1/test_eval_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bios_faircapo_500k_v1/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_faircapo_500k_v1/test_eval_candidates.csv
+
+  - name: MO-CAPO Mistral fairness off
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_ablation_500k_v1/test_eval_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bios_ablation_500k_v1/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_ablation_500k_v1/test_eval_candidates.csv
+
+  - name: NSGA-II-PO Mistral + fairness
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_v1/test_eval_candidates.csv
+    only_pareto: true
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_v1/test_eval_candidates.csv

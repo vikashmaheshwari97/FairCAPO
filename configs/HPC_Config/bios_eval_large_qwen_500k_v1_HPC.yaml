@@ -1,0 +1,76 @@
+# Large-held-out eval for Bias-in-Bios FairCAPO Qwen seed 0.
+
+experiment_name: bios_eval_large_qwen_500k_v1_hpc
+dataset: bias_in_bios
+task_type: classification
+dataset_split: test
+seed: 0
+
+portfolio_csv: outputs/hpc/bios_faircapo_qwen_500k_v1/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/evaluation_large/seed_0/bios_faircapo_qwen_500k_v1
+
+test_size: 500
+stratified: true
+allow_smaller: false
+num_preference_vectors: 500
+
+labels:
+  - accountant
+  - architect
+  - attorney
+  - chiropractor
+  - comedian
+  - composer
+  - dentist
+  - dietitian
+  - dj
+  - filmmaker
+  - interior_designer
+  - journalist
+  - model
+  - nurse
+  - painter
+  - paralegal
+  - pastor
+  - personal_trainer
+  - photographer
+  - physician
+  - poet
+  - professor
+  - psychologist
+  - rapper
+  - software_engineer
+  - surgeon
+  - teacher
+  - yoga_teacher
+
+llm:
+  backend: lmstudio
+  model_id: Qwen/Qwen3-30B-A3B-Instruct-2507
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 32
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+fairness:
+  in_loop: true
+  mode: group_accuracy_gap
+  group_key: gender
+  group_gap_weight: 1.0
+  flip_weight: 0.0
+  bias_weight: 0.0
+  debt_weight: 0.0
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 12000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
