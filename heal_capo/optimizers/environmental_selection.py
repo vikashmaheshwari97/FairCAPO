@@ -34,6 +34,8 @@ class EnvironmentalSelectionConfig:
     remove_unevaluated_first: bool = True
     use_crowding_distance: bool = True
     use_dominance_fronts: bool = True
+    protect_low_cost_quantile: float = 0.0
+    protected_low_cost_min_count: int = 0
 
 
 @dataclass
@@ -204,6 +206,38 @@ def most_crowded_id(
     return rng.choice(tied)
 
 
+def low_cost_protected_ids(
+    candidate_ids: list[str],
+    evaluations: dict[str, EvaluationResult],
+    quantile: float,
+    min_count: int,
+) -> set[str]:
+    """
+    Return evaluated candidates protected from removal because they are cheap.
+
+    Protection only applies when unprotected alternatives exist, so it cannot
+    prevent the selector from reducing the population to the requested size.
+    """
+    if quantile <= 0.0 and min_count <= 0:
+        return set()
+
+    scored = [
+        (cid, float(evaluations[cid].cost))
+        for cid in candidate_ids
+        if cid in evaluations and evaluations[cid].cost is not None
+    ]
+
+    if not scored:
+        return set()
+
+    scored.sort(key=lambda item: (item[1], item[0]))
+    count_from_quantile = int(math.ceil(len(scored) * max(0.0, min(1.0, quantile))))
+    count = max(count_from_quantile, max(0, min_count))
+    count = min(count, len(scored))
+
+    return {cid for cid, _ in scored[:count]}
+
+
 class EnvironmentalSelector:
     """
     Reduce population to configured size using MO-CAPO-style rules.
@@ -291,6 +325,13 @@ class EnvironmentalSelector:
         candidates_by_id: dict[str, PromptCandidate],
         evaluations: dict[str, EvaluationResult],
     ) -> tuple[str, str, dict]:
+        protected_low_cost = low_cost_protected_ids(
+            candidate_ids=current_ids,
+            evaluations=evaluations,
+            quantile=self.config.protect_low_cost_quantile,
+            min_count=self.config.protected_low_cost_min_count,
+        )
+
         non_incumbent_ids = [
             cid for cid in current_ids if cid not in incumbent_ids
         ]
@@ -299,6 +340,13 @@ class EnvironmentalSelector:
 
         if not candidate_pool:
             candidate_pool = list(current_ids)
+
+        unprotected_pool = [
+            cid for cid in candidate_pool if cid not in protected_low_cost
+        ]
+
+        if unprotected_pool:
+            candidate_pool = unprotected_pool
 
         if self.config.remove_unevaluated_first:
             unevaluated = [
@@ -311,7 +359,10 @@ class EnvironmentalSelector:
                 return (
                     remove_id,
                     "remove_unevaluated",
-                    {"pool": candidate_pool},
+                    {
+                        "pool": candidate_pool,
+                        "protected_low_cost_ids": sorted(protected_low_cost),
+                    },
                 )
 
         if self.config.use_dominance_fronts and comparable_by_blocks(
@@ -331,7 +382,10 @@ class EnvironmentalSelector:
                 return (
                     worst_front[0],
                     "remove_worst_dominance_front",
-                    {"fronts": fronts},
+                    {
+                        "fronts": fronts,
+                        "protected_low_cost_ids": sorted(protected_low_cost),
+                    },
                 )
 
             if self.config.use_crowding_distance:
@@ -344,7 +398,10 @@ class EnvironmentalSelector:
                 return (
                     remove_id,
                     "remove_most_crowded_from_worst_front",
-                    {"fronts": fronts},
+                    {
+                        "fronts": fronts,
+                        "protected_low_cost_ids": sorted(protected_low_cost),
+                    },
                 )
 
             remove_id = self.rng.choice(sorted(worst_front))
@@ -352,7 +409,10 @@ class EnvironmentalSelector:
             return (
                 remove_id,
                 "remove_random_from_worst_front",
-                {"fronts": fronts},
+                {
+                    "fronts": fronts,
+                    "protected_low_cost_ids": sorted(protected_low_cost),
+                },
             )
 
         least_evaluated = least_evaluated_ids(
@@ -370,6 +430,7 @@ class EnvironmentalSelector:
                 {
                     "least_evaluated_ids": least_evaluated,
                     "pool": candidate_pool,
+                    "protected_low_cost_ids": sorted(protected_low_cost),
                 },
             )
 
@@ -378,7 +439,10 @@ class EnvironmentalSelector:
         return (
             remove_id,
             "remove_random",
-            {"pool": candidate_pool},
+            {
+                "pool": candidate_pool,
+                "protected_low_cost_ids": sorted(protected_low_cost),
+            },
         )
 
 

@@ -1557,10 +1557,26 @@ def run_budgeted_mocapo(
         ),
     )
 
-    parent_selector = ParentSelector(
-        config=ParentSelectionConfig(
-            random_seed=random_seed,
+    parent_selection_cfg = config.get("parent_selection", {}) or {}
+    weighted_tiebreak = parent_selection_cfg.get("weighted_tiebreak", {}) or {}
+
+    parent_selector_config = ParentSelectionConfig(
+        random_seed=random_seed,
+        use_weighted_tiebreak=bool(
+            parent_selection_cfg.get("use_weighted_tiebreak", False)
         ),
+        weighted_tiebreak={
+            "performance": float(weighted_tiebreak.get("performance", 1.0)),
+            "cost": float(weighted_tiebreak.get("cost", 0.0)),
+            "risk": float(weighted_tiebreak.get("risk", 0.0)),
+            "fairness_risk": float(weighted_tiebreak.get("fairness_risk", 0.0)),
+            "drift": float(weighted_tiebreak.get("drift", 0.0)),
+            "cost_scale": float(weighted_tiebreak.get("cost_scale", 1.0) or 1.0),
+        },
+    )
+
+    parent_selector = ParentSelector(
+        config=parent_selector_config,
         rng=rng,
     )
 
@@ -1572,9 +1588,17 @@ def run_budgeted_mocapo(
     few_shot_cfg = config.get("few_shot", {}) or {}
     shot_pool = build_shot_pool(config, dev_data)
 
+    default_output_format = str(
+        evolutionary_cfg.get(
+            "default_output_format",
+            "Return the final answer inside <final_answer> and </final_answer> tags.",
+        )
+    )
+
     evolutionary_ops = EvolutionaryPromptOps(
         config=EvolutionaryOpsConfig(
             random_seed=random_seed,
+            max_prompt_chars=int(evolutionary_cfg.get("max_prompt_chars", 4000)),
             mutation_probability=float(
                 evolutionary_cfg.get("mutation_probability", 1.0)
             ),
@@ -1593,16 +1617,26 @@ def run_budgeted_mocapo(
             max_few_shot_examples=int(
                 few_shot_cfg.get("max_few_shot_examples", 4)
             ),
+            default_output_format=default_output_format,
         ),
         meta_llm=meta_llm,
         rng=rng,
     )
 
+    environmental_cfg = config.get("environmental_selection", {}) or {}
+
     environmental_selector = EnvironmentalSelector(
         config=EnvironmentalSelectionConfig(
             population_size=mu,
             random_seed=random_seed,
+            protect_low_cost_quantile=float(
+                environmental_cfg.get("protect_low_cost_quantile", 0.0)
+            ),
+            protected_low_cost_min_count=int(
+                environmental_cfg.get("protected_low_cost_min_count", 0)
+            ),
         ),
+        parent_config=parent_selector_config,
         rng=rng,
     )
 

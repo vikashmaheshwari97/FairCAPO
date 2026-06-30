@@ -264,6 +264,41 @@ def test_selector_prefers_more_evaluated_non_incumbent_when_no_dominance():
     assert decision.reason == "more_evaluated_non_incumbent"
 
 
+def test_selector_uses_weighted_tiebreak_after_pareto_tie():
+    left = make_candidate("left", blocks=[0])
+    right = make_candidate("right", blocks=[1])
+
+    evaluations = {
+        "left": make_result("left", 0.80, 10.0, 0.20, 0.10, blocks=[0]),
+        "right": make_result("right", 0.82, 20.0, 0.20, 0.10, blocks=[1]),
+    }
+
+    selector = ParentSelector(
+        config=ParentSelectionConfig(
+            random_seed=1,
+            use_weighted_tiebreak=True,
+            weighted_tiebreak={
+                "performance": 1.0,
+                "cost": 1.0,
+                "risk": 0.0,
+                "fairness_risk": 0.0,
+                "cost_scale": 100.0,
+            },
+        ),
+    )
+
+    winner, decision = selector.compare(
+        left=left,
+        right=right,
+        incumbent_ids=set(),
+        evaluations=evaluations,
+        population=[left, right],
+    )
+
+    assert winner.candidate_id == "left"
+    assert decision.reason.startswith("weighted_tiebreak")
+
+
 def test_selector_returns_evaluated_candidate_over_unevaluated():
     evaluated = make_candidate("evaluated", blocks=[0])
     unevaluated = make_candidate("unevaluated")

@@ -44,6 +44,17 @@ class ParentSelectionConfig:
     prefer_incumbents: bool = True
     use_crowding_distance: bool = True
     use_subset_dominance: bool = True
+    use_weighted_tiebreak: bool = False
+    weighted_tiebreak: dict[str, float] = field(
+        default_factory=lambda: {
+            "performance": 1.0,
+            "cost": 0.0,
+            "risk": 0.0,
+            "fairness_risk": 0.0,
+            "drift": 0.0,
+            "cost_scale": 1.0,
+        }
+    )
     random_seed: Optional[int] = None
 
 
@@ -141,6 +152,31 @@ def dominates(
             strictly_better_any = True
 
     return better_or_equal_all and strictly_better_any
+
+
+def weighted_tiebreak_score(
+    result: EvaluationResult,
+    config: ParentSelectionConfig | None = None,
+) -> float:
+    """
+    Configurable scalar score used only after Pareto/crowding comparisons tie.
+
+    This does not replace Pareto dominance. It only breaks otherwise unresolved
+    tournaments, which lets expensive LLM searches prefer cheaper fair prompts
+    without collapsing the multi-objective front into one scalar objective.
+    """
+    config = config or ParentSelectionConfig()
+    weights = config.weighted_tiebreak or {}
+    cost_scale = float(weights.get("cost_scale", 1.0) or 1.0)
+
+    return (
+        float(weights.get("performance", 0.0)) * get_metric(result, "performance")
+        - float(weights.get("cost", 0.0)) * (get_metric(result, "cost") / cost_scale)
+        - float(weights.get("risk", 0.0)) * get_metric(result, "risk")
+        - float(weights.get("fairness_risk", 0.0))
+        * get_metric(result, "fairness_risk")
+        - float(weights.get("drift", 0.0)) * get_metric(result, "drift")
+    )
 
 
 def get_evaluated_blocks(
@@ -545,6 +581,27 @@ class ParentSelector:
                     "relation": relation,
                 },
             )
+
+        if self.config.use_weighted_tiebreak:
+            left_score = weighted_tiebreak_score(left_result, self.config)
+            right_score = weighted_tiebreak_score(right_result, self.config)
+
+            if left_score != right_score:
+                winner = left if left_score > right_score else right
+                loser = right if winner is left else left
+
+                return winner, TournamentDecision(
+                    winner_id=winner.candidate_id,
+                    loser_id=loser.candidate_id,
+                    reason=f"weighted_tiebreak_relation_{relation}",
+                    winner_is_incumbent=winner.candidate_id in incumbent_ids,
+                    loser_is_incumbent=loser.candidate_id in incumbent_ids,
+                    metadata={
+                        "left_score": left_score,
+                        "right_score": right_score,
+                        "relation": relation,
+                    },
+                )
 
         return self._random_tie(
             left,
