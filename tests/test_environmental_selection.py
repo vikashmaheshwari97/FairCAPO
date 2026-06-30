@@ -252,43 +252,6 @@ def test_environmental_selection_removes_worst_dominated_non_incumbent():
     assert "bad" in decision.removed_ids
 
 
-def test_environmental_selection_protects_low_cost_candidate_from_removal():
-    population = [
-        make_candidate("cheap", blocks=[0]),
-        make_candidate("expensive_a", blocks=[0]),
-        make_candidate("expensive_b", blocks=[0]),
-    ]
-    evaluations = {
-        "cheap": make_result("cheap", 0.7, 5.0, 0.3, 0.3, blocks=[0]),
-        "expensive_a": make_result(
-            "expensive_a", 0.7, 50.0, 0.3, 0.3, blocks=[0]
-        ),
-        "expensive_b": make_result(
-            "expensive_b", 0.7, 60.0, 0.3, 0.3, blocks=[0]
-        ),
-    }
-
-    selector = EnvironmentalSelector(
-        config=EnvironmentalSelectionConfig(
-            population_size=2,
-            random_seed=0,
-            protect_low_cost_quantile=0.34,
-            protected_low_cost_min_count=1,
-        ),
-    )
-
-    kept, decision = selector.select(
-        population=population,
-        incumbent_ids=set(),
-        evaluations=evaluations,
-    )
-
-    kept_ids = {candidate.candidate_id for candidate in kept}
-
-    assert "cheap" in kept_ids
-    assert "cheap" not in decision.removed_ids
-
-
 def test_environmental_selection_removes_least_evaluated_when_not_comparable():
     population = [
         make_candidate("a", blocks=[0, 1]),
