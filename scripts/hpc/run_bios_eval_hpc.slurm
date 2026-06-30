@@ -4,13 +4,13 @@
 #SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
 #SBATCH --array=0
 #SBATCH --partition=gpu
-#SBATCH --nodelist=pegasus2
+#SBATCH --nodelist=firefly1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 #SBATCH --hint=nomultithread
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --time=12:00:00
 
 set -euo pipefail
