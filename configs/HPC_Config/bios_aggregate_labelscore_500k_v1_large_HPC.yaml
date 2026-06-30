@@ -1,0 +1,15 @@
+# Aggregate label-scoring FairCAPO and frozen BIOS v1 baselines.
+
+base: outputs/hpc/evaluation_large/seed_{seed}
+seeds: [0]
+output_dir: outputs/experiment_table/bios_mistral_labelscore_500k_v1_large_seed0
+
+methods:
+  - name: FairCAPO label-score
+    eval_subdir: bios_faircapo_labelscore_500k_v1
+  - name: FairCAPO Mistral v1
+    eval_subdir: bios_faircapo_500k_v1
+  - name: MO-CAPO (fairness off)
+    eval_subdir: bios_ablation_500k_v1
+  - name: NSGA-II-PO + fairness
+    eval_subdir: bios_nsga2po_500k_v1

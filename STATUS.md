@@ -1,134 +1,121 @@
 # FairCAPO Status
 
-Last updated: 2026-06-27.
+Last updated: 2026-06-30.
 
 ## Active Decision
 
-Use **only the large-held-out BBQ diagnostic** for Rocket reporting. Do not cite
-or rebuild the standard `outputs/hpc/evaluation/...` BBQ tables/figures because
-that smaller eval has coarse fairness resolution and creates misleading ties.
+Freeze **Bias-in-Bios / Mistral / 500k v1 / seed 0** as the current main result.
+Do not replace it with BIOS v2/v3 or Qwen seed 0.
 
-Active reporting layout:
+Main BIOS v1 large-held-out result:
 
-- Search outputs: `outputs/hpc/*_500k_v2/seed_0/`
-- Large held-out eval outputs: `outputs/hpc/evaluation_large/seed_0/*_500k_v2/`
-- Table output: `outputs/experiment_table/bbq_mistral_hpc_500k_v2_large_seed0/`
-- Figure output: `outputs/figures/paper_bbq_hpc_500k_v2_large_seed0/`
+- FairCAPO: accuracy `0.782`, cost `5085.52`, fairness_risk `0.000952`, HV `0.390932`
+- MO-CAPO fairness off: accuracy `0.780`, cost `4765.52`, fairness_risk `0.005632`, HV `0.401523`
+- NSGA-II-PO + fairness: accuracy `0.782`, cost `4725.84`, fairness_risk `0.010037`, HV `0.406183`
 
-Do not move to 1M until the 500k_v2 large-held-out comparison is clear.
+Interpretation: FairCAPO v1 is the strongest fairness result, but accuracy is
+stuck around 78%. The next improvement should target accuracy without losing the
+fairness advantage.
 
-## Current Plan
+## Qwen Seed-0 Decision
 
-Preferred one-command submission:
+Qwen3-30B-A3B-Instruct-2507 FairCAPO seed 0 improved accuracy slightly but hurt
+fairness:
 
-```bash
-bash scripts/hpc/submit_bbq_500k_v2_large_pipeline.sh
-```
+- Qwen FairCAPO: accuracy `0.788`, fairness_risk `0.016318`
+- Mistral FairCAPO v1: accuracy `0.782`, fairness_risk `0.000952`
 
-This submits the pipeline conservatively in waves: FairCAPO + ablation first,
-then NSGA + post-hoc scoring, then the final post-hoc Dtest eval. This keeps the
-default load to at most two Pegasus2 GPUs at a time. UT HPC recommends 16 CPU
-cores per 1 GPU on pegasus2, so active eval/post-hoc jobs request 1 GPU, 16 CPU
-cores, and 128 GB RAM each.
+Decision: **do not run more Qwen jobs yet**. Qwen did not preserve the FairCAPO
+fairness advantage.
 
-Manual equivalent:
+## Current Next Step
 
-1. Run FairCAPO v2 large-held-out eval:
+Run a controlled two-stage label-scoring FairCAPO seed-0 experiment on Mistral.
+This is a new diagnostic, not a replacement for BIOS v1.
 
-```bash
-sbatch --array=0 \
-  --export=ALL,METHOD=faircapo,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_faircapo_500k_v2/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_faircapo_500k_v2 \
-  scripts/hpc/run_bbq_eval_hpc.slurm
-```
+Behavior:
 
-2. Run ablation v2 large-held-out eval:
+1. Stage 1 asks the model for the top 3 likely profession labels.
+2. Stage 2 scores only those 3 candidate labels for evidence support.
+3. The final prediction is the highest-supported label.
 
-```bash
-sbatch --array=0 \
-  --export=ALL,METHOD=ablation,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_ablation_500k_v2 \
-  scripts/hpc/run_bbq_eval_hpc.slurm
-```
+Expected benefit: better Bias-in-Bios classification accuracy and cleaner output
+parsing than free-form label generation, while keeping cost below full 28-label
+scoring.
 
-3. Run NSGA-II-PO v2 large-held-out eval:
+## Rocket Commands
+
+Pull the latest code on Rocket:
 
 ```bash
-sbatch --array=0 \
-  --export=ALL,METHOD=nsga,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_nsga2po_500k_v2/seed_0/nsga2_po_pareto_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_nsga2po_500k_v2 \
-  scripts/hpc/run_bbq_eval_hpc.slurm
+cd ~/FairCAPO
+git pull origin main
 ```
 
-4. Run post-hoc fairness scoring on the ablation v2 portfolio using the large
-   held-out fairness config:
+Submit only the label-scoring FairCAPO search + large-held-out eval:
 
 ```bash
-sbatch --array=0 \
-  --export=ALL,FAIRNESS_CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,INPUT_CSV=outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio.csv,OUTPUT_SUFFIX=_bbqfair_large \
-  scripts/hpc/run_bbq_posthoc_hpc.slurm
+bash scripts/hpc/submit_bios_labelscore_faircapo_500k_v1_pipeline.sh
 ```
 
-Expected post-hoc portfolio:
+Monitor:
+
+```bash
+squeue -u $USER
+ls -lt outputs/hpc/logs | head
+```
+
+After both jobs finish, build table and figures:
+
+```bash
+bash scripts/hpc/build_bios_labelscore_500k_v1_large_outputs.sh
+```
+
+Primary table:
 
 ```text
-outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair_large.csv
+outputs/experiment_table/bios_mistral_labelscore_500k_v1_large_seed0/experiment_table.csv
 ```
 
-5. Re-evaluate the post-hoc portfolio on the same large-held-out Dtest basis:
-
-```bash
-sbatch --array=0 \
-  --export=ALL,METHOD=ablation,CONFIG=configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bbq_ablation_500k_v2/seed_0/phase2_prompt_portfolio_bbqfair_large.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bbq_posthoc_500k_v2 \
-  scripts/hpc/run_bbq_eval_hpc.slurm
-```
-
-6. Build the large-held-out v2 table and all figures:
-
-```bash
-bash scripts/hpc/build_bbq_500k_v2_outputs.sh
-```
-
-This writes:
+Primary figures:
 
 ```text
-outputs/experiment_table/bbq_mistral_hpc_500k_v2_large_seed0/experiment_table.csv
-outputs/figures/paper_bbq_hpc_500k_v2_large_seed0/
+outputs/figures/paper_bios_labelscore_500k_v1_large_seed0/
 ```
 
-## Interpretation Rules
+## Decision Rule
 
-- If FairCAPO large-held-out HV is clearly above NSGA-II-PO and fairness is no
-  worse, proceed to seed 1 and seed 2.
-- If FairCAPO and NSGA-II-PO are still tied, do not run 1M yet. Improve the
-  FairCAPO search operators/intensification first.
-- If FairCAPO loses to NSGA-II-PO, stop the Rocket sweep and debug the search.
+- If label-scoring accuracy improves and fairness_risk stays near BIOS v1
+  (`~0.001`), keep label scoring and then run baselines or seeds.
+- If label-scoring accuracy improves but fairness worsens badly, tune the
+  scoring prompts before any multi-seed run.
+- If label scoring does not improve accuracy, keep BIOS Mistral v1 as the main
+  result and run multi-seed stability for v1.
 
-## Code-Level Improvement Levers To Check Next
+## Active BIOS Files
 
-These are not changed yet; inspect after the large-held-out v2 table is built.
+Frozen Mistral v1:
 
-- Initial prompt pool: add explicitly fairness-aware BBQ instructions if the
-  current seed pool is too generic.
-- Variation operators: bias mutation/crossover prompts toward reducing
-  `max(|sAMB|, |sDIS|)` instead of generic accuracy/cost rewrites.
-- Selection/intensification: ensure fairness-first candidates are not pruned
-  when accuracy is saturated near 0.98-1.00.
-- Fairness eval allocation: spend more in-loop fairness budget on promising
-  low-cost candidates where methods currently tie.
-- Reporting: use large-held-out `evaluation_large` only; keep search-basis
-  richness/trajectory figures separate and clearly labeled.
+- `configs/HPC_Config/bios_faircapo_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_ablation_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_nsga2po_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_eval_large_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_eval_ablation_large_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_eval_nsga_large_500k_v1_HPC.yaml`
+- `scripts/hpc/submit_bios_500k_v1_pipeline.sh`
+- `scripts/hpc/build_bios_500k_v1_large_outputs.sh`
 
-## Active Files
+Two-stage label-scoring diagnostic:
 
-- `configs/HPC_Config/phase2_budgeted_mocapo_bbq_HPC.yaml`
-- `configs/HPC_Config/mocapo_baseline_bbq_HPC.yaml`
-- `configs/HPC_Config/nsga2_po_bbq_HPC.yaml`
-- `configs/HPC_Config/evaluate_pareto_bbq_large_HPC.yaml`
-- `configs/HPC_Config/evaluate_pareto_bbq_ablation_large_HPC.yaml`
-- `configs/HPC_Config/evaluate_pareto_bbq_nsga_large_HPC.yaml`
-- `configs/HPC_Config/experiment_table_bbq_HPC.yaml`
-- `configs/HPC_Config/aggregate_multiseed_bbq_HPC.yaml`
-- `scripts/hpc/run_bbq_hpc.slurm`
-- `scripts/hpc/run_bbq_eval_hpc.slurm`
-- `scripts/hpc/run_bbq_nsga_hpc.slurm`
-- `scripts/hpc/run_bbq_posthoc_hpc.slurm`
-- `scripts/hpc/build_bbq_500k_v2_outputs.sh`
-- `scripts/hpc/submit_bbq_500k_v2_large_pipeline.sh`
+- `configs/HPC_Config/bios_faircapo_labelscore_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_eval_large_labelscore_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_experiment_table_labelscore_500k_v1_large_HPC.yaml`
+- `configs/HPC_Config/bios_aggregate_labelscore_500k_v1_large_HPC.yaml`
+- `scripts/hpc/submit_bios_labelscore_faircapo_500k_v1_pipeline.sh`
+- `scripts/hpc/build_bios_labelscore_500k_v1_large_outputs.sh`
+
+## Archived Context
+
+BBQ work remains in the repository, but current reporting focus is
+Bias-in-Bios. BBQ standard held-out tables should not be used for claims; use
+large-held-out only when revisiting BBQ.

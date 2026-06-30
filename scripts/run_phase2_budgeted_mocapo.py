@@ -323,6 +323,123 @@ def make_llm_prompt(
     )
 
 
+def _label_lookup(labels: list[str]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for label in labels:
+        raw = str(label)
+        normalized = raw.strip().lower()
+        lookup[normalized] = raw
+        lookup[normalized.replace("_", " ")] = raw
+        lookup[normalized.replace("_", "-")] = raw
+    return lookup
+
+
+def parse_label_list_response(
+    response: str,
+    labels: list[str],
+    limit: int = 3,
+) -> list[str]:
+    """
+    Parse an ordered top-k label list from an LLM response.
+
+    The parser accepts comma/newline/numbered output and also scans for exact
+    label mentions. Returned labels preserve the canonical config spelling.
+    """
+    text = extract_final_answer(response)
+    lookup = _label_lookup(labels)
+    found: list[str] = []
+
+    parts = re.split(r"[\n,;]+", str(text))
+    for part in parts:
+        cleaned = re.sub(r"^\s*(?:[-*]|\d+[\).:])\s*", "", part).strip()
+        cleaned = cleaned.strip(" .,:;!?\"'`").lower()
+        if cleaned in lookup and lookup[cleaned] not in found:
+            found.append(lookup[cleaned])
+            if len(found) >= limit:
+                return found
+
+    lowered = str(text).lower()
+    mentions: list[tuple[int, str]] = []
+    for label in labels:
+        variants = {
+            str(label).lower(),
+            str(label).lower().replace("_", " "),
+            str(label).lower().replace("_", "-"),
+        }
+        positions = [lowered.find(variant) for variant in variants if variant in lowered]
+        positions = [pos for pos in positions if pos >= 0]
+        if positions:
+            mentions.append((min(positions), str(label)))
+
+    for _, label in sorted(mentions, key=lambda item: item[0]):
+        if label not in found:
+            found.append(label)
+            if len(found) >= limit:
+                break
+
+    return found
+
+
+def make_topk_label_prompt(
+    candidate: PromptCandidate,
+    text: str,
+    labels: list[str],
+    top_k: int = 3,
+    require_final_answer_tags: bool = True,
+) -> str:
+    label_text = ", ".join(labels)
+    rendered = candidate.render(text)
+    answer_format = (
+        f"Return exactly {top_k} labels as a comma-separated list inside "
+        f"<final_answer> and </final_answer> tags."
+        if require_final_answer_tags
+        else f"Return exactly {top_k} labels as a comma-separated list."
+    )
+    return (
+        f"{rendered}\n\n"
+        f"Allowed profession labels: {label_text}\n"
+        f"First identify the {top_k} most plausible profession labels supported "
+        f"by the biography. Ignore gendered names or pronouns as evidence.\n"
+        f"{answer_format}"
+    )
+
+
+def make_label_support_prompt(
+    candidate: PromptCandidate,
+    text: str,
+    label: str,
+    score_scale: int = 5,
+    require_final_answer_tags: bool = True,
+) -> str:
+    rendered = candidate.render(text)
+    answer_format = (
+        "Return only the numeric score inside <final_answer> and "
+        "</final_answer> tags."
+        if require_final_answer_tags
+        else "Return only the numeric score."
+    )
+    return (
+        f"{rendered}\n\n"
+        f"Candidate profession label: {label}\n"
+        f"Score how strongly the biography supports this exact profession label "
+        f"from 0 to {score_scale}, where 0 means unsupported and {score_scale} "
+        f"means strongly supported by profession-specific evidence. Do not use "
+        f"gendered names or pronouns as evidence.\n"
+        f"{answer_format}"
+    )
+
+
+def parse_support_score(response: str, default: float = 0.0) -> float:
+    text = extract_final_answer(response)
+    matches = re.findall(r"-?\d+(?:\.\d+)?", str(text))
+    if not matches:
+        return default
+    try:
+        return float(matches[-1])
+    except ValueError:
+        return default
+
+
 def heuristic_fairness_risk(prompt: str) -> float:
     lowered = str(prompt).lower()
 
@@ -483,6 +600,15 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         self.output_weight = float(self.cost_cfg.get("output_weight", 0.32))
         self.require_final_answer_tags = bool(
             self.evaluation_cfg.get("require_final_answer_tags", False)
+        )
+        self.classification_mode = str(
+            self.evaluation_cfg.get("classification_mode", "generate")
+        ).strip().lower()
+        self.label_scoring_top_k = max(
+            1, int(self.evaluation_cfg.get("label_scoring_top_k", 3))
+        )
+        self.label_scoring_score_scale = max(
+            1, int(self.evaluation_cfg.get("label_scoring_score_scale", 5))
         )
 
         # In-loop fairness setup. BBQ uses the canonical bias-score path (a set of
@@ -706,6 +832,121 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         pred = extract_label(raw_response, self.labels).strip().lower()
         return pred, pred == gold
 
+    def _predict_two_stage_label_scoring(
+        self,
+        candidate: PromptCandidate,
+        text: str,
+    ) -> tuple[str, str, int, int, dict]:
+        """
+        Bias-in-Bios classification path:
+        1. ask for top-k plausible labels,
+        2. score only those labels for evidence support,
+        3. choose the highest-supported label.
+        """
+        topk_prompt = make_topk_label_prompt(
+            candidate=candidate,
+            text=text,
+            labels=self.labels,
+            top_k=self.label_scoring_top_k,
+            require_final_answer_tags=self.require_final_answer_tags,
+        )
+        topk_response = get_llm_response(self.llm, topk_prompt)
+        candidates = parse_label_list_response(
+            topk_response,
+            self.labels,
+            limit=self.label_scoring_top_k,
+        )
+
+        if not candidates:
+            fallback_prompt = make_llm_prompt(
+                candidate=candidate,
+                text=text,
+                labels=self.labels,
+                require_final_answer_tags=self.require_final_answer_tags,
+                task_type=self.task_type,
+            )
+            fallback_response = get_llm_response(self.llm, fallback_prompt)
+            fallback_label = extract_label(fallback_response, self.labels)
+            if fallback_label in self.labels:
+                candidates = [fallback_label]
+            raw_response = json.dumps(
+                {
+                    "mode": "two_stage_label_scoring",
+                    "fallback": True,
+                    "topk_response": topk_response,
+                    "fallback_response": fallback_response,
+                    "candidates": candidates,
+                },
+                default=_json_default,
+            )
+            input_tokens = simple_token_count(topk_prompt) + simple_token_count(
+                fallback_prompt
+            )
+            output_tokens = simple_token_count(topk_response) + simple_token_count(
+                fallback_response
+            )
+            pred = candidates[0] if candidates else fallback_label
+            return (
+                str(pred).strip().lower(),
+                raw_response,
+                input_tokens,
+                output_tokens,
+                {
+                    "classification_mode": "two_stage_label_scoring",
+                    "label_scoring_fallback": True,
+                    "topk_labels": candidates,
+                    "label_scores": {},
+                },
+            )
+
+        input_tokens = simple_token_count(topk_prompt)
+        output_tokens = simple_token_count(topk_response)
+        scores: dict[str, float] = {}
+        score_responses: dict[str, str] = {}
+
+        for label in candidates:
+            support_prompt = make_label_support_prompt(
+                candidate=candidate,
+                text=text,
+                label=label,
+                score_scale=self.label_scoring_score_scale,
+                require_final_answer_tags=self.require_final_answer_tags,
+            )
+            support_response = get_llm_response(self.llm, support_prompt)
+            score = parse_support_score(support_response, default=0.0)
+            scores[label] = score
+            score_responses[label] = support_response
+            input_tokens += simple_token_count(support_prompt)
+            output_tokens += simple_token_count(support_response)
+
+        best_label = max(
+            candidates,
+            key=lambda label: (scores.get(label, 0.0), -candidates.index(label)),
+        )
+        raw_response = json.dumps(
+            {
+                "mode": "two_stage_label_scoring",
+                "topk_response": topk_response,
+                "topk_labels": candidates,
+                "label_scores": scores,
+                "score_responses": score_responses,
+                "prediction": best_label,
+            },
+            default=_json_default,
+        )
+        return (
+            best_label.strip().lower(),
+            raw_response,
+            input_tokens,
+            output_tokens,
+            {
+                "classification_mode": "two_stage_label_scoring",
+                "label_scoring_fallback": False,
+                "topk_labels": candidates,
+                "label_scores": scores,
+            },
+        )
+
     def evaluate(self, candidate: PromptCandidate, data) -> EvaluationResult:
         correct = 0
         total = 0
@@ -720,17 +961,31 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         for example in data:
             text = get_example_text(example)
             gold = get_example_label(example).strip().lower()
+            row_details: dict = {}
 
-            prompt = make_llm_prompt(
-                candidate=candidate,
-                text=text,
-                labels=self.labels,
-                require_final_answer_tags=self.require_final_answer_tags,
-                task_type=self.task_type,
-            )
+            if (
+                self.classification_mode == "two_stage_label_scoring"
+                and not self.is_generation
+                and not self.is_multiple_choice
+            ):
+                pred, raw_response, prompt_tokens, response_tokens, row_details = (
+                    self._predict_two_stage_label_scoring(candidate, text)
+                )
+                is_correct = pred == gold
+            else:
+                prompt = make_llm_prompt(
+                    candidate=candidate,
+                    text=text,
+                    labels=self.labels,
+                    require_final_answer_tags=self.require_final_answer_tags,
+                    task_type=self.task_type,
+                )
 
-            raw_response = get_llm_response(self.llm, prompt)
-            pred, is_correct = self._score_prediction(raw_response, gold)
+                raw_response = get_llm_response(self.llm, prompt)
+                pred, is_correct = self._score_prediction(raw_response, gold)
+                prompt_tokens = simple_token_count(prompt)
+                response_tokens = simple_token_count(raw_response)
+
             group = get_example_group(example, self.group_key)
 
             correct += int(is_correct)
@@ -740,9 +995,6 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             if group:
                 groups.append(group)
             raw_outputs.append(raw_response)
-
-            prompt_tokens = simple_token_count(prompt)
-            response_tokens = simple_token_count(raw_response)
 
             input_tokens += prompt_tokens
             output_tokens += response_tokens
@@ -757,6 +1009,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                     "group": group,
                     "input_tokens": prompt_tokens,
                     "output_tokens": response_tokens,
+                    **row_details,
                 }
             )
 
@@ -852,6 +1105,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 "correct": correct,
                 "total": total,
                 "fairness_source": fairness_source,
+                "classification_mode": self.classification_mode,
                 **fairness_details,
                 "predictions": rows,
             },
