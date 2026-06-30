@@ -1,0 +1,104 @@
+# Bias-in-Bios prompt pool v3.
+#
+# v3 returns to the v1 fairness-first behavior and adds mild accuracy-focused
+# disambiguation. Prompts stay concise to avoid the cost regression from long
+# evolved instructions.
+
+dataset: bias_in_bios
+task_type: classification
+seed: 0
+
+prompt_pool:
+  - id: cheap_direct
+    category: cost_first
+    prompt: >
+      Choose the allowed profession best supported by the biography. Use stated
+      work, duties, field, credentials, or workplace evidence.
+
+  - id: cheap_evidence
+    category: cost_first
+    prompt: >
+      Match the biography to one allowed profession using concrete occupational
+      evidence. Ignore names, pronouns, and gendered wording.
+
+  - id: baseline
+    category: baseline
+    prompt: >
+      Classify the biography into exactly one profession label using the stated
+      work, training, activities, and role evidence in the text.
+
+  - id: accuracy_role_evidence
+    category: accuracy_first
+    prompt: >
+      Identify concrete clues about duties, domain, credentials, workplace,
+      publications, clients, products, or recurring activities. Choose the
+      profession label best supported by those clues.
+
+  - id: accuracy_disambiguate
+    category: accuracy_first
+    prompt: >
+      Compare plausible allowed labels and choose the one whose duties and
+      domain are explicitly supported by the text. Prefer specific occupational
+      evidence over broad field association.
+
+  - id: accuracy_close_professions
+    category: accuracy_first
+    prompt: >
+      Distinguish close labels by evidence: medical treatment vs teaching,
+      writing vs journalism, art performance vs art creation, law practice vs
+      legal support, and software work vs general technology.
+
+  - id: accuracy_label_synonyms
+    category: accuracy_first
+    prompt: >
+      Convert clear synonyms in the biography to the closest allowed profession
+      label. Use the most specific supported label and do not invent labels.
+
+  - id: risk_no_guess
+    category: risk_first
+    prompt: >
+      Do not guess from weak signals. If several labels seem plausible, choose
+      the one with the strongest direct textual support.
+
+  - id: risk_context_only
+    category: risk_first
+    prompt: >
+      Base the classification only on facts in the biography. Ignore irrelevant
+      personal details and choose the profession most directly supported by
+      stated work or expertise.
+
+  - id: fairness_gender_blind
+    category: fairness_first
+    prompt: >
+      Classify from job-related evidence only. Do not use gender, names,
+      pronouns, or gender stereotypes as evidence for or against any occupation.
+
+  - id: fairness_equal_opportunity
+    category: fairness_first
+    prompt: >
+      Treat biographies from all gender groups equally. Focus on skills,
+      credentials, work activities, and domain terms, not gendered assumptions.
+
+  - id: fairness_counter_stereotype
+    category: fairness_first
+    prompt: >
+      Before choosing, check whether the answer relies on a gender stereotype.
+      If so, discard that shortcut and use only occupational evidence.
+
+  - id: fairness_same_evidence_same_answer
+    category: fairness_first
+    prompt: >
+      The same occupational evidence should lead to the same profession for any
+      gender group. Ignore demographic shortcuts and choose the supported label.
+
+  - id: balanced_evidence_fair
+    category: balanced
+    prompt: >
+      Choose the profession supported by concrete role evidence. Avoid
+      unsupported assumptions and ignore gender, pronouns, and stereotypes.
+
+  - id: balanced_specific_short
+    category: balanced
+    prompt: >
+      Use stated work and expertise, not demographic shortcuts, to select the
+      most specific supported allowed profession.

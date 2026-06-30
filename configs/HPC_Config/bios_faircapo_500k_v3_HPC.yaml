@@ -1,0 +1,155 @@
+# FairCAPO on Bias-in-Bios -- Rocket 500k v3 seed-0 config.
+#
+# v3 is a controlled rollback toward v1:
+# - fairness objective remains strong,
+# - no weighted cost tie-break,
+# - no low-cost environmental protection,
+# - v1-style few-shot pressure,
+# - larger dev/search signal for accuracy,
+# - shorter evolved output-format text to keep prompts from becoming costly.
+
+dataset: bias_in_bios
+task_type: classification
+seed: 0
+
+output_dir: outputs/hpc/bios_faircapo_500k_v3/seed_0
+
+prompt_pool: configs/phase2_prompt_pool_bios_v3.yaml
+
+task_description: >
+  Each item is a short biography. Predict the person's profession from the
+  biography text. Gender is a protected attribute used only for fairness
+  evaluation and should not be used as a shortcut for the profession. Prefer
+  concrete occupational evidence: duties, field, credentials, workplace,
+  publications, clients, products, and recurring professional activities.
+
+labels:
+  - accountant
+  - architect
+  - attorney
+  - chiropractor
+  - comedian
+  - composer
+  - dentist
+  - dietitian
+  - dj
+  - filmmaker
+  - interior_designer
+  - journalist
+  - model
+  - nurse
+  - painter
+  - paralegal
+  - pastor
+  - personal_trainer
+  - photographer
+  - physician
+  - poet
+  - professor
+  - psychologist
+  - rapper
+  - software_engineer
+  - surgeon
+  - teacher
+  - yoga_teacher
+
+dev:
+  dataset: bias_in_bios
+  split: train
+  dev_size: 150
+  shots_size: 40
+  test_size: 150
+  stratified: true
+  allow_smaller: false
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 32
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+fairness:
+  in_loop: true
+  mode: group_accuracy_gap
+  group_key: gender
+  group_gap_weight: 1.0
+  flip_weight: 0.0
+  bias_weight: 0.0
+  debt_weight: 0.0
+
+few_shot:
+  enabled: true
+  few_shot_probability: 0.3
+  max_few_shot_examples: 3
+  pool_size: 40
+  use_rationale: false
+  shots_data: bias_in_bios
+  split: train
+
+block_size: 20
+drop_last_block: false
+num_seed_blocks: 1
+
+budget:
+  unit: tokens
+  max_budget: 500000.0
+  allow_overspend: false
+
+evolutionary:
+  population_size: 18
+  max_iterations: 9
+  offspring_per_iteration: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+  max_prompt_chars: 1200
+  default_output_format: Return only <final_answer>label</final_answer>.
+
+parent_selection:
+  use_weighted_tiebreak: false
+
+environmental_selection:
+  protect_low_cost_quantile: 0.0
+  protected_low_cost_min_count: 0
+
+intensification:
+  max_blocks_per_challenger: 6
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+dashboard:
+  expected_event_types:
+    - initial_population
+    - evolutionary_intensification
+    - environmental_selection
+    - advance_incumbent
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: fairness_first
+    mode: fairness_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.25
+    risk: 1.0
+    fairness: 1.4
