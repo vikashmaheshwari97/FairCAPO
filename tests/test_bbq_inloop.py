@@ -148,3 +148,48 @@ def test_performance_gate_penalizes_low_accuracy_label_fairness():
     assert result.fairness_risk == 1.0
     assert result.details["fairness_gate_applied"] is True
     assert result.details["fairness_gate_original_fairness_risk"] == 0.0
+
+
+def test_label_conditioned_fairness_uses_fixed_probe(tmp_path):
+    probe_path = tmp_path / "bios_probe.jsonl"
+    probe_items = [
+        {
+            "text": "Biography: A nurse bio.",
+            "label": "nurse",
+            "meta": {"gender": "female", "group": "female"},
+        },
+        {
+            "text": "Biography: Another nurse bio.",
+            "label": "nurse",
+            "meta": {"gender": "male", "group": "male"},
+        },
+    ]
+    probe_path.write_text(
+        "\n".join(json.dumps(item) for item in probe_items) + "\n",
+        encoding="utf-8",
+    )
+    config = {
+        "dataset": "bias_in_bios",
+        "task_type": "classification",
+        "labels": ["accountant", "nurse"],
+        "cost": {"input_weight": 0.08, "output_weight": 0.32},
+        "evaluation": {"require_final_answer_tags": True},
+        "fairness": {
+            "in_loop": True,
+            "mode": "label_conditioned_group_accuracy_gap",
+            "group_key": "gender",
+            "min_count_per_group": 1,
+            "fairness_data": str(probe_path),
+        },
+    }
+    evaluator = LLMObjectiveEvaluator(config, llm=LetterLLM("accountant"))
+    candidate = PromptCandidate(instruction="Classify the biography.")
+
+    result = evaluator.evaluate(
+        candidate,
+        [{"text": "dev accountant bio", "label": "accountant", "meta": {"gender": "female"}}],
+    )
+
+    assert result.details["fairness_source"] == "group_fairness_probe"
+    assert result.details["fairness_probe_examples"] == 2
+    assert result.details["fairness_eval_cost"] > 0.0

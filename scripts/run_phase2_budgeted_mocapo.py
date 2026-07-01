@@ -569,6 +569,41 @@ def load_inloop_bbq_items(config: dict) -> list[dict]:
     return items
 
 
+def load_inloop_group_fairness_items(config: dict) -> list[dict]:
+    """
+    Load a fixed group-fairness probe set for in-loop classification fairness.
+
+    For Bias-in-Bios, tiny search blocks do not usually contain enough examples
+    per (profession, gender) cell to support label-conditioned fairness. A fixed
+    probe set gives each prompt a stable fairness signal during search; results
+    are cached per instruction just like BBQ/counterfactual fairness.
+    """
+    fairness_cfg = config.get("fairness", {}) or {}
+
+    if not bool(fairness_cfg.get("in_loop", False)):
+        return []
+
+    data_path = fairness_cfg.get("fairness_data") or config.get("fairness_data")
+    if not data_path or not Path(data_path).exists():
+        return []
+
+    items: list[dict] = []
+    with open(data_path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            if item.get("text") and item.get("label"):
+                items.append(item)
+
+    cap = int(fairness_cfg.get("eval_pairs", fairness_cfg.get("eval_examples", 0)) or 0)
+    if cap > 0:
+        items = items[:cap]
+
+    return items
+
+
 class LLMObjectiveEvaluator(ObjectiveEvaluator):
     """
     LM Studio-backed objective evaluator for budgeted MO-CAPO.
@@ -624,6 +659,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         if self.fairness_mode == "bbq_bias_score":
             self.fairness_pairs = []
             self.bbq_fairness_items = load_inloop_bbq_items(config)
+            self.group_fairness_items = []
             self.fairness_in_loop = bool(self.bbq_fairness_items)
         elif self.fairness_mode in {
             "group",
@@ -637,10 +673,20 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         }:
             self.fairness_pairs = []
             self.bbq_fairness_items = []
+            self.group_fairness_items = (
+                load_inloop_group_fairness_items(config)
+                if self.fairness_mode
+                in {
+                    "label_conditioned_group_accuracy_gap",
+                    "label_group_accuracy_gap",
+                }
+                else []
+            )
             self.fairness_in_loop = True
         else:
             self.fairness_pairs = load_inloop_fairness_pairs(config)
             self.bbq_fairness_items = []
+            self.group_fairness_items = []
             self.fairness_in_loop = bool(self.fairness_pairs)
         self.group_key = str(self.fairness_cfg.get("group_key", "group"))
         self.label_min_count_per_group = int(
@@ -865,6 +911,104 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             "fairness_eval_input_tokens": f_input_tokens,
             "fairness_eval_output_tokens": f_output_tokens,
             "fairness_eval_cost": extra_cost,
+        }
+
+        self._fairness_cache[key] = (fairness_result.fairness_risk, details)
+
+        return fairness_result.fairness_risk, details, extra_cost
+
+    def _evaluate_candidate_fairness_group_probe(
+        self,
+        candidate: PromptCandidate,
+    ) -> tuple[float, dict, float]:
+        """
+        Compute label-conditioned group fairness on a fixed probe set.
+
+        This is the Bias-in-Bios analogue of the BBQ fairness set: a stable,
+        cached, support-balanced fairness audit during search.
+        """
+        key = f"group_probe::{candidate.instruction}"
+
+        if key in self._fairness_cache:
+            risk, details = self._fairness_cache[key]
+            return risk, details, 0.0
+
+        correct = 0
+        total = 0
+        predictions: list[str] = []
+        labels: list[str] = []
+        groups: list[str] = []
+        f_input_tokens = 0
+        f_output_tokens = 0
+
+        for item in self.group_fairness_items:
+            text = str(item.get("text", ""))
+            gold = str(item.get("label", "")).strip().lower()
+            group = get_example_group(item, self.group_key)
+
+            prompt = make_llm_prompt(
+                candidate=candidate,
+                text=text,
+                labels=self.labels,
+                require_final_answer_tags=self.require_final_answer_tags,
+                task_type=self.task_type,
+            )
+            response = get_llm_response(self.llm, prompt)
+            pred, is_correct = self._score_prediction(response, gold)
+
+            total += 1
+            correct += int(is_correct)
+            predictions.append(pred)
+            labels.append(gold)
+            groups.append(group)
+            f_input_tokens += simple_token_count(prompt)
+            f_output_tokens += simple_token_count(response)
+
+        fairness_result = evaluate_label_conditioned_group_fairness(
+            predictions=predictions,
+            labels=labels,
+            groups=groups,
+            min_count_per_group=self.label_min_count_per_group,
+        )
+        if not fairness_result.details.get("num_valid_labels"):
+            fallback_result = evaluate_group_fairness(
+                predictions=predictions,
+                labels=labels,
+                groups=groups,
+            )
+            details = dict(fairness_result.details)
+            details["label_conditioned_fallback_method"] = (
+                fallback_result.details.get("method")
+            )
+            details["label_conditioned_fallback_gap"] = (
+                fallback_result.group_accuracy_gap
+            )
+            fairness_result = fallback_result
+            fairness_result.details = details
+
+        extra_cost = (
+            self.input_weight * f_input_tokens
+            + self.output_weight * f_output_tokens
+        )
+
+        details = {
+            "fairness_method": fairness_result.details.get("method"),
+            "fairness_probe_examples": total,
+            "fairness_probe_accuracy": correct / total if total else 0.0,
+            "group_accuracy_gap": fairness_result.group_accuracy_gap,
+            "label_conditioned_group_accuracy_gap": fairness_result.fairness_risk,
+            "label_conditioned_fairness_details": fairness_result.details,
+            "label_conditioned_fallback_method": fairness_result.details.get(
+                "label_conditioned_fallback_method"
+            ),
+            "label_conditioned_fallback_gap": fairness_result.details.get(
+                "label_conditioned_fallback_gap"
+            ),
+            "fairness_num_groups": len(set(groups)),
+            "fairness_groups": sorted(set(groups)),
+            "fairness_eval_cost": extra_cost,
+            "fairness_eval_input_tokens": f_input_tokens,
+            "fairness_eval_output_tokens": f_output_tokens,
         }
 
         self._fairness_cache[key] = (fairness_result.fairness_risk, details)
@@ -1110,27 +1254,76 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                         "label_conditioned_group_accuracy_gap",
                         "label_group_accuracy_gap",
                     }:
-                        fairness_result = evaluate_label_conditioned_group_fairness(
-                            predictions=predictions,
-                            labels=labels,
-                            groups=groups,
-                            min_count_per_group=self.label_min_count_per_group,
-                        )
-                        if not fairness_result.details.get("num_valid_labels"):
-                            fallback_result = evaluate_group_fairness(
+                        if self.group_fairness_items:
+                            fairness_risk, fairness_details, fairness_cost = (
+                                self._evaluate_candidate_fairness_group_probe(
+                                    candidate
+                                )
+                            )
+                            fairness_source = "group_fairness_probe"
+                            cost += fairness_cost
+                            input_tokens += int(
+                                fairness_details.get(
+                                    "fairness_eval_input_tokens", 0
+                                )
+                            )
+                            output_tokens += int(
+                                fairness_details.get(
+                                    "fairness_eval_output_tokens", 0
+                                )
+                            )
+                            fairness_risk, fairness_details = (
+                                self._apply_fairness_performance_gate(
+                                    performance=performance,
+                                    fairness_risk=fairness_risk,
+                                    fairness_details=fairness_details,
+                                )
+                            )
+                            return EvaluationResult(
+                                candidate_id=candidate.candidate_id,
+                                performance=performance,
+                                cost=cost,
+                                risk=risk,
+                                fairness_risk=fairness_risk,
+                                drift=0.0,
+                                n_examples=total,
+                                details={
+                                    "evaluator": "lmstudio",
+                                    "model_id": self.config.get("llm", {}).get(
+                                        "model_id"
+                                    ),
+                                    "input_tokens": input_tokens,
+                                    "output_tokens": output_tokens,
+                                    "correct": correct,
+                                    "total": total,
+                                    "fairness_source": fairness_source,
+                                    "classification_mode": self.classification_mode,
+                                    **fairness_details,
+                                    "predictions": rows,
+                                },
+                            )
+                        else:
+                            fairness_result = evaluate_label_conditioned_group_fairness(
                                 predictions=predictions,
                                 labels=labels,
                                 groups=groups,
+                                min_count_per_group=self.label_min_count_per_group,
                             )
-                            details = dict(fairness_result.details)
-                            details["label_conditioned_fallback_method"] = (
-                                fallback_result.details.get("method")
-                            )
-                            details["label_conditioned_fallback_gap"] = (
-                                fallback_result.group_accuracy_gap
-                            )
-                            fairness_result = fallback_result
-                            fairness_result.details = details
+                            if not fairness_result.details.get("num_valid_labels"):
+                                fallback_result = evaluate_group_fairness(
+                                    predictions=predictions,
+                                    labels=labels,
+                                    groups=groups,
+                                )
+                                details = dict(fairness_result.details)
+                                details["label_conditioned_fallback_method"] = (
+                                    fallback_result.details.get("method")
+                                )
+                                details["label_conditioned_fallback_gap"] = (
+                                    fallback_result.group_accuracy_gap
+                                )
+                                fairness_result = fallback_result
+                                fairness_result.details = details
                     else:
                         fairness_result = evaluate_combined_fairness(
                             predictions=predictions,

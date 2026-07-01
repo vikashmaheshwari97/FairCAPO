@@ -77,6 +77,10 @@ fairness:
   mode: label_conditioned_group_accuracy_gap
   group_key: gender
   min_count_per_group: 5
+  # Built once on the login node with scripts/build_bios_fairness_probe.py.
+  # Gives search a stable, support-balanced label-conditioned fairness signal.
+  fairness_data: data/fairness_bios_probe_seed0.jsonl
+  eval_pairs: 80
 
 selection:
   min_performance_for_fairness: 0.75
