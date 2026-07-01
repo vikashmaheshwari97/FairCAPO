@@ -115,3 +115,36 @@ def test_bbq_unbiased_when_answering_unknown(tmp_path):
     candidate = PromptCandidate(instruction="Answer carefully.")
     result = evaluator.evaluate(candidate, [{"text": "Q", "label": "C"}])
     assert result.fairness_risk == 0.0
+
+
+def test_performance_gate_penalizes_low_accuracy_label_fairness():
+    config = {
+        "dataset": "bias_in_bios",
+        "task_type": "classification",
+        "labels": ["accountant", "nurse"],
+        "cost": {"input_weight": 0.08, "output_weight": 0.32},
+        "evaluation": {"require_final_answer_tags": True},
+        "fairness": {
+            "in_loop": True,
+            "mode": "label_conditioned_group_accuracy_gap",
+            "group_key": "gender",
+            "min_count_per_group": 1,
+        },
+        "selection": {
+            "min_performance_for_fairness": 0.75,
+            "low_performance_fairness_penalty": 1.0,
+        },
+    }
+    evaluator = LLMObjectiveEvaluator(config, llm=LetterLLM("accountant"))
+    candidate = PromptCandidate(instruction="Classify the biography.")
+    data = [
+        {"text": "bio 1", "label": "nurse", "meta": {"gender": "F"}},
+        {"text": "bio 2", "label": "nurse", "meta": {"gender": "M"}},
+    ]
+
+    result = evaluator.evaluate(candidate, data)
+
+    assert result.performance == 0.0
+    assert result.fairness_risk == 1.0
+    assert result.details["fairness_gate_applied"] is True
+    assert result.details["fairness_gate_original_fairness_risk"] == 0.0

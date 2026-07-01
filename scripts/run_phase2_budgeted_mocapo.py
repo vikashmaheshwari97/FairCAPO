@@ -30,6 +30,7 @@ from heal_capo.core import EvaluationResult, PromptCandidate, PromptPortfolio
 from heal_capo.fairness import (
     CombinedFairnessConfig,
     evaluate_combined_fairness,
+    evaluate_group_fairness,
     evaluate_label_conditioned_group_fairness,
 )
 from heal_capo.fairness_bbq import evaluate_bbq_fairness, item_from_meta
@@ -597,6 +598,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         self.evaluation_cfg = config.get("evaluation", {})
         self.cost_cfg = config.get("cost", {})
         self.fairness_cfg = config.get("fairness", {}) or {}
+        self.selection_cfg = config.get("selection", {}) or {}
         # Allow injecting an LLM (used by tests); otherwise build from config.
         self.llm = llm if llm is not None else build_llm_from_config(config)
 
@@ -641,6 +643,23 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             self.bbq_fairness_items = []
             self.fairness_in_loop = bool(self.fairness_pairs)
         self.group_key = str(self.fairness_cfg.get("group_key", "group"))
+        self.label_min_count_per_group = int(
+            self.fairness_cfg.get("min_count_per_group", 1)
+        )
+        self.min_performance_for_fairness = float(
+            self.selection_cfg.get(
+                "min_performance_for_fairness",
+                self.fairness_cfg.get("min_performance_for_fairness", 0.0),
+            )
+            or 0.0
+        )
+        self.low_performance_fairness_penalty = float(
+            self.selection_cfg.get(
+                "low_performance_fairness_penalty",
+                self.fairness_cfg.get("low_performance_fairness_penalty", 1.0),
+            )
+            or 1.0
+        )
         self.use_expected_same = bool(
             self.fairness_cfg.get("use_expected_same_prediction", True)
         )
@@ -668,6 +687,39 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         # Cache real fairness by instruction text so it is computed once per
         # unique prompt: {instruction: (fairness_risk, details)}.
         self._fairness_cache: dict[str, tuple[float, dict]] = {}
+
+    def _apply_fairness_performance_gate(
+        self,
+        performance: float,
+        fairness_risk: float,
+        fairness_details: dict,
+    ) -> tuple[float, dict]:
+        """
+        Stop collapsed classifiers from being selected as "fair".
+
+        A prompt that predicts the same wrong label for most examples can have a
+        deceptively low group gap. When configured, this gate assigns such
+        low-accuracy candidates a high fairness risk, so FairCAPO optimizes
+        fairness only among usable classifiers.
+        """
+        threshold = self.min_performance_for_fairness
+        if threshold <= 0.0:
+            return fairness_risk, fairness_details
+
+        details = dict(fairness_details)
+        details["fairness_gate_min_performance"] = threshold
+        details["fairness_gate_penalty"] = self.low_performance_fairness_penalty
+        details["fairness_gate_applied"] = performance < threshold
+
+        if performance < threshold:
+            details["fairness_gate_original_fairness_risk"] = fairness_risk
+            fairness_risk = max(
+                fairness_risk,
+                self.low_performance_fairness_penalty,
+            )
+            details["fairness_gate_fairness_risk"] = fairness_risk
+
+        return fairness_risk, details
 
     def _evaluate_candidate_fairness(
         self,
@@ -1049,10 +1101,10 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 "group_accuracy_gap",
                 "demographic_parity",
                 "equal_opportunity",
-            "equalized_odds",
-            "label_conditioned_group_accuracy_gap",
-            "label_group_accuracy_gap",
-        }:
+                "equalized_odds",
+                "label_conditioned_group_accuracy_gap",
+                "label_group_accuracy_gap",
+            }:
                 if len(groups) == len(predictions):
                     if self.fairness_mode in {
                         "label_conditioned_group_accuracy_gap",
@@ -1062,10 +1114,23 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                             predictions=predictions,
                             labels=labels,
                             groups=groups,
-                            min_count_per_group=int(
-                                self.fairness_cfg.get("min_count_per_group", 1)
-                            ),
+                            min_count_per_group=self.label_min_count_per_group,
                         )
+                        if not fairness_result.details.get("num_valid_labels"):
+                            fallback_result = evaluate_group_fairness(
+                                predictions=predictions,
+                                labels=labels,
+                                groups=groups,
+                            )
+                            details = dict(fairness_result.details)
+                            details["label_conditioned_fallback_method"] = (
+                                fallback_result.details.get("method")
+                            )
+                            details["label_conditioned_fallback_gap"] = (
+                                fallback_result.group_accuracy_gap
+                            )
+                            fairness_result = fallback_result
+                            fairness_result.details = details
                     else:
                         fairness_result = evaluate_combined_fairness(
                             predictions=predictions,
@@ -1095,6 +1160,16 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                                 "label_group_accuracy_gap",
                             }
                             else None
+                        ),
+                        "label_conditioned_fallback_method": (
+                            fairness_result.details.get(
+                                "label_conditioned_fallback_method"
+                            )
+                        ),
+                        "label_conditioned_fallback_gap": (
+                            fairness_result.details.get(
+                                "label_conditioned_fallback_gap"
+                            )
                         ),
                         "fairness_num_groups": len(set(groups)),
                         "fairness_groups": sorted(set(groups)),
@@ -1127,6 +1202,12 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         else:
             fairness_risk = heuristic_fairness_risk(candidate.instruction)
             fairness_source = "prompt_heuristic"
+
+        fairness_risk, fairness_details = self._apply_fairness_performance_gate(
+            performance=performance,
+            fairness_risk=fairness_risk,
+            fairness_details=fairness_details,
+        )
 
         return EvaluationResult(
             candidate_id=candidate.candidate_id,

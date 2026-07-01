@@ -5,6 +5,7 @@ from scripts.build_experiment_table import (
     best_per_objective,
     build_experiment_table,
     empty_row,
+    filter_min_performance_rows,
     filter_pareto_rows,
     make_latex_table,
     pareto_set_row,
@@ -109,6 +110,24 @@ def test_filter_pareto_rows_no_column_returns_all():
     assert len(filtered) == 2
 
 
+def test_filter_min_performance_rows_keeps_usable_candidates():
+    rows = [
+        {"method": "collapsed", "performance": "0.10", "fairness_risk": "0.0"},
+        {"method": "usable", "performance": "0.80", "fairness_risk": "0.2"},
+    ]
+
+    filtered = filter_min_performance_rows(rows, 0.75)
+
+    assert len(filtered) == 1
+    assert filtered[0]["method"] == "usable"
+
+
+def test_filter_min_performance_rows_falls_back_if_empty():
+    rows = [{"method": "a", "performance": "0.10"}]
+
+    assert filter_min_performance_rows(rows, 0.75) == rows
+
+
 def test_best_per_objective():
     from heal_capo.core import EvaluationResult
 
@@ -148,6 +167,31 @@ def test_pareto_set_row_computes_best_and_metrics(tmp_path):
     assert row["hypervolume"] is not None
     assert row["nr2"] is not None
     assert 0.0 <= float(row["hypervolume"]) <= 1.0
+
+
+def test_pareto_set_row_applies_min_performance_gate(tmp_path):
+    csv_path = tmp_path / "candidates.csv"
+    csv_path.write_text(
+        "candidate_id,is_pareto,performance,cost,risk,fairness_risk\n"
+        "collapsed,True,0.10,1.0,0.90,0.00\n"
+        "usable,True,0.80,2.0,0.20,0.25\n",
+        encoding="utf-8",
+    )
+
+    config = base_table_config()
+    config["selection"] = {"min_performance_for_fairness": 0.75}
+    row = pareto_set_row(
+        {
+            "name": "FairCAPO",
+            "candidates_csv": str(csv_path),
+            "only_pareto": True,
+        },
+        config,
+    )
+
+    assert row["performance"] == 0.80
+    assert row["fairness_risk"] == 0.25
+    assert row["portfolio_size"] == 1
 
 
 def test_pareto_set_row_with_budget_json(tmp_path):

@@ -81,8 +81,35 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
         add(findings, "error", path, "dev.dataset is not bias_in_bios.")
 
     fairness = config.get("fairness") or {}
-    if fairness and fairness.get("mode") != "group_accuracy_gap":
-        add(findings, "warn", path, "BIOS fairness mode is not group_accuracy_gap.")
+    fairness_mode = fairness.get("mode")
+    if fairness and fairness_mode not in {
+        "group_accuracy_gap",
+        "label_conditioned_group_accuracy_gap",
+        "label_group_accuracy_gap",
+    }:
+        add(findings, "warn", path, "BIOS fairness mode is not a supported group-gap mode.")
+
+    if fairness_mode in {
+        "label_conditioned_group_accuracy_gap",
+        "label_group_accuracy_gap",
+    }:
+        min_count = int(fairness.get("min_count_per_group", 1) or 1)
+        if min_count < 5:
+            add(
+                findings,
+                "error",
+                path,
+                "Label-conditioned BIOS fairness should use min_count_per_group >= 5.",
+            )
+        selection = config.get("selection") or {}
+        min_perf = float(selection.get("min_performance_for_fairness", 0.0) or 0.0)
+        if min_perf < 0.75:
+            add(
+                findings,
+                "error",
+                path,
+                "Label-conditioned BIOS fairness should set selection.min_performance_for_fairness >= 0.75.",
+            )
 
     evaluation = config.get("evaluation") or {}
     if evaluation.get("classification_mode") == "two_stage_label_scoring":

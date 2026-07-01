@@ -258,6 +258,51 @@ def filter_pareto_rows(rows: list[dict], only_pareto: bool) -> list[dict]:
     return pareto or rows
 
 
+def min_performance_threshold(
+    table_config: dict,
+    method_cfg: dict | None = None,
+) -> float | None:
+    """Optional reporting gate for fairness/front summaries."""
+    method_cfg = method_cfg or {}
+    method_selection = method_cfg.get("selection", {}) or {}
+    table_selection = table_config.get("selection", {}) or {}
+
+    value = method_selection.get(
+        "min_performance_for_fairness",
+        table_selection.get("min_performance_for_fairness"),
+    )
+    if value in (None, ""):
+        return None
+
+    threshold = parse_float(value, None)
+    return threshold if threshold is not None and threshold > 0.0 else None
+
+
+def filter_min_performance_rows(
+    rows: list[dict],
+    threshold: float | None,
+) -> list[dict]:
+    """
+    Keep only rows at or above a minimum usable performance threshold.
+
+    If the filter would remove everything, return the original rows so a table
+    still reveals the failure instead of becoming blank.
+    """
+    if threshold is None:
+        return rows
+
+    kept = []
+    for row in rows:
+        performance = parse_float(
+            row.get("performance", row.get("test_score", row.get("dev_score"))),
+            None,
+        )
+        if performance is not None and performance >= threshold:
+            kept.append(row)
+
+    return kept or rows
+
+
 def row_to_result(row: dict, index: int) -> EvaluationResult:
     candidate_id = str(
         row.get("candidate_id")
@@ -317,7 +362,11 @@ def dedupe_by_objective(
     return unique
 
 
-def holdout_inference_cost(holdout_csv: str, only_pareto: bool = True) -> dict:
+def holdout_inference_cost(
+    holdout_csv: str,
+    only_pareto: bool = True,
+    min_performance: float | None = None,
+) -> dict:
     """
     Honest per-call INFERENCE cost from a held-out Dtest CSV.
 
@@ -337,6 +386,7 @@ def holdout_inference_cost(holdout_csv: str, only_pareto: bool = True) -> dict:
     if not rows:
         return {}
     rows = filter_pareto_rows(rows, only_pareto=only_pareto)
+    rows = filter_min_performance_rows(rows, min_performance)
 
     per_call = []
     audit_costs = []
@@ -388,6 +438,8 @@ def pareto_set_row(method_cfg: dict, table_config: dict) -> dict:
         return empty_row(name)
 
     rows = filter_pareto_rows(rows, only_pareto=only_pareto)
+    min_performance = min_performance_threshold(table_config, method_cfg)
+    rows = filter_min_performance_rows(rows, min_performance)
     results = [row_to_result(row, idx) for idx, row in enumerate(rows)]
     # Collapse duplicate objective vectors before MO metrics: identical points
     # do not affect HV/nR2 but make the inclusion-exclusion HV blow up.
@@ -426,7 +478,11 @@ def pareto_set_row(method_cfg: dict, table_config: dict) -> dict:
 
     # Optional held-out inference-cost view (search-overhead separated out).
     holdout_csv = str(method_cfg.get("holdout_csv", "")).strip()
-    inference = holdout_inference_cost(holdout_csv) if holdout_csv else {}
+    inference = (
+        holdout_inference_cost(holdout_csv, min_performance=min_performance)
+        if holdout_csv
+        else {}
+    )
 
     return {
         "method": name,
