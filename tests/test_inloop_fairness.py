@@ -150,3 +150,54 @@ def test_group_fairness_mode_uses_example_metadata():
     assert result.details["group_accuracy_gap"] == 1.0
     assert result.fairness_risk == 1.0
     assert result.details["fairness_eval_cost"] == 0.0
+
+
+class SequenceLabelLLM:
+    def __init__(self, labels):
+        self.labels = list(labels)
+        self.idx = 0
+
+    def get_response(self, prompt: str) -> str:
+        label = self.labels[self.idx]
+        self.idx += 1
+        return label
+
+
+def test_label_conditioned_group_fairness_mode_detects_hidden_gap():
+    cfg = {
+        "labels": ["teacher", "surgeon", "nurse"],
+        "cost": {"input_weight": 0.08, "output_weight": 0.32},
+        "evaluation": {"require_final_answer_tags": False},
+        "fairness": {
+            "in_loop": True,
+            "mode": "label_conditioned_group_accuracy_gap",
+            "group_key": "gender",
+            "min_count_per_group": 1,
+        },
+    }
+    evaluator = LLMObjectiveEvaluator(
+        cfg,
+        llm=SequenceLabelLLM(
+            ["teacher", "teacher", "surgeon", "teacher", "nurse", "nurse", "nurse", "nurse"]
+        ),
+    )
+    candidate = PromptCandidate(instruction="Classify the biography.")
+    data = [
+        {"text": "A", "label": "teacher", "meta": {"gender": "female"}},
+        {"text": "B", "label": "teacher", "meta": {"gender": "male"}},
+        {"text": "C", "label": "surgeon", "meta": {"gender": "female"}},
+        {"text": "D", "label": "surgeon", "meta": {"gender": "male"}},
+        {"text": "E", "label": "nurse", "meta": {"gender": "female"}},
+        {"text": "F", "label": "nurse", "meta": {"gender": "male"}},
+        {"text": "G", "label": "nurse", "meta": {"gender": "female"}},
+        {"text": "H", "label": "nurse", "meta": {"gender": "male"}},
+    ]
+
+    result = evaluator.evaluate(candidate, data)
+
+    assert result.performance == 0.875
+    assert result.details["fairness_source"] == "group_fairness_in_loop"
+    assert result.details["group_accuracy_gap"] == 1.0
+    assert result.details["label_conditioned_group_accuracy_gap"] == 1.0
+    details = result.details["label_conditioned_fairness_details"]
+    assert details["worst_label"] == "surgeon"

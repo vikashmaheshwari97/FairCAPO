@@ -27,7 +27,11 @@ import yaml
 
 from heal_capo.components.router import FairnessAwareRouter, RiskAwareRouter
 from heal_capo.core import EvaluationResult, PromptCandidate, PromptPortfolio
-from heal_capo.fairness import CombinedFairnessConfig, evaluate_combined_fairness
+from heal_capo.fairness import (
+    CombinedFairnessConfig,
+    evaluate_combined_fairness,
+    evaluate_label_conditioned_group_fairness,
+)
 from heal_capo.fairness_bbq import evaluate_bbq_fairness, item_from_meta
 from heal_capo.objectives import ObjectiveEvaluator, ToyObjectiveEvaluator
 from heal_capo.optimizers.advance_incumbents import (
@@ -626,6 +630,8 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             "demographic_parity",
             "equal_opportunity",
             "equalized_odds",
+            "label_conditioned_group_accuracy_gap",
+            "label_group_accuracy_gap",
         }:
             self.fairness_pairs = []
             self.bbq_fairness_items = []
@@ -1043,20 +1049,53 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 "group_accuracy_gap",
                 "demographic_parity",
                 "equal_opportunity",
-                "equalized_odds",
-            }:
+            "equalized_odds",
+            "label_conditioned_group_accuracy_gap",
+            "label_group_accuracy_gap",
+        }:
                 if len(groups) == len(predictions):
-                    fairness_result = evaluate_combined_fairness(
-                        predictions=predictions,
-                        labels=labels,
-                        groups=groups,
-                        outputs=raw_outputs,
-                        config=self.combined_fairness_config,
-                    )
+                    if self.fairness_mode in {
+                        "label_conditioned_group_accuracy_gap",
+                        "label_group_accuracy_gap",
+                    }:
+                        fairness_result = evaluate_label_conditioned_group_fairness(
+                            predictions=predictions,
+                            labels=labels,
+                            groups=groups,
+                            min_count_per_group=int(
+                                self.fairness_cfg.get("min_count_per_group", 1)
+                            ),
+                        )
+                    else:
+                        fairness_result = evaluate_combined_fairness(
+                            predictions=predictions,
+                            labels=labels,
+                            groups=groups,
+                            outputs=raw_outputs,
+                            config=self.combined_fairness_config,
+                        )
                     fairness_risk = fairness_result.fairness_risk
                     fairness_details = {
                         "fairness_method": fairness_result.details.get("method"),
                         "group_accuracy_gap": fairness_result.group_accuracy_gap,
+                        "label_conditioned_group_accuracy_gap": (
+                            fairness_result.fairness_risk
+                            if self.fairness_mode
+                            in {
+                                "label_conditioned_group_accuracy_gap",
+                                "label_group_accuracy_gap",
+                            }
+                            else None
+                        ),
+                        "label_conditioned_fairness_details": (
+                            fairness_result.details
+                            if self.fairness_mode
+                            in {
+                                "label_conditioned_group_accuracy_gap",
+                                "label_group_accuracy_gap",
+                            }
+                            else None
+                        ),
                         "fairness_num_groups": len(set(groups)),
                         "fairness_groups": sorted(set(groups)),
                         "fairness_breakdown": fairness_result.details.get("breakdown"),

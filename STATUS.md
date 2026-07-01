@@ -50,18 +50,27 @@ python scripts/audit_hpc_configs.py
 Warnings about Qwen and label-scoring are expected because those files are kept
 as diagnostic records. Errors must be fixed before submitting jobs.
 
-The new controlled diagnostic is **BIOS FairCAPO fair-shots 500k v1 seed 0**.
-It keeps the frozen Mistral v1 search scale/model and changes only the
-few-shot pool selection: label/group balanced examples with diversity-aware
-mutation. This is inspired by fairness-guided few-shot prompting, but it is not
-the main result unless it beats Mistral v1 on large-held-out evaluation.
+The fair-shots diagnostic did not clearly beat frozen BIOS v1:
+
+- FairCAPO fair-shots: accuracy `0.782`, fairness_risk `0.002775`, HV `0.408244`
+- FairCAPO Mistral v1: accuracy `0.782`, fairness_risk `0.000952`, HV `0.390932`
+
+Decision: **do not promote fair-shots yet**. It improved cost/HV but lost the
+strongest fairness signal.
+
+The next step is a **zero-HPC diagnostic** on existing large-held-out CSVs. BIOS
+currently reports aggregate gender group accuracy gap. That can hide
+occupation-specific unfairness when both gender groups have similar total
+accuracy but different errors for labels such as `surgeon`, `nurse`, or
+teacher. Run the label-conditioned diagnostic before submitting another job.
 
 The optimizer now also records MO-CAPO-style prompt/block cache reuse in
 `budget_summary.json -> block_history`. Use that to check whether real runs are
 deepening candidates and reusing repeated prompt/block evaluations as intended.
 
-After the fair-shots diagnostic, the scientifically clean next experiment is
-still **multi-seed BIOS v1** if v1 remains best.
+After the diagnostic, either keep **multi-seed BIOS v1** as the next experiment,
+or run one label-conditioned FairCAPO search if the diagnostic shows that
+aggregate group accuracy is masking label-specific fairness failures.
 
 ## Rocket Commands
 
@@ -72,9 +81,33 @@ cd ~/FairCAPO
 git pull origin main
 ```
 
-Recommended next HPC direction, when ready: run one BIOS FairCAPO fair-shots
-diagnostic job, then evaluate on large-held-out only. Do not submit Qwen or
-label-scoring jobs.
+Recommended next direction: first run the no-GPU diagnostic below. Do not submit
+Qwen, label-scoring, or another prompt-search variant until these diagnostics
+are inspected.
+
+Zero-HPC BIOS fairness diagnostic:
+
+```bash
+python scripts/diagnose_bios_fairness.py \
+  --inputs \
+    outputs/hpc/evaluation_large/seed_0/bios_faircapo_500k_v1/test_eval_candidates.csv \
+    outputs/hpc/evaluation_large/seed_0/bios_ablation_500k_v1/test_eval_candidates.csv \
+    outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_v1/test_eval_candidates.csv \
+    outputs/hpc/evaluation_large/seed_0/bios_faircapo_fairshots_500k_v1/test_eval_candidates.csv \
+  --out-dir outputs/diagnostics/bios_v1_vs_fairshots
+```
+
+Inspect:
+
+```bash
+column -s, -t outputs/diagnostics/bios_v1_vs_fairshots/bios_fairness_diagnostics.csv | less -S
+```
+
+The key columns are `macro_accuracy`,
+`label_conditioned_group_accuracy_gap`, `worst_label`, and
+`multiclass_demographic_parity_gap`.
+
+Fair-shots search, kept only for record:
 
 Search:
 
@@ -130,6 +163,9 @@ outputs/experiment_table/bios_mistral_hpc_fairshots_500k_v1_large_seed0/experime
 - If fair-shots improves accuracy or HV while keeping fairness_risk near v1
   (`~0.001`), promote fair-shots to the new BIOS candidate and rerun baselines.
 - If fair-shots worsens fairness like Qwen/label-score did, keep frozen v1.
+- If label-conditioned diagnostics show that aggregate group accuracy gap is
+  hiding occupation-specific unfairness, switch the next FairCAPO-only run to
+  `fairness.mode: label_conditioned_group_accuracy_gap`.
 - If the fairness advantage disappears across seeds, stop and debug the fairness
   objective before trying new models or scorers.
 - If accuracy remains near 78%, treat higher accuracy as a separate evaluator

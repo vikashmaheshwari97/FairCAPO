@@ -342,6 +342,8 @@ def build_objective_evaluator(
                 "demographic_parity",
                 "equal_opportunity",
                 "equalized_odds",
+                "label_conditioned_group_accuracy_gap",
+                "label_group_accuracy_gap",
             }
         ):
             # Share FairCAPO's evaluator so NSGA-II-PO optimizes the SAME real

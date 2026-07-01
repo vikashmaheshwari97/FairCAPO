@@ -203,6 +203,90 @@ def group_accuracy_gap(
     return max(accuracies) - min(accuracies)
 
 
+def label_conditioned_group_accuracy_gap(
+    predictions: Sequence[str],
+    labels: Sequence[str],
+    groups: Sequence[str],
+    min_count_per_group: int = 1,
+) -> tuple[float, dict]:
+    """
+    Worst within-label group accuracy gap.
+
+    ``group_accuracy_gap`` can look small when all groups make similar total
+    error rates. Bias-in-Bios is label rich, so the more relevant question is
+    whether the model is less accurate for one gender within a specific
+    profession, e.g. surgeon/female vs surgeon/male. This metric computes that
+    label-conditioned gap and returns the worst valid label plus details.
+    """
+    if not (len(predictions) == len(labels) == len(groups)):
+        raise ValueError("predictions, labels, and groups must have equal length.")
+
+    min_count = max(1, int(min_count_per_group))
+    by_label_group: dict[str, dict[str, dict[str, int]]] = {}
+
+    for pred, label, group in zip(predictions, labels, groups):
+        label_key = normalize_prediction(label)
+        group_key = str(group)
+        if not label_key or not group_key:
+            continue
+
+        group_bucket = by_label_group.setdefault(label_key, {}).setdefault(
+            group_key,
+            {"correct": 0, "total": 0},
+        )
+        group_bucket["total"] += 1
+        if normalize_prediction(pred) == label_key:
+            group_bucket["correct"] += 1
+
+    label_rows: list[dict] = []
+    worst_gap = 0.0
+    worst_label: Optional[str] = None
+
+    for label_key, group_buckets in sorted(by_label_group.items()):
+        valid_rates: dict[str, float] = {}
+        valid_support: dict[str, int] = {}
+        for group_key, counts in sorted(group_buckets.items()):
+            total = counts["total"]
+            if total < min_count:
+                continue
+            valid_rates[group_key] = counts["correct"] / total if total else 0.0
+            valid_support[group_key] = total
+
+        if len(valid_rates) < 2:
+            continue
+
+        gap = max(valid_rates.values()) - min(valid_rates.values())
+        label_rows.append(
+            {
+                "label": label_key,
+                "gap": gap,
+                "rates": valid_rates,
+                "support": valid_support,
+            }
+        )
+
+        if gap > worst_gap:
+            worst_gap = gap
+            worst_label = label_key
+
+    weighted_gap = 0.0
+    total_weight = 0
+    for row in label_rows:
+        support = sum(row["support"].values())
+        weighted_gap += row["gap"] * support
+        total_weight += support
+    mean_gap = weighted_gap / total_weight if total_weight else 0.0
+
+    return worst_gap, {
+        "method": "label_conditioned_group_accuracy_gap",
+        "worst_label": worst_label,
+        "num_valid_labels": len(label_rows),
+        "mean_label_conditioned_gap": mean_gap,
+        "min_count_per_group": min_count,
+        "per_label": label_rows,
+    }
+
+
 BIAS_TERMS = {
     "inferior",
     "superior",
@@ -302,6 +386,34 @@ def evaluate_group_fairness(
         details={
             "method": "group_accuracy_gap",
         },
+    )
+
+
+def evaluate_label_conditioned_group_fairness(
+    predictions: Sequence[str],
+    labels: Sequence[str],
+    groups: Sequence[str],
+    fairness_debt: float = 0.0,
+    min_count_per_group: int = 1,
+) -> FairnessResult:
+    """
+    Evaluate group fairness within each true label and use the worst label gap.
+    """
+    gap, details = label_conditioned_group_accuracy_gap(
+        predictions=predictions,
+        labels=labels,
+        groups=groups,
+        min_count_per_group=min_count_per_group,
+    )
+
+    return FairnessResult(
+        fairness_risk=gap,
+        counterfactual_flip_rate=0.0,
+        num_pairs=0,
+        num_flips=0,
+        group_accuracy_gap=gap,
+        fairness_debt=fairness_debt,
+        details=details,
     )
 
 

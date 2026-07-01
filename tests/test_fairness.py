@@ -10,8 +10,10 @@ from heal_capo.fairness import (
     evaluate_bias_language,
     evaluate_combined_fairness,
     evaluate_counterfactual_fairness,
+    evaluate_label_conditioned_group_fairness,
     evaluate_group_fairness,
     group_accuracy_gap,
+    label_conditioned_group_accuracy_gap,
     normalize_prediction,
 )
 
@@ -78,6 +80,41 @@ def test_group_accuracy_gap():
     assert gap == 1.0
 
 
+def test_label_conditioned_group_accuracy_gap_detects_hidden_label_gap():
+    predictions = [
+        "nurse",
+        "teacher",
+        "surgeon",
+        "teacher",
+        "nurse",
+        "nurse",
+        "nurse",
+        "nurse",
+    ]
+    labels = [
+        "teacher",
+        "teacher",
+        "surgeon",
+        "surgeon",
+        "nurse",
+        "nurse",
+        "nurse",
+        "nurse",
+    ]
+    groups = ["female", "male", "female", "male", "female", "male", "female", "male"]
+
+    overall_gap = group_accuracy_gap(predictions, labels, groups)
+    label_gap, details = label_conditioned_group_accuracy_gap(
+        predictions=predictions,
+        labels=labels,
+        groups=groups,
+    )
+
+    assert overall_gap == 0.0
+    assert label_gap == 1.0
+    assert details["worst_label"] in {"surgeon", "teacher"}
+
+
 def test_evaluate_group_fairness():
     predictions = ["yes", "no", "yes", "yes"]
     labels = ["yes", "no", "no", "no"]
@@ -92,6 +129,18 @@ def test_evaluate_group_fairness():
     assert result.group_accuracy_gap == 1.0
     assert result.fairness_risk == 1.0
     assert result.details["method"] == "group_accuracy_gap"
+
+
+def test_evaluate_label_conditioned_group_fairness():
+    result = evaluate_label_conditioned_group_fairness(
+        predictions=["surgeon", "teacher"],
+        labels=["surgeon", "surgeon"],
+        groups=["female", "male"],
+    )
+
+    assert result.fairness_risk == 1.0
+    assert result.details["method"] == "label_conditioned_group_accuracy_gap"
+    assert result.details["worst_label"] == "surgeon"
 
 
 def test_bias_violation_rate_no_violations():
