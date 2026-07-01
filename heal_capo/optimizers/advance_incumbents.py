@@ -296,9 +296,12 @@ class IncumbentAdvancer:
         )
 
         # Only charge the budget the first time this (candidate, block) pair is
-        # evaluated. A cache hit performs no new LLM work, so re-charging it
-        # would inflate used_budget for zero information gain.
-        if not self._budget_recorded(candidate.candidate_id, block_id):
+        # evaluated. A prompt-cache hit performs no new LLM work, so re-charging
+        # it would inflate used_budget for zero information gain.
+        if (
+            not evaluation.from_cache
+            and not self._budget_recorded(candidate.candidate_id, block_id)
+        ):
             self.budget_allocator.record_block_evaluation(evaluation)
 
         blocks_after = set(blocks_before)

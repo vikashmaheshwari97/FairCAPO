@@ -1269,6 +1269,81 @@ def _shot_output(row: dict, label: str, task_type: str, use_rationale: bool) -> 
     return f"<final_answer>{label}</final_answer>"
 
 
+def _fairness_guided_shot_rows(
+    rows: list[dict],
+    group_key: str = "gender",
+) -> list[dict]:
+    """
+    Deterministically interleave shots by (label, group).
+
+    This borrows the useful principle from fairness-guided few-shot prompting:
+    demonstrations should not be a random prefix of the data. For BIOS, the
+    protected group is metadata-only, so we build a label/group balanced pool
+    and attach sampling weights that downweight overrepresented label/group
+    buckets during evolutionary few-shot mutation.
+    """
+    valid_rows = [
+        row
+        for row in rows
+        if str(row.get("text", "")).strip() and str(row.get("label", "")).strip()
+    ]
+    label_counts: dict[str, int] = {}
+    group_counts: dict[str, int] = {}
+    pair_counts: dict[tuple[str, str], int] = {}
+
+    for row in valid_rows:
+        label = str(row.get("label", "")).strip()
+        group = get_example_group(row, group_key=group_key)
+        label_counts[label] = label_counts.get(label, 0) + 1
+        if group:
+            group_counts[group] = group_counts.get(group, 0) + 1
+        pair = (label, group)
+        pair_counts[pair] = pair_counts.get(pair, 0) + 1
+
+    buckets: dict[tuple[str, str], list[dict]] = {}
+    for idx, row in enumerate(valid_rows):
+        label = str(row.get("label", "")).strip()
+        group = get_example_group(row, group_key=group_key)
+        pair = (label, group)
+        row_copy = dict(row)
+        row_copy["_shot_order"] = idx
+        row_copy["_shot_group"] = group
+        # Smaller label/group buckets receive larger weights. The pair term
+        # prevents a frequent label-group combination from dominating examples.
+        label_denom = max(1, label_counts.get(label, 1))
+        group_denom = max(1, group_counts.get(group, 1)) if group else 1
+        pair_denom = max(1, pair_counts.get(pair, 1))
+        row_copy["_sampling_weight"] = 1.0 / (
+            label_denom ** 0.5 * group_denom ** 0.5 * pair_denom ** 0.5
+        )
+        buckets.setdefault(pair, []).append(row_copy)
+
+    for bucket_rows in buckets.values():
+        bucket_rows.sort(key=lambda row: row["_shot_order"])
+
+    ordered: list[dict] = []
+    keys = sorted(
+        buckets,
+        key=lambda key: (
+            pair_counts.get(key, 0),
+            label_counts.get(key[0], 0),
+            group_counts.get(key[1], 0) if key[1] else 0,
+            key,
+        ),
+    )
+    while keys:
+        next_keys: list[tuple[str, str]] = []
+        for key in keys:
+            bucket = buckets[key]
+            if bucket:
+                ordered.append(bucket.pop(0))
+            if bucket:
+                next_keys.append(key)
+        keys = next_keys
+
+    return ordered
+
+
 def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
     """
     Build the few-shot example pool the evolutionary few-shot operator draws
@@ -1308,18 +1383,45 @@ def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
         rows = [_example_to_row(ex) for ex in split.dev]
 
     pool_size = int(fs_cfg.get("pool_size", 20))
+    selection_strategy = str(
+        fs_cfg.get("selection_strategy", fs_cfg.get("strategy", "prefix"))
+    ).strip().lower()
+    group_key = str(
+        fs_cfg.get(
+            "group_key",
+            config.get("fairness", {}).get("group_key", "gender"),
+        )
+    )
+    fairness_guided = selection_strategy in {
+        "fairness_guided",
+        "fair",
+        "label_group_balanced",
+        "balanced_label_group",
+    }
+    if fairness_guided:
+        rows = _fairness_guided_shot_rows(rows, group_key=group_key)
+
     pool: list[dict] = []
     for row in rows[:pool_size]:
         text = str(row.get("text", "")).strip()
         label = str(row.get("label", "")).strip()
         if not text or not label:
             continue
-        pool.append(
-            {
-                "input": text,
-                "output": _shot_output(row, label, task_type, use_rationale),
-            }
-        )
+        entry = {
+            "input": text,
+            "output": _shot_output(row, label, task_type, use_rationale),
+        }
+        if fairness_guided:
+            group = str(row.get("_shot_group") or get_example_group(row, group_key))
+            entry.update(
+                {
+                    "label": label,
+                    "group": group,
+                    "sampling_weight": float(row.get("_sampling_weight", 1.0)),
+                    "selection_strategy": "fairness_guided",
+                }
+            )
+        pool.append(entry)
     return pool
 
 
@@ -1475,7 +1577,8 @@ def evaluate_initial_population(
                     block_id=block_id,
                     use_cache=True,
                 )
-                budget_allocator.record_block_evaluation(evaluation)
+                if not evaluation.from_cache:
+                    budget_allocator.record_block_evaluation(evaluation)
             except RuntimeError as exc:
                 events.append(
                     {
@@ -1517,6 +1620,10 @@ def evaluate_initial_population(
                 "evaluated_blocks": str(evaluated_blocks),
                 "budget_used": budget_allocator.used_budget,
                 "remaining_budget": budget_allocator.remaining_budget,
+                "prompt_cache_hit": any(
+                    block_evaluator.history.get(candidate.candidate_id, block_id).from_cache
+                    for block_id in evaluated_blocks
+                ),
             }
         )
 
@@ -1552,6 +1659,7 @@ def make_evolutionary_event(
         "budget_used": decision.budget_used,
         "remaining_budget": decision.metadata.get("remaining_budget"),
         "budget_utilization": decision.metadata.get("budget_utilization"),
+        "prompt_cache_hits": decision.metadata.get("prompt_cache_hits", 0),
     }
 
 
@@ -2275,6 +2383,27 @@ def run_budgeted_mocapo(
     budget_summary["num_population_candidates"] = len(population)
     budget_summary["num_incumbents"] = len(incumbents)
     budget_summary["num_evaluated_candidates"] = len(all_portfolio.evaluations)
+    block_counts = {
+        candidate_id: len(block_evaluator.evaluated_blocks(candidate_id))
+        for candidate_id in sorted(all_portfolio.evaluations)
+    }
+    cache_hit_count = sum(
+        1
+        for by_block in block_evaluator.history.evaluations.values()
+        for evaluation in by_block.values()
+        if getattr(evaluation, "from_cache", False)
+    )
+    budget_summary["block_history"] = {
+        "candidate_block_counts": block_counts,
+        "min_blocks_per_candidate": min(block_counts.values()) if block_counts else 0,
+        "max_blocks_per_candidate": max(block_counts.values()) if block_counts else 0,
+        "num_prompt_cache_hits": cache_hit_count,
+        "num_prompt_cache_entries": sum(
+            len(by_block)
+            for by_block in block_evaluator.history.prompt_evaluations.values()
+        ),
+        "num_candidate_block_records": sum(block_counts.values()),
+    }
 
     trajectory = compute_trajectory_metrics(
         snapshots=trajectory,

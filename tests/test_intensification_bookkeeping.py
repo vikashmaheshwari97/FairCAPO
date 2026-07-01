@@ -32,6 +32,7 @@ from heal_capo.optimizers.block_evaluator import (
     BlockEvaluation,
     BlockEvaluator,
     merge_results,
+    prompt_signature,
 )
 from heal_capo.optimizers.budget_allocator import BudgetAllocator
 from heal_capo.optimizers.intensification import IntensificationConfig, Intensifier
@@ -128,6 +129,30 @@ def test_intensifier_stamps_evaluated_blocks_on_accepted_challenger():
     # 0-block candidate.
     assert challenger.metadata["evaluated_blocks"] == decision.evaluated_blocks
     assert get_evaluated_blocks(challenger) == set(decision.evaluated_blocks)
+
+
+def test_block_evaluator_reuses_identical_prompt_across_candidate_ids():
+    block_evaluator = _block_evaluator(num_blocks=2, block_size=2)
+    budget = BudgetAllocator(max_budget=10_000.0, budget_unit="tokens")
+    first = _candidate("first")
+    second = _candidate("second")
+    second.instruction = first.instruction
+
+    first_eval = block_evaluator.evaluate_block(first, 0, use_cache=True)
+    budget.record_block_evaluation(first_eval)
+    used_after_first = budget.used_budget
+
+    second_eval = block_evaluator.evaluate_block(second, 0, use_cache=True)
+
+    assert prompt_signature(first) == prompt_signature(second)
+    assert second_eval.from_cache
+    assert second_eval.cache_source_candidate_id == first.candidate_id
+    assert second_eval.result.performance == first_eval.result.performance
+    # Cache hits are evidence for the new candidate, but do not spend budget.
+    if not second_eval.from_cache:
+        budget.record_block_evaluation(second_eval)
+    assert budget.used_budget == used_after_first
+    assert block_evaluator.evaluated_blocks(second.candidate_id) == [0]
 
 
 # --------------------------------------------------------------------------

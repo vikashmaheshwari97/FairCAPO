@@ -74,6 +74,38 @@ def test_mutate_few_shot_noop_when_nothing_possible():
     assert result.candidate.examples == []
 
 
+def test_mutate_few_shot_prefers_new_label_and_group_when_weighted():
+    ops = _ops(seed=3, max_shots=3)
+    parent = PromptCandidate(
+        instruction="Classify.",
+        examples=[],
+    )
+    pool = [
+        {
+            "input": "b",
+            "output": "<final_answer>teacher</final_answer>",
+            "label": "teacher",
+            "group": "female",
+            "sampling_weight": 1.0,
+        },
+        {
+            "input": "c",
+            "output": "<final_answer>surgeon</final_answer>",
+            "label": "surgeon",
+            "group": "male",
+            "sampling_weight": 1000.0,
+        },
+    ]
+
+    result = ops.mutate_few_shot(parent, shot_pool=pool)
+
+    assert result.metadata["few_shot_action"] == "add"
+    assert any(
+        ex.get("label") == "surgeon" and ex.get("group") == "male"
+        for ex in result.candidate.examples
+    )
+
+
 def test_add_shot_increases_rendered_prompt_length():
     ops = _ops()
     parent = PromptCandidate(instruction="Classify the sentence.")
@@ -164,3 +196,28 @@ def test_build_shot_pool_formats_and_filters():
 def test_build_shot_pool_respects_pool_size():
     pool = build_shot_pool({"few_shot": {"enabled": True, "pool_size": 1}}, _DEV)
     assert len(pool) == 1
+
+
+def test_build_shot_pool_fairness_guided_adds_label_group_weights():
+    dev = [
+        {"text": "A", "label": "teacher", "meta": {"gender": "female"}},
+        {"text": "B", "label": "teacher", "meta": {"gender": "female"}},
+        {"text": "C", "label": "surgeon", "meta": {"gender": "male"}},
+    ]
+    pool = build_shot_pool(
+        {
+            "few_shot": {
+                "enabled": True,
+                "pool_size": 3,
+                "selection_strategy": "fairness_guided",
+                "group_key": "gender",
+            }
+        },
+        dev,
+    )
+
+    assert len(pool) == 3
+    assert all("sampling_weight" in ex for ex in pool)
+    assert all(ex["selection_strategy"] == "fairness_guided" for ex in pool)
+    assert pool[0]["label"] == "surgeon"
+    assert pool[0]["group"] == "male"

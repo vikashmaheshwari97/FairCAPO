@@ -453,6 +453,14 @@ class EvolutionaryPromptOps:
     def _example_key(ex: dict) -> tuple[str, str]:
         return (str(ex.get("input", "")), str(ex.get("output", "")))
 
+    @staticmethod
+    def _example_label(ex: dict) -> str:
+        return str(ex.get("label", "") or "").strip()
+
+    @staticmethod
+    def _example_group(ex: dict) -> str:
+        return str(ex.get("group", "") or "").strip()
+
     def _combine_examples(
         self,
         mother_examples: list[dict],
@@ -468,6 +476,69 @@ class EvolutionaryPromptOps:
             seen.add(key)
             combined.append(dict(ex))
         return combined[: self.config.max_few_shot_examples]
+
+    def _shot_weight(self, ex: dict, current: list[dict]) -> float:
+        """
+        Weight a shot for fair/diverse few-shot mutation.
+
+        ``build_shot_pool`` may attach ``sampling_weight`` based on label/group
+        balance. The operator adds a local diversity bonus when the candidate
+        would introduce a label or protected group not yet present in the
+        prompt's current demonstrations.
+        """
+        try:
+            weight = float(ex.get("sampling_weight", 1.0))
+        except Exception:
+            weight = 1.0
+
+        current_labels = {self._example_label(item) for item in current}
+        current_groups = {self._example_group(item) for item in current}
+
+        label = self._example_label(ex)
+        group = self._example_group(ex)
+
+        if label and label not in current_labels:
+            weight *= 2.0
+        if group and group not in current_groups:
+            weight *= 2.0
+
+        return max(weight, 0.000001)
+
+    def _choose_shot(self, available: list[dict], current: list[dict]) -> dict:
+        weights = [self._shot_weight(ex, current) for ex in available]
+        return dict(self.rng.choices(available, weights=weights, k=1)[0])
+
+    def _choose_removal_index(self, current: list[dict]) -> int:
+        """
+        Prefer removing a duplicate label/group shot, preserving diversity.
+        """
+        if not current:
+            raise ValueError("current examples cannot be empty")
+
+        label_counts: dict[str, int] = {}
+        group_counts: dict[str, int] = {}
+        for ex in current:
+            label = self._example_label(ex)
+            group = self._example_group(ex)
+            if label:
+                label_counts[label] = label_counts.get(label, 0) + 1
+            if group:
+                group_counts[group] = group_counts.get(group, 0) + 1
+
+        scores = []
+        for idx, ex in enumerate(current):
+            label = self._example_label(ex)
+            group = self._example_group(ex)
+            duplicate_score = 0
+            if label:
+                duplicate_score += max(0, label_counts.get(label, 0) - 1)
+            if group:
+                duplicate_score += max(0, group_counts.get(group, 0) - 1)
+            scores.append((duplicate_score, idx))
+
+        max_score = max(score for score, _ in scores)
+        tied = [idx for score, idx in scores if score == max_score]
+        return self.rng.choice(tied)
 
     def mutate_few_shot(
         self,
@@ -503,14 +574,15 @@ class EvolutionaryPromptOps:
         else:
             action = self.rng.choice(actions)
             if action == "add":
-                new_examples = current + [self.rng.choice(available)]
+                new_examples = current + [self._choose_shot(available, current)]
             elif action == "remove":
-                idx = self.rng.randrange(len(current))
+                idx = self._choose_removal_index(current)
                 new_examples = current[:idx] + current[idx + 1:]
             else:  # swap
-                idx = self.rng.randrange(len(current))
+                idx = self._choose_removal_index(current)
                 new_examples = list(current)
-                new_examples[idx] = self.rng.choice(available)
+                without = current[:idx] + current[idx + 1:]
+                new_examples[idx] = self._choose_shot(available, without)
 
         candidate = self._make_child_candidate(
             instruction=parent.instruction,

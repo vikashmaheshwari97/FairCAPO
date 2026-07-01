@@ -125,6 +125,7 @@ class Intensifier:
         block_evaluations: list[BlockEvaluation] = []
         last_challenger_result: Optional[EvaluationResult] = None
         compared_against: Optional[str] = None
+        prompt_cache_hits = 0
 
         for block_id in common_blocks:
             evaluation = self.block_evaluator.evaluate_block(
@@ -132,8 +133,13 @@ class Intensifier:
                 block_id=block_id,
                 use_cache=self.config.use_cache,
             )
+            if evaluation.from_cache:
+                prompt_cache_hits += 1
 
-            if not self._budget_recorded(challenger.candidate_id, block_id):
+            if (
+                not evaluation.from_cache
+                and not self._budget_recorded(challenger.candidate_id, block_id)
+            ):
                 self.budget_allocator.record_block_evaluation(evaluation)
 
             block_evaluations.append(evaluation)
@@ -173,6 +179,7 @@ class Intensifier:
                     compared_against=closest_incumbent_id,
                     aggregate_result=challenger_result,
                     portfolio=portfolio,
+                    extra_metadata={"prompt_cache_hits": prompt_cache_hits},
                 )
 
         if last_challenger_result is None:
@@ -196,6 +203,7 @@ class Intensifier:
             compared_against=compared_against,
             aggregate_result=last_challenger_result,
             portfolio=portfolio,
+            extra_metadata={"prompt_cache_hits": prompt_cache_hits},
         )
 
     def _evaluate_without_incumbents(
@@ -211,7 +219,10 @@ class Intensifier:
             use_cache=self.config.use_cache,
         )
 
-        if not self._budget_recorded(challenger.candidate_id, block_id):
+        if (
+            not evaluation.from_cache
+            and not self._budget_recorded(challenger.candidate_id, block_id)
+        ):
             self.budget_allocator.record_block_evaluation(evaluation)
 
         aggregate = self.block_evaluator.aggregate_candidate(
@@ -228,6 +239,7 @@ class Intensifier:
             compared_against=None,
             aggregate_result=aggregate,
             portfolio=portfolio,
+            extra_metadata={"prompt_cache_hits": int(evaluation.from_cache)},
         )
 
     def _common_incumbent_blocks(
@@ -278,6 +290,7 @@ class Intensifier:
         compared_against: Optional[str],
         aggregate_result: Optional[EvaluationResult],
         portfolio: Optional[PromptPortfolio],
+        extra_metadata: Optional[dict] = None,
     ) -> IntensificationDecision:
         if aggregate_result is not None and evaluated_blocks:
             # Stamp the real evaluated-block set onto the challenger so downstream
@@ -304,5 +317,6 @@ class Intensifier:
             metadata={
                 "remaining_budget": self.budget_allocator.remaining_budget,
                 "budget_utilization": self.budget_allocator.utilization,
+                **dict(extra_metadata or {}),
             },
         )

@@ -1,6 +1,6 @@
 # FairCAPO Status
 
-Last updated: 2026-06-30.
+Last updated: 2026-07-01.
 
 ## Active Decision
 
@@ -50,9 +50,18 @@ python scripts/audit_hpc_configs.py
 Warnings about Qwen and label-scoring are expected because those files are kept
 as diagnostic records. Errors must be fixed before submitting jobs.
 
-The scientifically clean next experiment is **multi-seed BIOS v1**, not another
-algorithm tweak. Run seeds 1 and 2 only after confirming the audit output and
-that seed 0 files remain intact.
+The new controlled diagnostic is **BIOS FairCAPO fair-shots 500k v1 seed 0**.
+It keeps the frozen Mistral v1 search scale/model and changes only the
+few-shot pool selection: label/group balanced examples with diversity-aware
+mutation. This is inspired by fairness-guided few-shot prompting, but it is not
+the main result unless it beats Mistral v1 on large-held-out evaluation.
+
+The optimizer now also records MO-CAPO-style prompt/block cache reuse in
+`budget_summary.json -> block_history`. Use that to check whether real runs are
+deepening candidates and reusing repeated prompt/block evaluations as intended.
+
+After the fair-shots diagnostic, the scientifically clean next experiment is
+still **multi-seed BIOS v1** if v1 remains best.
 
 ## Rocket Commands
 
@@ -63,13 +72,24 @@ cd ~/FairCAPO
 git pull origin main
 ```
 
-Recommended next HPC direction, when ready: run BIOS Mistral v1 seeds 1 and 2
-with large-held-out evaluation only. Do not submit Qwen or label-scoring jobs.
+Recommended next HPC direction, when ready: run one BIOS FairCAPO fair-shots
+diagnostic job, then evaluate on large-held-out only. Do not submit Qwen or
+label-scoring jobs.
 
-Do **not** run this now unless you explicitly decide to spend the GPU time:
+Search:
 
 ```bash
-bash scripts/hpc/submit_bios_500k_v1_pipeline.sh
+sbatch --array=0 \
+  --export=ALL,CONFIG=configs/HPC_Config/bios_faircapo_fairshots_500k_v1_HPC.yaml,RUN_TAG=bios_faircapo_fairshots_500k_v1 \
+  scripts/hpc/run_bios_hpc.slurm
+```
+
+Evaluate after the search succeeds:
+
+```bash
+sbatch --array=0 \
+  --export=ALL,METHOD=faircapo,CONFIG=configs/HPC_Config/bios_eval_large_fairshots_500k_v1_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/bios_faircapo_fairshots_500k_v1/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/bios_faircapo_fairshots_500k_v1 \
+  scripts/hpc/run_bios_eval_hpc.slurm
 ```
 
 Monitor:
@@ -79,28 +99,37 @@ squeue -u $USER
 ls -lt outputs/hpc/logs | head
 ```
 
-After BIOS v1 jobs finish, build table and figures:
+After fair-shots eval finishes, build the diagnostic table:
 
 ```bash
-bash scripts/hpc/build_bios_500k_v1_large_outputs.sh
+PYTHONPATH=. python scripts/build_experiment_table.py \
+  --config configs/HPC_Config/bios_experiment_table_fairshots_500k_v1_large_HPC.yaml
 ```
 
-Primary table:
+Inspect MO-CAPO-style block/cache behavior:
 
-```text
-outputs/experiment_table/bios_mistral_hpc_500k_v1_large_seed0/experiment_table.csv
+```bash
+python - <<'PY'
+import json
+p = "outputs/hpc/bios_faircapo_fairshots_500k_v1/seed_0/budget_summary.json"
+d = json.load(open(p))
+print(json.dumps(d.get("block_history", {}), indent=2))
+PY
 ```
 
-Primary figures:
+Diagnostic table:
 
 ```text
-outputs/figures/paper_bios_hpc_500k_v1_large_seed0/
+outputs/experiment_table/bios_mistral_hpc_fairshots_500k_v1_large_seed0/experiment_table.csv
 ```
 
 ## Decision Rule
 
 - If FairCAPO v1 keeps a lower fairness_risk than NSGA-II-PO across seeds 0/1/2,
   report BIOS v1 as the main fairness result.
+- If fair-shots improves accuracy or HV while keeping fairness_risk near v1
+  (`~0.001`), promote fair-shots to the new BIOS candidate and rerun baselines.
+- If fair-shots worsens fairness like Qwen/label-score did, keep frozen v1.
 - If the fairness advantage disappears across seeds, stop and debug the fairness
   objective before trying new models or scorers.
 - If accuracy remains near 78%, treat higher accuracy as a separate evaluator
@@ -133,6 +162,9 @@ Diagnostic-only files, not active main-result files:
 - `configs/HPC_Config/bios_experiment_table_qwen_500k_v1_large_HPC.yaml`
 - `scripts/hpc/submit_bios_qwen_faircapo_500k_v1_pipeline.sh`
 - `scripts/hpc/build_bios_qwen_500k_v1_large_outputs.sh`
+- `configs/HPC_Config/bios_faircapo_fairshots_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_eval_large_fairshots_500k_v1_HPC.yaml`
+- `configs/HPC_Config/bios_experiment_table_fairshots_500k_v1_large_HPC.yaml`
 
 ## Archived Context
 

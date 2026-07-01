@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from heal_capo.core import EvaluationResult, PromptCandidate
@@ -30,10 +32,80 @@ class BlockEvaluation:
     candidate_id: str
     block_id: int
     result: EvaluationResult
+    prompt_signature: str = ""
+    from_cache: bool = False
+    cache_source_candidate_id: Optional[str] = None
 
     @property
     def objective_vector(self) -> tuple:
         return self.result.objective_vector
+
+
+def prompt_signature(candidate: PromptCandidate) -> str:
+    """
+    Stable cache key for a rendered prompt template.
+
+    MO-CAPO's runhistory is keyed by prompt string and block, not by transient
+    candidate id. A FairCAPO candidate is defined by its instruction plus the
+    ordered few-shot examples it carries; two candidates with the same rendered
+    prompt should reuse block evaluations even if their UUIDs differ.
+    """
+    rendered_examples = [
+        {
+            "input": str(example.get("input", "")),
+            "output": str(example.get("output", "")),
+        }
+        for example in candidate.examples or []
+    ]
+    payload = {
+        "instruction": str(candidate.instruction),
+        "examples": rendered_examples,
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def clone_evaluation_for_candidate(
+    evaluation: BlockEvaluation,
+    candidate_id: str,
+) -> BlockEvaluation:
+    """
+    Reuse a prompt/block evaluation for another candidate id.
+
+    The objective values and token/cost fields remain identical because the
+    rendered prompt is identical. ``from_cache`` lets budget accounting skip a
+    second charge while the candidate-level history still records that this
+    candidate has evidence on the block.
+    """
+    source_result = evaluation.result
+    details = dict(source_result.details or {})
+    details["prompt_cache_hit"] = True
+    details["cache_source_candidate_id"] = source_result.candidate_id
+
+    result = EvaluationResult(
+        candidate_id=candidate_id,
+        performance=source_result.performance,
+        cost=source_result.cost,
+        risk=source_result.risk,
+        fairness_risk=source_result.fairness_risk,
+        drift=source_result.drift,
+        n_examples=source_result.n_examples,
+        details=details,
+    )
+
+    return BlockEvaluation(
+        candidate_id=candidate_id,
+        block_id=evaluation.block_id,
+        result=result,
+        prompt_signature=evaluation.prompt_signature,
+        from_cache=True,
+        cache_source_candidate_id=source_result.candidate_id,
+    )
 
 
 @dataclass
@@ -43,19 +115,33 @@ class EvaluationHistory:
 
     Key:
       candidate_id -> block_id -> BlockEvaluation
+      prompt_signature -> block_id -> canonical BlockEvaluation
     """
 
     evaluations: Dict[str, Dict[int, BlockEvaluation]] = field(default_factory=dict)
+    prompt_evaluations: Dict[str, Dict[int, BlockEvaluation]] = field(default_factory=dict)
 
     def add(self, evaluation: BlockEvaluation) -> None:
         self.evaluations.setdefault(evaluation.candidate_id, {})
         self.evaluations[evaluation.candidate_id][evaluation.block_id] = evaluation
+
+        if evaluation.prompt_signature and not evaluation.from_cache:
+            self.prompt_evaluations.setdefault(evaluation.prompt_signature, {})
+            self.prompt_evaluations[evaluation.prompt_signature][
+                evaluation.block_id
+            ] = evaluation
 
     def has(self, candidate_id: str, block_id: int) -> bool:
         return candidate_id in self.evaluations and block_id in self.evaluations[candidate_id]
 
     def get(self, candidate_id: str, block_id: int) -> BlockEvaluation:
         return self.evaluations[candidate_id][block_id]
+
+    def has_prompt(self, signature: str, block_id: int) -> bool:
+        return signature in self.prompt_evaluations and block_id in self.prompt_evaluations[signature]
+
+    def get_prompt(self, signature: str, block_id: int) -> BlockEvaluation:
+        return self.prompt_evaluations[signature][block_id]
 
     def get_candidate_blocks(self, candidate_id: str) -> list[int]:
         if candidate_id not in self.evaluations:
@@ -250,8 +336,18 @@ class BlockEvaluator:
         """
         Evaluate one candidate on one block.
         """
+        signature = prompt_signature(candidate)
+
         if use_cache and self.history.has(candidate.candidate_id, block_id):
             return self.history.get(candidate.candidate_id, block_id)
+
+        if use_cache and self.history.has_prompt(signature, block_id):
+            cached = clone_evaluation_for_candidate(
+                self.history.get_prompt(signature, block_id),
+                candidate_id=candidate.candidate_id,
+            )
+            self.history.add(cached)
+            return cached
 
         block = self.get_block(block_id)
 
@@ -269,6 +365,7 @@ class BlockEvaluator:
             candidate_id=candidate.candidate_id,
             block_id=block_id,
             result=result,
+            prompt_signature=signature,
         )
 
         self.history.add(evaluation)
