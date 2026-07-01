@@ -26,6 +26,20 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
+def raise_csv_field_limit() -> None:
+    """
+    Held-out evaluation rows store large JSON prediction traces in one cell.
+    Python's default csv field limit is too small for those rows on Rocket.
+    """
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit = int(limit / 10)
+
 from heal_capo.fairness import (
     group_accuracy_gap,
     label_conditioned_group_accuracy_gap,
@@ -173,6 +187,8 @@ def summarize_candidate(
 
 
 def main() -> None:
+    raise_csv_field_limit()
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", nargs="+", required=True)
     parser.add_argument("--out-dir", required=True)
