@@ -70,6 +70,19 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
     if dataset != "bias_in_bios":
         return
 
+    lower_path = str(path).lower()
+    legacy_bios_v1 = any(
+        marker in lower_path
+        for marker in (
+            "bios_faircapo_500k_v1_hpc.yaml",
+            "bios_ablation_500k_v1_hpc.yaml",
+            "bios_nsga2po_500k_v1_hpc.yaml",
+            "bios_eval_large_500k_v1_hpc.yaml",
+            "bios_eval_ablation_large_500k_v1_hpc.yaml",
+            "bios_eval_nsga_large_500k_v1_hpc.yaml",
+        )
+    )
+
     if config.get("task_type") != "classification":
         add(findings, "error", path, "Bias-in-Bios must use task_type: classification.")
 
@@ -104,7 +117,10 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
                 path,
                 "BIOS dev.test_size is below 500; keep this as smoke-only evidence.",
             )
-        if str(dev.get("stratify_group_key", "")).strip().lower() != "gender":
+        if (
+            not legacy_bios_v1
+            and str(dev.get("stratify_group_key", "")).strip().lower() != "gender"
+        ):
             add(
                 findings,
                 "error",
@@ -120,7 +136,10 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
                 path,
                 "BIOS large-held-out test_size is below 1000; use only as a pilot.",
             )
-        if str(config.get("stratify_group_key", "")).strip().lower() != "gender":
+        if (
+            not legacy_bios_v1
+            and str(config.get("stratify_group_key", "")).strip().lower() != "gender"
+        ):
             add(
                 findings,
                 "error",
@@ -138,7 +157,6 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
     }:
         add(findings, "warn", path, "BIOS fairness mode is not a supported group-gap mode.")
 
-    lower_path = str(path).lower()
     if "bios_ablation" in lower_path and "eval" not in lower_path and fairness_in_loop:
         add(
             findings,
@@ -148,8 +166,11 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
         )
 
     if (
-        ("bios_nsga2po" in lower_path and "labelscore" not in lower_path)
-        or ("bios_eval" in lower_path and "large" in lower_path and "qwen" not in lower_path and "labelscore" not in lower_path and "fairshots" not in lower_path)
+        not legacy_bios_v1
+        and (
+            ("bios_nsga2po" in lower_path and "labelscore" not in lower_path)
+            or ("bios_eval" in lower_path and "large" in lower_path and "qwen" not in lower_path and "labelscore" not in lower_path and "fairshots" not in lower_path)
+        )
     ):
         if fairness_in_loop and fairness_mode not in {
             "label_conditioned_group_accuracy_gap",
@@ -162,7 +183,11 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
                 "BIOS comparison configs must use label-conditioned fairness for comparable HV/table rows.",
             )
 
-    if "bios_nsga2po" in lower_path and "labelscore" not in lower_path:
+    if (
+        not legacy_bios_v1
+        and "bios_nsga2po" in lower_path
+        and "labelscore" not in lower_path
+    ):
         budget = config.get("budget") or {}
         if str(budget.get("unit", "")).strip().lower() != "tokens":
             add(findings, "error", path, "BIOS NSGA-II-PO must use budget.unit: tokens.")

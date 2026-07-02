@@ -1,11 +1,12 @@
 # FairCAPO Status
 
-Last updated: 2026-07-01.
+Last updated: 2026-07-03.
 
 ## Active Decision
 
 Freeze **Bias-in-Bios / Mistral / 500k v1 / seed 0** as the current main result.
-Do not replace it with BIOS v2/v3, Qwen seed 0, or label-scoring seed 0.
+Do not replace it with BIOS v2/v3, smoke v2, Qwen seed 0, label-aware seed 0,
+fair-shots seed 0, or label-scoring seed 0.
 
 Main BIOS v1 large-held-out result:
 
@@ -16,6 +17,18 @@ Main BIOS v1 large-held-out result:
 Interpretation: FairCAPO v1 is the strongest fairness result, but accuracy is
 stuck around 78%. The next improvement should target accuracy without losing the
 fairness advantage.
+
+Restored active v1 settings:
+
+- search dev split: `dev_size: 75`, `shots_size: 25`, `test_size: 100`
+- search block size: `block_size: 15`
+- search fairness: `group_accuracy_gap`
+- held-out eval size: `test_size: 500`
+- held-out eval fairness: `group_accuracy_gap`
+
+These are the settings behind the frozen v1 result above. Later
+`280/112/500`, label-conditioned, label-aware, fair-shots, Qwen, label-score,
+and smoke-v2 variants are diagnostic only.
 
 ## Qwen Seed-0 Decision
 
@@ -58,19 +71,17 @@ The fair-shots diagnostic did not clearly beat frozen BIOS v1:
 Decision: **do not promote fair-shots yet**. It improved cost/HV but lost the
 strongest fairness signal.
 
-The next step is a **zero-HPC diagnostic** on existing large-held-out CSVs. BIOS
-currently reports aggregate gender group accuracy gap. That can hide
-occupation-specific unfairness when both gender groups have similar total
-accuracy but different errors for labels such as `surgeon`, `nurse`, or
-teacher. Run the label-conditioned diagnostic before submitting another job.
+The next step is to keep **frozen BIOS v1** as the active result. Avoid new HPC
+prompt-search variants until there is a specific code-level hypothesis that can
+be tested locally first.
 
 The optimizer now also records MO-CAPO-style prompt/block cache reuse in
 `budget_summary.json -> block_history`. Use that to check whether real runs are
 deepening candidates and reusing repeated prompt/block evaluations as intended.
 
-After the diagnostic, either keep **multi-seed BIOS v1** as the next experiment,
-or run one label-conditioned FairCAPO search if the diagnostic shows that
-aggregate group accuracy is masking label-specific fairness failures.
+If more BIOS evidence is needed, run multi-seed BIOS v1 using the restored
+legacy v1 configs. Do not use failed smoke-v2, label-aware, fair-shots, Qwen,
+or label-score configs for main reporting.
 
 ## Rocket Commands
 
@@ -81,9 +92,10 @@ cd ~/FairCAPO
 git pull origin main
 ```
 
-Recommended next direction: first run the no-GPU diagnostic below. Do not submit
-Qwen, label-scoring, or another prompt-search variant until these diagnostics
-are inspected.
+Recommended next direction: use the existing v1 table/figures, or run seeds 1
+and 2 with the restored v1 configs if you need stability evidence. Do not submit
+Qwen, label-scoring, label-aware, fair-shots, or smoke-v2 variants for the main
+claim.
 
 Zero-HPC BIOS fairness diagnostic:
 

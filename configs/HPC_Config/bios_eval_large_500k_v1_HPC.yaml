@@ -8,12 +8,10 @@ output_dir: outputs/hpc/evaluation_large/seed_0/bios_faircapo_500k_v1
 dataset: bias_in_bios
 task_type: classification
 seed: 0
-dataset_split: test
-dev_size: 280
-shots_size: 112
-test_size: 1000
+dev_size: 75
+shots_size: 25
+test_size: 500
 stratified: true
-stratify_group_key: gender
 allow_smaller: false
 
 labels:
@@ -52,14 +50,12 @@ evaluation:
 
 fairness:
   in_loop: true
-  mode: label_conditioned_group_accuracy_gap
+  mode: group_accuracy_gap
   group_key: gender
-  min_count_per_group: 5
-
-selection:
-  min_performance_for_fairness: 0.40
-  low_performance_fairness_penalty: 0.5
-  fairness_gate_mode: continuous
+  group_gap_weight: 1.0
+  flip_weight: 0.0
+  bias_weight: 0.0
+  debt_weight: 0.0
 
 llm:
   backend: lmstudio
@@ -77,6 +73,8 @@ objectives:
   - name: performance
     direction: maximize
   - name: cost
+    direction: minimize
+  - name: risk
     direction: minimize
   - name: fairness_risk
     direction: minimize
