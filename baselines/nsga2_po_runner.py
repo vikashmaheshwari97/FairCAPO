@@ -564,9 +564,21 @@ class NSGA2PORunner:
         details = result.details or {}
         self.budget_allocator.record(
             candidate_id=result.candidate_id,
-            cost=result.cost,
-            input_tokens=float(details.get("input_tokens", 0.0) or 0.0),
-            output_tokens=float(details.get("output_tokens", 0.0) or 0.0),
+            cost=float(details.get("search_cost", result.cost) or 0.0),
+            input_tokens=float(
+                details.get(
+                    "search_input_tokens",
+                    details.get("input_tokens", 0.0),
+                )
+                or 0.0
+            ),
+            output_tokens=float(
+                details.get(
+                    "search_output_tokens",
+                    details.get("output_tokens", 0.0),
+                )
+                or 0.0
+            ),
         )
 
     def _evaluate_under_budget(

@@ -162,6 +162,23 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
                 "BIOS comparison configs must use label-conditioned fairness for comparable HV/table rows.",
             )
 
+    if "bios_nsga2po" in lower_path and "labelscore" not in lower_path:
+        budget = config.get("budget") or {}
+        if str(budget.get("unit", "")).strip().lower() != "tokens":
+            add(findings, "error", path, "BIOS NSGA-II-PO must use budget.unit: tokens.")
+        if float(budget.get("max_budget", 0.0) or 0.0) != 500000.0:
+            add(findings, "error", path, "BIOS NSGA-II-PO must use max_budget: 500000.0.")
+        if bool(budget.get("allow_overspend", True)):
+            add(findings, "error", path, "BIOS NSGA-II-PO must use allow_overspend: false.")
+
+        few_shot = config.get("few_shot") or {}
+        if not bool(few_shot.get("enabled", False)):
+            add(findings, "error", path, "BIOS NSGA-II-PO must enable the shared few-shot pool.")
+        if int(few_shot.get("pool_size", 0) or 0) != 112:
+            add(findings, "error", path, "BIOS NSGA-II-PO few-shot pool_size must be 112.")
+        if int(few_shot.get("max_few_shot_examples", 0) or 0) != 3:
+            add(findings, "error", path, "BIOS NSGA-II-PO max_few_shot_examples must be 3.")
+
     fairness_data = str(fairness.get("fairness_data") or config.get("fairness_data") or "")
     if fairness_data and config.get("dataset_split") == "test":
         add(

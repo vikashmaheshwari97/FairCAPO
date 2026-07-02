@@ -45,4 +45,5 @@ methods:
     type: pareto_set
     candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_v1/test_eval_candidates.csv
     only_pareto: true
+    budget_json: outputs/hpc/bios_nsga2po_500k_v1/seed_0/budget_summary.json
     holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_v1/test_eval_candidates.csv

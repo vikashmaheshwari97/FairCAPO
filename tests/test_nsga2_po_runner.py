@@ -77,6 +77,26 @@ class SimpleObjectiveEvaluator(ObjectiveEvaluator):
         )
 
 
+class SearchCostObjectiveEvaluator(ObjectiveEvaluator):
+    def evaluate(self, candidate: PromptCandidate, data):
+        return EvaluationResult(
+            candidate_id=candidate.candidate_id,
+            performance=0.8,
+            cost=10.0,
+            risk=0.2,
+            fairness_risk=0.1,
+            drift=0.0,
+            n_examples=len(data),
+            details={
+                "input_tokens": 10,
+                "output_tokens": 2,
+                "search_input_tokens": 90,
+                "search_output_tokens": 10,
+                "search_cost": 50.0,
+            },
+        )
+
+
 def make_candidate(
     candidate_id: str,
     instruction: str,
@@ -455,6 +475,32 @@ def test_runner_executes_generations_and_returns_outputs():
         event["event_type"] == "environmental_selection"
         for event in result.events
     )
+
+
+def test_runner_budget_charges_search_tokens_not_deployment_tokens():
+    population = sample_population()
+    config = NSGA2PORunnerConfig(
+        population_size=4,
+        max_generations=0,
+        random_seed=0,
+        max_budget=250.0,
+        budget_unit="tokens",
+    )
+    runner = NSGA2PORunner(
+        config=config,
+        evaluator=SearchCostObjectiveEvaluator(),
+        dev_data=sample_dev_data(),
+        task_description="Classify.",
+        rng=random.Random(0),
+    )
+
+    result = runner.run(initial_population=population)
+
+    assert result.budget_summary is not None
+    assert result.budget_summary["used_budget"] == 300.0
+    assert result.summary["used_budget"] == 300.0
+    assert len(result.all_portfolio.evaluations) == 3
+    assert any(event["event_type"] == "budget_stop" for event in result.events)
 
 
 def test_run_nsga2_po_function_wrapper():

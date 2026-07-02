@@ -12,6 +12,7 @@ from experiments.datasets import (
     _bios_gender_label,
     _bios_profession_label,
     _load_hf_dataset,
+    load_paper_dataset,
 )
 
 
@@ -44,11 +45,15 @@ def build_probe(
     seed: int,
     examples_per_group: int,
     max_labels: int,
+    exclude_source_indices: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     ds = _load_hf_dataset("LabHC/bias_in_bios", split=split)
     buckets: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    excluded = exclude_source_indices or set()
 
     for idx, row in enumerate(ds):
+        if idx in excluded:
+            continue
         item = _row_to_item(dict(row), source_index=idx)
         if item is None:
             continue
@@ -83,6 +88,32 @@ def build_probe(
     return items
 
 
+def search_split_source_indices(
+    split: str,
+    seed: int,
+    dev_size: int,
+    shots_size: int,
+    test_size: int,
+) -> set[int]:
+    dataset_split = load_paper_dataset(
+        name="bias_in_bios",
+        dev_size=dev_size,
+        shots_size=shots_size,
+        test_size=test_size,
+        seed=seed,
+        allow_smaller=False,
+        stratified=True,
+        dataset_split=split,
+        stratify_group_key="gender",
+    )
+    excluded: set[int] = set()
+    for example in [*dataset_split.dev, *dataset_split.shots]:
+        source_index = (example.metadata or {}).get("source_index")
+        if source_index is not None:
+            excluded.add(int(source_index))
+    return excluded
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build a balanced Bias-in-Bios in-loop fairness probe JSONL."
@@ -99,13 +130,32 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--examples-per-group", type=int, default=5)
     parser.add_argument("--max-labels", type=int, default=8)
+    parser.add_argument("--dev-size", type=int, default=280)
+    parser.add_argument("--shots-size", type=int, default=112)
+    parser.add_argument("--test-size", type=int, default=500)
+    parser.add_argument(
+        "--allow-probe-overlap",
+        action="store_true",
+        help="Allow probe examples to overlap the search dev/few-shot split.",
+    )
     args = parser.parse_args()
+
+    excluded = set()
+    if not args.allow_probe_overlap:
+        excluded = search_split_source_indices(
+            split=args.split,
+            seed=args.seed,
+            dev_size=args.dev_size,
+            shots_size=args.shots_size,
+            test_size=args.test_size,
+        )
 
     items = build_probe(
         split=args.split,
         seed=args.seed,
         examples_per_group=args.examples_per_group,
         max_labels=args.max_labels,
+        exclude_source_indices=excluded,
     )
     if not items:
         raise RuntimeError("No Bias-in-Bios fairness probe examples were selected.")
@@ -120,6 +170,7 @@ def main() -> int:
     print(
         f"Wrote {len(items)} probe examples across {len(labels)} labels to {output}"
     )
+    print(f"Excluded {len(excluded)} search dev/few-shot source indices.")
     print("Labels:", ", ".join(labels))
     return 0
 

@@ -69,6 +69,11 @@ cost:
   input_weight: 0.08
   output_weight: 0.32
 
+budget:
+  unit: tokens
+  max_budget: 500000.0
+  allow_overspend: false
+
 fairness:
   in_loop: true
   mode: label_conditioned_group_accuracy_gap
@@ -81,6 +86,15 @@ selection:
   min_performance_for_fairness: 0.40
   low_performance_fairness_penalty: 0.5
   fairness_gate_mode: continuous
+
+few_shot:
+  enabled: true
+  few_shot_probability: 0.3
+  max_few_shot_examples: 3
+  pool_size: 112
+  use_rationale: false
+  shots_data: bias_in_bios
+  split: train
 
 nsga2_po:
   population_size: 16
