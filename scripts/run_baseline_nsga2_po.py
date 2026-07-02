@@ -397,6 +397,8 @@ def get_prompt_pool(config: dict) -> list[dict]:
                 "id": str(item.get("id", f"prompt_{idx}")),
                 "category": str(item.get("category", "unknown")),
                 "prompt": prompt,
+                "few_shot_count": int(item.get("few_shot_count", 0) or 0),
+                "cost_level": str(item.get("cost_level", "")),
             }
         )
 
@@ -452,22 +454,40 @@ def get_task_description(config: dict) -> str:
     )
 
 
-def make_initial_population(config: dict) -> list[PromptCandidate]:
+def make_initial_population(
+    config: dict,
+    shot_pool: list[dict] | None = None,
+) -> list[PromptCandidate]:
     dataset = config.get("dataset", "subj")
     task_type = config.get("task_type", "classification")
 
     population = []
+    max_initial_shots = int(
+        (config.get("few_shot", {}) or {}).get("max_few_shot_examples", 4)
+    )
 
     for item in get_prompt_pool(config):
-        population.append(
-            make_candidate_from_prompt(
-                prompt=item["prompt"],
-                candidate_id=item["id"],
-                category=item["category"],
-                dataset=dataset,
-                task_type=task_type,
-            )
+        few_shot_count = max(
+            0,
+            min(int(item.get("few_shot_count", 0) or 0), max_initial_shots),
         )
+        candidate = make_candidate_from_prompt(
+            prompt=item["prompt"],
+            candidate_id=item["id"],
+            category=item["category"],
+            dataset=dataset,
+            task_type=task_type,
+        )
+        if shot_pool and few_shot_count > 0:
+            candidate.examples = [dict(example) for example in shot_pool[:few_shot_count]]
+        candidate.metadata.update(
+            {
+                "cost_level": item.get("cost_level") or item["category"],
+                "initial_few_shot_count": few_shot_count,
+                "num_few_shot": few_shot_count,
+            }
+        )
+        population.append(candidate)
 
     return population
 
@@ -680,8 +700,11 @@ def run_baseline_nsga2_po(
         force_no_llm=force_no_llm,
     )
 
-    initial_population = make_initial_population(config)
     dev_data = get_dev_data(config)
+    from scripts.run_phase2_budgeted_mocapo import build_shot_pool
+
+    shot_pool = build_shot_pool(config, dev_data)
+    initial_population = make_initial_population(config, shot_pool=shot_pool)
     task_description = get_task_description(config)
     nsga_config = nsga_config_from_yaml(config)
 

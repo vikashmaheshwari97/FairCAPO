@@ -137,6 +137,22 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
     }:
         add(findings, "warn", path, "BIOS fairness mode is not a supported group-gap mode.")
 
+    fairness_data = str(fairness.get("fairness_data") or config.get("fairness_data") or "")
+    if fairness_data and config.get("dataset_split") == "test":
+        add(
+            findings,
+            "error",
+            path,
+            "BIOS held-out eval must not use fairness_data; use the joint held-out test split.",
+        )
+    if fairness_data and "search" not in Path(fairness_data).name.lower():
+        add(
+            findings,
+            "warn",
+            path,
+            "BIOS in-loop fairness_data should be named as a search-only probe.",
+        )
+
     if fairness_mode in {
         "label_conditioned_group_accuracy_gap",
         "label_group_accuracy_gap",
@@ -178,6 +194,17 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
 
     model_id = str((config.get("llm") or {}).get("model_id", ""))
     if "qwen" in model_id.lower():
+        cost_cfg = config.get("cost") or {}
+        if (
+            float(cost_cfg.get("input_weight", 0.0) or 0.0) == 0.08
+            and float(cost_cfg.get("output_weight", 0.0) or 0.0) == 0.32
+        ):
+            add(
+                findings,
+                "warn",
+                path,
+                "Qwen config reuses the Mistral cost profile; use a measured Qwen profile before main comparisons.",
+            )
         add(
             findings,
             "warn",
@@ -238,6 +265,42 @@ def audit_prompt_pool(path: Path, config: dict[str, Any], findings: list[Finding
     missing = sorted(required - categories)
     if missing:
         add(findings, "error", path, f"BIOS prompt pool missing categories: {missing}")
+
+    cost_levels = {
+        str(item.get("cost_level", "")).strip().lower()
+        for item in prompts
+        if isinstance(item, dict)
+    }
+    missing_cost_levels = sorted({"cheap", "medium", "expensive"} - cost_levels)
+    if missing_cost_levels:
+        add(
+            findings,
+            "error",
+            path,
+            f"BIOS prompt pool missing explicit cost levels: {missing_cost_levels}",
+        )
+
+    shot_counts = set()
+    for item in prompts:
+        if not isinstance(item, dict):
+            continue
+        try:
+            shot_counts.add(int(item.get("few_shot_count", 0) or 0))
+        except (TypeError, ValueError):
+            add(
+                findings,
+                "error",
+                path,
+                f"Prompt {item.get('id')} has non-integer few_shot_count.",
+            )
+    missing_shot_counts = sorted({0, 1, 3} - shot_counts)
+    if missing_shot_counts:
+        add(
+            findings,
+            "error",
+            path,
+            f"BIOS prompt pool missing initial few-shot tiers: {missing_shot_counts}",
+        )
 
     for item in prompts:
         if not isinstance(item, dict):

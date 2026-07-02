@@ -1596,6 +1596,8 @@ def get_prompt_pool(config: dict) -> list[dict]:
                 "id": str(item.get("id", f"prompt_{idx}")),
                 "category": str(item.get("category", "unknown")),
                 "prompt": prompt,
+                "few_shot_count": int(item.get("few_shot_count", 0) or 0),
+                "cost_level": str(item.get("cost_level", "")),
             }
         )
 
@@ -1862,20 +1864,43 @@ def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
     return pool
 
 
-def make_candidates(config: dict) -> list[PromptCandidate]:
+def _initial_examples_from_pool(
+    shot_pool: list[dict] | None,
+    count: int,
+) -> list[dict]:
+    if not shot_pool or count <= 0:
+        return []
+    return [dict(example) for example in shot_pool[:count]]
+
+
+def make_candidates(
+    config: dict,
+    shot_pool: list[dict] | None = None,
+) -> list[PromptCandidate]:
     dataset = config.get("dataset", "subj")
     task_type = config.get("task_type", "classification")
 
     candidates = []
 
+    max_initial_shots = int(
+        (config.get("few_shot", {}) or {}).get("max_few_shot_examples", 4)
+    )
     for idx, item in enumerate(get_prompt_pool(config)):
+        few_shot_count = max(
+            0,
+            min(int(item.get("few_shot_count", 0) or 0), max_initial_shots),
+        )
         candidates.append(
             PromptCandidate(
                 instruction=item["prompt"],
+                examples=_initial_examples_from_pool(shot_pool, few_shot_count),
                 metadata={
                     "prompt_pool_id": item["id"],
                     "method": item["id"],
                     "category": item["category"],
+                    "cost_level": item.get("cost_level") or item["category"],
+                    "initial_few_shot_count": few_shot_count,
+                    "num_few_shot": few_shot_count,
                     "row_index": idx,
                     "dataset": dataset,
                     "task_type": task_type,
@@ -2272,8 +2297,9 @@ def run_budgeted_mocapo(
     config: dict,
     force_no_llm: bool = False,
 ) -> tuple[PromptPortfolio, PromptPortfolio, list[dict], dict, list[dict]]:
-    candidates = make_candidates(config)
     dev_data = get_dev_data(config)
+    shot_pool = build_shot_pool(config, dev_data)
+    candidates = make_candidates(config, shot_pool=shot_pool)
 
     budget_cfg = config.get("budget", {})
     intensification_cfg = config.get("intensification", {})
@@ -2369,7 +2395,6 @@ def run_budgeted_mocapo(
     )
 
     few_shot_cfg = config.get("few_shot", {}) or {}
-    shot_pool = build_shot_pool(config, dev_data)
 
     evolutionary_ops = EvolutionaryPromptOps(
         config=EvolutionaryOpsConfig(

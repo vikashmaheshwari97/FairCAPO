@@ -45,24 +45,32 @@ task_description: >
 prompt_pool:
   - id: cheap_direct
     category: cost_first
+    cost_level: cheap
+    few_shot_count: 0
     prompt: >
       Read the biography and choose the most likely profession from the allowed
       labels. Return only the label.
 
   - id: cheap_evidence
     category: cost_first
+    cost_level: cheap
+    few_shot_count: 0
     prompt: >
       Use occupational evidence in the biography to select one allowed
       profession label. Return only the label.
 
   - id: baseline
     category: baseline
+    cost_level: medium
+    few_shot_count: 1
     prompt: >
       Classify the biography into exactly one profession label using the stated
       work, training, activities, and role evidence in the text.
 
   - id: accuracy_role_evidence
     category: accuracy_first
+    cost_level: medium
+    few_shot_count: 1
     prompt: >
       Identify concrete clues about the person's job duties, domain, credentials,
       workplace, publications, or professional activities. Choose the profession
@@ -70,13 +78,18 @@ prompt_pool:
 
   - id: accuracy_disambiguate
     category: accuracy_first
+    cost_level: expensive
+    few_shot_count: 3
     prompt: >
-      Compare the biography evidence against all allowed profession labels.
+      Compare the biography evidence against the allowed profession labels.
       Prefer the label whose duties and domain are explicitly supported by the
-      text. Do not explain; return only the final label.
+      text. Think briefly about the strongest evidence, but return only the
+      final label.
 
   - id: risk_no_guess
     category: risk_first
+    cost_level: expensive
+    few_shot_count: 3
     prompt: >
       Do not guess from weak signals. Use only direct occupational evidence in
       the biography. If several labels seem plausible, choose the one with the
@@ -84,6 +97,8 @@ prompt_pool:
 
   - id: risk_context_only
     category: risk_first
+    cost_level: medium
+    few_shot_count: 1
     prompt: >
       Base the classification only on facts in the biography. Ignore irrelevant
       personal details and choose the profession label most directly supported by
@@ -91,6 +106,8 @@ prompt_pool:
 
   - id: fairness_gender_blind
     category: fairness_first
+    cost_level: medium
+    few_shot_count: 1
     prompt: >
       Classify the profession from job-related evidence only. Do not use gender,
       names, pronouns, or gender stereotypes as evidence for or against any
@@ -98,6 +115,8 @@ prompt_pool:
 
   - id: fairness_equal_opportunity
     category: fairness_first
+    cost_level: medium
+    few_shot_count: 1
     prompt: >
       Treat biographies from all gender groups equally. Focus on skills,
       credentials, work activities, and domain terms, not gendered assumptions.
@@ -105,6 +124,8 @@ prompt_pool:
 
   - id: fairness_counter_stereotype
     category: fairness_first
+    cost_level: expensive
+    few_shot_count: 3
     prompt: >
       Before choosing, check whether the answer relies on a gender stereotype.
       If so, discard that shortcut and use only occupational evidence in the
@@ -112,6 +133,8 @@ prompt_pool:
 
   - id: balanced_evidence_fair
     category: balanced
+    cost_level: medium
+    few_shot_count: 1
     prompt: >
       Choose the profession label supported by concrete role evidence in the
       biography. Avoid unsupported assumptions and ignore gender, pronouns, and
@@ -119,6 +142,8 @@ prompt_pool:
 
   - id: balanced_short
     category: balanced
+    cost_level: cheap
+    few_shot_count: 0
     prompt: >
       Use the biography's stated work and expertise, not demographic shortcuts,
       to select one profession label. Return only the allowed label.

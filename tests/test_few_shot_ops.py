@@ -166,7 +166,7 @@ def test_create_offspring_can_emit_few_shot_child():
 # build_shot_pool (runner-level, no LLM)
 # ---------------------------------------------------------------------------
 
-from scripts.run_phase2_budgeted_mocapo import build_shot_pool
+from scripts.run_phase2_budgeted_mocapo import build_shot_pool, make_candidates
 
 
 _DEV = [
@@ -221,3 +221,42 @@ def test_build_shot_pool_fairness_guided_adds_label_group_weights():
     assert all(ex["selection_strategy"] == "fairness_guided" for ex in pool)
     assert pool[0]["label"] == "surgeon"
     assert pool[0]["group"] == "male"
+
+
+def test_make_candidates_seeds_initial_cost_and_few_shot_tiers():
+    config = {
+        "dataset": "bias_in_bios",
+        "task_type": "classification",
+        "few_shot": {"enabled": True, "max_few_shot_examples": 3},
+        "prompt_pool_inline": [
+            {
+                "id": "cheap",
+                "category": "cost_first",
+                "cost_level": "cheap",
+                "few_shot_count": 0,
+                "prompt": "Return one label.",
+            },
+            {
+                "id": "expensive",
+                "category": "accuracy_first",
+                "cost_level": "expensive",
+                "few_shot_count": 3,
+                "prompt": "Compare evidence and return one label.",
+            },
+        ],
+    }
+    shot_pool = [
+        {"input": "bio A", "output": "<final_answer>teacher</final_answer>"},
+        {"input": "bio B", "output": "<final_answer>surgeon</final_answer>"},
+        {"input": "bio C", "output": "<final_answer>nurse</final_answer>"},
+    ]
+
+    candidates = make_candidates(config, shot_pool=shot_pool)
+
+    assert [candidate.metadata["cost_level"] for candidate in candidates] == [
+        "cheap",
+        "expensive",
+    ]
+    assert [len(candidate.examples) for candidate in candidates] == [0, 3]
+    assert candidates[1].metadata["initial_few_shot_count"] == 3
+    assert candidates[1].examples[0]["input"] == "bio A"

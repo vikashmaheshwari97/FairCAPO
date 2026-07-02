@@ -87,7 +87,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build a balanced Bias-in-Bios in-loop fairness probe JSONL."
     )
-    parser.add_argument("--out", default="data/fairness_bios_probe_seed0.jsonl")
+    parser.add_argument(
+        "--out",
+        default="data/fairness_bios_probe_search_seed0.jsonl",
+        help=(
+            "Search-only fairness probe path. Do not reuse this file as the "
+            "held-out joint test set."
+        ),
+    )
     parser.add_argument("--split", default="train")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--examples-per-group", type=int, default=5)

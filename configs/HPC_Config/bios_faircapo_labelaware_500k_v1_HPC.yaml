@@ -80,7 +80,8 @@ fairness:
   min_count_per_group: 5
   # Built once on the login node with scripts/build_bios_fairness_probe.py.
   # Gives search a stable, support-balanced label-conditioned fairness signal.
-  fairness_data: data/fairness_bios_probe_seed0.jsonl
+  # Search-only probe; held-out eval must use the joint test split, not this file.
+  fairness_data: data/fairness_bios_probe_search_seed0.jsonl
   eval_pairs: 80
 
 selection:

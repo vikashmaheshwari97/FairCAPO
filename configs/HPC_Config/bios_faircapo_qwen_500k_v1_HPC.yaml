@@ -69,8 +69,11 @@ evaluation:
   require_final_answer_tags: true
 
 cost:
-  input_weight: 0.08
-  output_weight: 0.32
+  profile: qwen3_30b_a3b_rocket_h200_placeholder
+  # Diagnostic placeholder for Qwen on Rocket. Replace with measured
+  # latency/GPU-hour weights before using Qwen in a main comparison.
+  input_weight: 0.10
+  output_weight: 0.30
 
 fairness:
   in_loop: true
