@@ -98,14 +98,40 @@ def test_bbq_inloop_fairness_cached_per_prompt(tmp_path):
     evaluator = LLMObjectiveEvaluator(_bbq_config(path, eval_pairs=2), llm=stub)
     candidate = PromptCandidate(instruction="Answer the question.")
 
-    risk1, _, cost1 = evaluator._evaluate_candidate_fairness_bbq(candidate)
+    risk1, details1, cost1 = evaluator._evaluate_candidate_fairness_bbq(candidate)
     calls_after_first = stub.calls
-    risk2, _, cost2 = evaluator._evaluate_candidate_fairness_bbq(candidate)
+    risk2, details2, cost2 = evaluator._evaluate_candidate_fairness_bbq(candidate)
 
     assert risk1 == risk2 == 1.0
     assert cost1 > 0.0
     assert cost2 == 0.0  # cache hit, no extra LLM calls
     assert stub.calls == calls_after_first
+    assert details1["fairness_cache_hit"] is False
+    assert details2["fairness_cache_hit"] is True
+
+
+def test_bbq_inloop_fairness_cache_includes_few_shot_examples(tmp_path):
+    path = _write_bbq_fairness_file(tmp_path / "f.jsonl")
+    stub = LetterLLM("A")
+    evaluator = LLMObjectiveEvaluator(_bbq_config(path, eval_pairs=2), llm=stub)
+    candidate_a = PromptCandidate(
+        instruction="Answer the question.",
+        examples=[{"text": "Q1", "label": "A"}],
+    )
+    candidate_b = PromptCandidate(
+        instruction="Answer the question.",
+        examples=[{"text": "Q2", "label": "C"}],
+    )
+
+    _, details_a, cost_a = evaluator._evaluate_candidate_fairness_bbq(candidate_a)
+    calls_after_first = stub.calls
+    _, details_b, cost_b = evaluator._evaluate_candidate_fairness_bbq(candidate_b)
+
+    assert cost_a > 0.0
+    assert cost_b > 0.0
+    assert stub.calls > calls_after_first
+    assert len(evaluator._fairness_cache) == 2
+    assert details_a["fairness_cache_key"] != details_b["fairness_cache_key"]
 
 
 def test_bbq_unbiased_when_answering_unknown(tmp_path):
@@ -195,3 +221,57 @@ def test_label_conditioned_fairness_uses_fixed_probe(tmp_path):
     assert result.details["fairness_source"] == "group_fairness_probe"
     assert result.details["fairness_probe_examples"] == 2
     assert result.details["fairness_eval_cost"] > 0.0
+
+
+def test_group_probe_fairness_cache_includes_few_shot_examples(tmp_path):
+    probe_path = tmp_path / "bios_probe.jsonl"
+    probe_items = [
+        {
+            "text": "Biography: A nurse bio.",
+            "label": "nurse",
+            "meta": {"gender": "female", "group": "female"},
+        },
+        {
+            "text": "Biography: Another nurse bio.",
+            "label": "nurse",
+            "meta": {"gender": "male", "group": "male"},
+        },
+    ]
+    probe_path.write_text(
+        "\n".join(json.dumps(item) for item in probe_items) + "\n",
+        encoding="utf-8",
+    )
+    config = {
+        "dataset": "bias_in_bios",
+        "task_type": "classification",
+        "labels": ["accountant", "nurse"],
+        "cost": {"input_weight": 0.08, "output_weight": 0.32},
+        "evaluation": {"require_final_answer_tags": True},
+        "fairness": {
+            "in_loop": True,
+            "mode": "label_conditioned_group_accuracy_gap",
+            "group_key": "gender",
+            "min_count_per_group": 1,
+            "fairness_data": str(probe_path),
+        },
+    }
+    stub = LetterLLM("accountant")
+    evaluator = LLMObjectiveEvaluator(config, llm=stub)
+    candidate_a = PromptCandidate(
+        instruction="Classify the biography.",
+        examples=[{"text": "bio A", "label": "accountant"}],
+    )
+    candidate_b = PromptCandidate(
+        instruction="Classify the biography.",
+        examples=[{"text": "bio B", "label": "nurse"}],
+    )
+
+    _, details_a, cost_a = evaluator._evaluate_candidate_fairness_group_probe(candidate_a)
+    calls_after_first = stub.calls
+    _, details_b, cost_b = evaluator._evaluate_candidate_fairness_group_probe(candidate_b)
+
+    assert cost_a > 0.0
+    assert cost_b > 0.0
+    assert stub.calls > calls_after_first
+    assert len(evaluator._fairness_cache) == 2
+    assert details_a["fairness_cache_key"] != details_b["fairness_cache_key"]

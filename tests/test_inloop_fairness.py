@@ -73,13 +73,38 @@ def test_inloop_fairness_is_cached_per_prompt():
     candidate = PromptCandidate(instruction="Classify the input.")
     dev = [{"text": "Paris is in France.", "label": "objective"}]
 
-    risk1, _, cost1 = evaluator._evaluate_candidate_fairness(candidate)
-    risk2, _, cost2 = evaluator._evaluate_candidate_fairness(candidate)
+    risk1, details1, cost1 = evaluator._evaluate_candidate_fairness(candidate)
+    risk2, details2, cost2 = evaluator._evaluate_candidate_fairness(candidate)
 
     assert risk1 == risk2
     assert cost1 > 0.0          # first computation pays the token cost
     assert cost2 == 0.0         # cache hit: no extra cost
     assert len(evaluator._fairness_cache) == 1
+    assert details1["fairness_cache_hit"] is False
+    assert details2["fairness_cache_hit"] is True
+
+
+def test_inloop_fairness_cache_includes_few_shot_examples():
+    stub = StubLLM()
+    evaluator = LLMObjectiveEvaluator(_inloop_config(eval_pairs=2), llm=stub)
+    candidate_a = PromptCandidate(
+        instruction="Classify the input.",
+        examples=[{"text": "A factual sentence.", "label": "objective"}],
+    )
+    candidate_b = PromptCandidate(
+        instruction="Classify the input.",
+        examples=[{"text": "A personal review.", "label": "subjective"}],
+    )
+
+    _, details_a, cost_a = evaluator._evaluate_candidate_fairness(candidate_a)
+    calls_after_first = stub.calls
+    _, details_b, cost_b = evaluator._evaluate_candidate_fairness(candidate_b)
+
+    assert cost_a > 0.0
+    assert cost_b > 0.0
+    assert stub.calls > calls_after_first
+    assert len(evaluator._fairness_cache) == 2
+    assert details_a["fairness_cache_key"] != details_b["fairness_cache_key"]
 
 
 def test_inloop_cache_avoids_repeated_llm_calls_across_blocks():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import re
@@ -737,9 +738,46 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             positive_label=self.fairness_cfg.get("positive_label"),
             clamp=bool(self.fairness_cfg.get("clamp", True)),
         )
-        # Cache real fairness by instruction text so it is computed once per
-        # unique prompt: {instruction: (fairness_risk, details)}.
+        # Cache real fairness by complete prompt identity. The same instruction
+        # with different few-shot examples can have different fairness behavior.
         self._fairness_cache: dict[str, tuple[float, dict]] = {}
+
+    def _candidate_fairness_cache_key(
+        self,
+        candidate: PromptCandidate,
+        prefix: str,
+    ) -> str:
+        payload = {
+            "instruction": candidate.instruction,
+            "examples": candidate.examples,
+        }
+        digest = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        return f"{prefix}::{digest}"
+
+    def _get_cached_fairness(
+        self,
+        key: str,
+    ) -> tuple[float, dict, float] | None:
+        if key not in self._fairness_cache:
+            return None
+        risk, details = self._fairness_cache[key]
+        cached_details = dict(details)
+        cached_details["fairness_cache_hit"] = True
+        return risk, cached_details, 0.0
+
+    def _store_cached_fairness(
+        self,
+        key: str,
+        risk: float,
+        details: dict,
+    ) -> dict:
+        stored_details = dict(details)
+        stored_details["fairness_cache_key"] = key
+        stored_details["fairness_cache_hit"] = False
+        self._fairness_cache[key] = (risk, stored_details)
+        return stored_details
 
     def _apply_fairness_performance_gate(
         self,
@@ -801,11 +839,10 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         Returns ``(fairness_risk, details, extra_cost)``. On a cache hit,
         ``extra_cost`` is 0.0 (the candidate's fairness was already paid for).
         """
-        key = candidate.instruction
-
-        if key in self._fairness_cache:
-            risk, details = self._fairness_cache[key]
-            return risk, details, 0.0
+        key = self._candidate_fairness_cache_key(candidate, "counterfactual")
+        cached = self._get_cached_fairness(key)
+        if cached is not None:
+            return cached
 
         base_predictions: list[str] = []
         counterfactual_predictions: list[str] = []
@@ -868,7 +905,11 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             "fairness_eval_cost": extra_cost,
         }
 
-        self._fairness_cache[key] = (fairness_result.fairness_risk, details)
+        details = self._store_cached_fairness(
+            key,
+            fairness_result.fairness_risk,
+            details,
+        )
 
         return fairness_result.fairness_risk, details, extra_cost
 
@@ -882,13 +923,12 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
 
         Returns ``(fairness_risk, details, extra_cost)``; ``extra_cost`` is 0.0 on
         a cache hit (the candidate's fairness was already paid for). Cached by
-        instruction text, exactly like the counterfactual path.
+        complete prompt identity, exactly like the counterfactual path.
         """
-        key = candidate.instruction
-
-        if key in self._fairness_cache:
-            risk, details = self._fairness_cache[key]
-            return risk, details, 0.0
+        key = self._candidate_fairness_cache_key(candidate, "bbq")
+        cached = self._get_cached_fairness(key)
+        if cached is not None:
+            return cached
 
         letter_to_index = {"A": 0, "B": 1, "C": 2}
         items = []
@@ -937,7 +977,11 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             "fairness_eval_cost": extra_cost,
         }
 
-        self._fairness_cache[key] = (fairness_result.fairness_risk, details)
+        details = self._store_cached_fairness(
+            key,
+            fairness_result.fairness_risk,
+            details,
+        )
 
         return fairness_result.fairness_risk, details, extra_cost
 
@@ -951,11 +995,10 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         This is the Bias-in-Bios analogue of the BBQ fairness set: a stable,
         cached, support-balanced fairness audit during search.
         """
-        key = f"group_probe::{candidate.instruction}"
-
-        if key in self._fairness_cache:
-            risk, details = self._fairness_cache[key]
-            return risk, details, 0.0
+        key = self._candidate_fairness_cache_key(candidate, "group_probe")
+        cached = self._get_cached_fairness(key)
+        if cached is not None:
+            return cached
 
         correct = 0
         total = 0
@@ -1035,7 +1078,11 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             "fairness_eval_output_tokens": f_output_tokens,
         }
 
-        self._fairness_cache[key] = (fairness_result.fairness_risk, details)
+        details = self._store_cached_fairness(
+            key,
+            fairness_result.fairness_risk,
+            details,
+        )
 
         return fairness_result.fairness_risk, details, extra_cost
 
