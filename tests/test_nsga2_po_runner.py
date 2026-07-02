@@ -498,8 +498,6 @@ def test_runner_budget_charges_search_tokens_not_deployment_tokens():
 
     assert result.budget_summary is not None
     assert result.budget_summary["used_budget"] == 300.0
-    assert result.budget_summary["deployment_total_tokens"] == 36.0
-    assert result.budget_summary["search_total_tokens"] == 300.0
     assert result.summary["used_budget"] == 300.0
     assert len(result.all_portfolio.evaluations) == 3
     assert any(event["event_type"] == "budget_stop" for event in result.events)

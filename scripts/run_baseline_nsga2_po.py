@@ -405,30 +405,6 @@ def get_prompt_pool(config: dict) -> list[dict]:
     if not normalized:
         raise ValueError("No valid prompts found.")
 
-    selected_ids = [
-        str(prompt_id)
-        for prompt_id in config.get("initial_prompt_ids", [])
-    ]
-
-    if selected_ids:
-        prompts_by_id = {
-            str(item["id"]): item
-            for item in normalized
-        }
-        missing_ids = [
-            prompt_id
-            for prompt_id in selected_ids
-            if prompt_id not in prompts_by_id
-        ]
-
-        if missing_ids:
-            raise ValueError(f"Unknown initial_prompt_ids: {missing_ids}")
-
-        normalized = [
-            prompts_by_id[prompt_id]
-            for prompt_id in selected_ids
-        ]
-
     return normalized
 
 
