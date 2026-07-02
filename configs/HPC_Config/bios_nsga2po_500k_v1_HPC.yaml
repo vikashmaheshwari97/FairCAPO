@@ -76,6 +76,11 @@ fairness:
   bias_weight: 0.0
   debt_weight: 0.0
 
+budget:
+  unit: tokens
+  max_budget: 500000.0
+  allow_overspend: false
+
 nsga2_po:
   population_size: 16
   max_generations: 5

@@ -527,7 +527,7 @@ def nsga_config_from_yaml(config: dict) -> NSGA2PORunnerConfig:
         objectives=tuple(
             nsga_cfg.get(
                 "objectives",
-                ["performance", "cost", "risk", "fairness_risk"],
+                ["performance", "cost", "fairness_risk"],
             )
         ),
         max_budget=max_budget,

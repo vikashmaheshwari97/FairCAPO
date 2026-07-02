@@ -23,6 +23,9 @@ Restored active v1 settings:
 - search dev split: `dev_size: 75`, `shots_size: 25`, `test_size: 100`
 - search block size: `block_size: 15`
 - search fairness: `group_accuracy_gap`
+- NSGA-II-PO search now has the same explicit `500000` raw-token budget cap
+  and writes `budget_summary.json`; rerun NSGA v1 before treating its
+  `budget_used` as comparable to FairCAPO/MO-CAPO.
 - held-out eval size: `test_size: 500`
 - held-out eval fairness: `group_accuracy_gap`
 
