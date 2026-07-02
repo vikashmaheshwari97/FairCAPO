@@ -125,7 +125,7 @@ def test_inloop_cache_avoids_repeated_llm_calls_across_blocks():
     assert calls_after_second - calls_after_first == 1
 
 
-def test_inloop_disabled_falls_back_to_heuristic():
+def test_inloop_disabled_sets_constant_disabled_fairness():
     stub = StubLLM()
     evaluator = LLMObjectiveEvaluator(_inloop_config(in_loop=False), llm=stub)
     assert evaluator.fairness_in_loop is False
@@ -133,8 +133,9 @@ def test_inloop_disabled_falls_back_to_heuristic():
     candidate = PromptCandidate(instruction="Classify the input fairly.")
     result = evaluator.evaluate(candidate, [{"text": "x", "label": "objective"}])
 
-    assert result.details["fairness_source"] == "prompt_heuristic"
-    assert 0.0 <= result.fairness_risk <= 1.0
+    assert result.details["fairness_source"] == "disabled"
+    assert result.details["fairness_method"] == "disabled"
+    assert result.fairness_risk == 0.0
 
 
 class ConstantLabelLLM:

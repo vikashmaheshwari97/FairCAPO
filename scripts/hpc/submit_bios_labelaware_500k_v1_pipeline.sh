@@ -15,6 +15,18 @@ cd "$(dirname "$0")/../.."
 
 mkdir -p outputs/hpc/logs
 
+test -s data/fairness_bios_probe_search_seed0.jsonl || {
+  echo "Missing BIOS fairness probe: data/fairness_bios_probe_search_seed0.jsonl" >&2
+  echo "Build it first with: PYTHONPATH=. python scripts/build_bios_fairness_probe.py --out data/fairness_bios_probe_search_seed0.jsonl --split train --seed 0 --examples-per-group 5 --max-labels 8" >&2
+  exit 3
+}
+
+probe_lines=$(wc -l < data/fairness_bios_probe_search_seed0.jsonl)
+if [[ "${probe_lines}" -ne 80 ]]; then
+  echo "BIOS fairness probe should contain 80 lines, found ${probe_lines}." >&2
+  exit 3
+fi
+
 echo "Submitting Bias-in-Bios label-aware FairCAPO 500k v1 search..."
 fair_search_job=$(sbatch --parsable --array=0 \
   --export=ALL,CONFIG=configs/HPC_Config/bios_faircapo_labelaware_500k_v1_HPC.yaml,RUN_TAG=bios_faircapo_labelaware_500k_v1 \

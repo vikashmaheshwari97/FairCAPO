@@ -130,12 +130,37 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
 
     fairness = config.get("fairness") or {}
     fairness_mode = fairness.get("mode")
+    fairness_in_loop = bool(fairness.get("in_loop", False))
     if fairness and fairness_mode not in {
         "group_accuracy_gap",
         "label_conditioned_group_accuracy_gap",
         "label_group_accuracy_gap",
     }:
         add(findings, "warn", path, "BIOS fairness mode is not a supported group-gap mode.")
+
+    lower_path = str(path).lower()
+    if "bios_ablation" in lower_path and "eval" not in lower_path and fairness_in_loop:
+        add(
+            findings,
+            "error",
+            path,
+            "BIOS MO-CAPO ablation search must keep fairness.in_loop: false.",
+        )
+
+    if (
+        ("bios_nsga2po" in lower_path and "labelscore" not in lower_path)
+        or ("bios_eval" in lower_path and "large" in lower_path and "qwen" not in lower_path and "labelscore" not in lower_path and "fairshots" not in lower_path)
+    ):
+        if fairness_in_loop and fairness_mode not in {
+            "label_conditioned_group_accuracy_gap",
+            "label_group_accuracy_gap",
+        }:
+            add(
+                findings,
+                "error",
+                path,
+                "BIOS comparison configs must use label-conditioned fairness for comparable HV/table rows.",
+            )
 
     fairness_data = str(fairness.get("fairness_data") or config.get("fairness_data") or "")
     if fairness_data and config.get("dataset_split") == "test":
@@ -152,6 +177,15 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
             path,
             "BIOS in-loop fairness_data should be named as a search-only probe.",
         )
+    if "fairness_bios_probe_search_seed0.jsonl" in fairness_data:
+        eval_pairs = int(fairness.get("eval_pairs", 0) or 0)
+        if eval_pairs != 80:
+            add(
+                findings,
+                "error",
+                path,
+                "BIOS search fairness probe should use eval_pairs: 80.",
+            )
 
     if fairness_mode in {
         "label_conditioned_group_accuracy_gap",

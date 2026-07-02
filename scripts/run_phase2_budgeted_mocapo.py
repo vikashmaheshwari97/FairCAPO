@@ -585,8 +585,12 @@ def load_inloop_group_fairness_items(config: dict) -> list[dict]:
         return []
 
     data_path = fairness_cfg.get("fairness_data") or config.get("fairness_data")
-    if not data_path or not Path(data_path).exists():
+    if not data_path:
         return []
+    if not Path(data_path).exists():
+        raise FileNotFoundError(
+            f"Configured in-loop group fairness probe does not exist: {data_path}"
+        )
 
     items: list[dict] = []
     with open(data_path, "r", encoding="utf-8") as handle:
@@ -656,8 +660,14 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         # In-loop fairness setup. BBQ uses the canonical bias-score path (a set of
         # items); group-labeled classification datasets use metadata groups;
         # everything else uses counterfactual pairs.
+        self.fairness_enabled = bool(self.fairness_cfg.get("in_loop", False))
         self.fairness_mode = _fairness_mode(config)
-        if self.fairness_mode == "bbq_bias_score":
+        if not self.fairness_enabled:
+            self.fairness_pairs = []
+            self.bbq_fairness_items = []
+            self.group_fairness_items = []
+            self.fairness_in_loop = False
+        elif self.fairness_mode == "bbq_bias_score":
             self.fairness_pairs = []
             self.bbq_fairness_items = load_inloop_bbq_items(config)
             self.group_fairness_items = []
@@ -1307,7 +1317,16 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         fairness_details: dict = {}
         fairness_cost = 0.0
 
-        if self.fairness_in_loop:
+        if not self.fairness_enabled:
+            fairness_risk = 0.0
+            fairness_source = "disabled"
+            fairness_details = {
+                "fairness_method": "disabled",
+                "fairness_eval_cost": 0.0,
+                "fairness_eval_input_tokens": 0,
+                "fairness_eval_output_tokens": 0,
+            }
+        elif self.fairness_in_loop:
             if self.fairness_mode == "bbq_bias_score":
                 fairness_risk, fairness_details, fairness_cost = (
                     self._evaluate_candidate_fairness_bbq(candidate)
@@ -1491,11 +1510,12 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             fairness_risk = heuristic_fairness_risk(candidate.instruction)
             fairness_source = "prompt_heuristic"
 
-        fairness_risk, fairness_details = self._apply_fairness_performance_gate(
-            performance=performance,
-            fairness_risk=fairness_risk,
-            fairness_details=fairness_details,
-        )
+        if self.fairness_enabled:
+            fairness_risk, fairness_details = self._apply_fairness_performance_gate(
+                performance=performance,
+                fairness_risk=fairness_risk,
+                fairness_details=fairness_details,
+            )
         fairness_audit_input_tokens = (
             int(fairness_details.get("fairness_eval_input_tokens", 0))
             if fairness_cost > 0.0
@@ -1803,23 +1823,34 @@ def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
 
     rows = dev_data
     shots_dataset = fs_cfg.get("shots_data")
-    if shots_dataset:
+    dev_cfg = config.get("dev") if isinstance(config.get("dev"), dict) else {}
+    dataset_backed_shots = shots_dataset or dev_cfg.get("dataset") or config.get("dev_dataset")
+    if dataset_backed_shots:
         from experiments.datasets import load_paper_dataset
 
+        dev_size = int(dev_cfg.get("dev_size", config.get("dev_size", len(dev_data))))
+        test_size = int(dev_cfg.get("test_size", config.get("test_size", 5)))
         split = load_paper_dataset(
-            name=str(shots_dataset),
-            dev_size=int(fs_cfg.get("pool_size", 20)),
-            shots_size=2,
-            test_size=int(fs_cfg.get("test_size", 5)),
+            name=str(dataset_backed_shots),
+            dev_size=dev_size,
+            shots_size=int(fs_cfg.get("pool_size", dev_cfg.get("shots_size", 20))),
+            test_size=int(fs_cfg.get("test_size", test_size)),
             seed=int(config.get("seed", 0)),
             allow_smaller=True,
             stratified=bool(fs_cfg.get("stratified", task_type == "classification")),
-            dataset_split=fs_cfg.get("split") or fs_cfg.get("dataset_split"),
+            dataset_split=(
+                fs_cfg.get("split")
+                or fs_cfg.get("dataset_split")
+                or dev_cfg.get("split")
+                or dev_cfg.get("dataset_split")
+            ),
             stratify_group_key=fs_cfg.get("stratify_group_key")
             or fs_cfg.get("group_key")
+            or dev_cfg.get("stratify_group_key")
+            or dev_cfg.get("group_key")
             or config.get("fairness", {}).get("group_key"),
         )
-        rows = [_example_to_row(ex) for ex in split.dev]
+        rows = [_example_to_row(ex) for ex in split.shots]
 
     pool_size = int(fs_cfg.get("pool_size", 20))
     selection_strategy = str(

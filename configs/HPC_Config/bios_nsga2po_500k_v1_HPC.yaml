@@ -1,4 +1,4 @@
-# NSGA-II-PO + group fairness on Bias-in-Bios -- Rocket 500k v1 seed 0.
+# NSGA-II-PO + label-conditioned group fairness on Bias-in-Bios -- Rocket 500k v1 seed 0.
 
 dataset: bias_in_bios
 task_type: classification
@@ -71,12 +71,16 @@ cost:
 
 fairness:
   in_loop: true
-  mode: group_accuracy_gap
+  mode: label_conditioned_group_accuracy_gap
   group_key: gender
-  group_gap_weight: 1.0
-  flip_weight: 0.0
-  bias_weight: 0.0
-  debt_weight: 0.0
+  min_count_per_group: 5
+  fairness_data: data/fairness_bios_probe_search_seed0.jsonl
+  eval_pairs: 80
+
+selection:
+  min_performance_for_fairness: 0.40
+  low_performance_fairness_penalty: 0.5
+  fairness_gate_mode: continuous
 
 nsga2_po:
   population_size: 16

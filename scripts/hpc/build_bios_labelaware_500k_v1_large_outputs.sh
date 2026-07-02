@@ -14,7 +14,6 @@ TITLE="${TITLE:-Bias-in-Bios / Mistral-Small-3.2 / label-aware FairCAPO / Rocket
 
 echo "Checking Bias-in-Bios label-aware large-held-out eval outputs..."
 test -f outputs/hpc/evaluation_large/seed_0/bios_faircapo_labelaware_500k_v1/test_eval_summary.json
-test -f outputs/hpc/evaluation_large/seed_0/bios_faircapo_500k_v1/test_eval_summary.json
 test -f outputs/hpc/evaluation_large/seed_0/bios_ablation_500k_v1/test_eval_summary.json
 test -f outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_v1/test_eval_summary.json
 

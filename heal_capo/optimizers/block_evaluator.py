@@ -227,7 +227,9 @@ def merge_results(
     Merge block-level evaluations into one aggregate result.
 
     Performance/risk/fairness/drift are weighted by number of examples.
-    Cost is summed.
+    Deployment cost is normalized per evaluated example so candidates evaluated
+    on more blocks are not penalized for having deeper evidence. Search cost is
+    still summed in details for budget accounting.
     """
     if not evaluations:
         raise ValueError("Cannot merge empty evaluations.")
@@ -250,6 +252,7 @@ def merge_results(
 
     block_ids = sorted(evaluation.block_id for evaluation in evaluations)
     deployment_cost = sum(evaluation.result.cost for evaluation in evaluations)
+    objective_cost = deployment_cost / total_examples if total_examples else deployment_cost
     deployment_input_tokens = sum(
         float(
             (evaluation.result.details or {}).get(
@@ -304,7 +307,9 @@ def merge_results(
         # misleads incumbent advancement and block-aware tournaments.
         "evaluated_blocks": block_ids,
         "num_block_evaluations": len(evaluations),
-        "deployment_cost": deployment_cost,
+        "deployment_cost": objective_cost,
+        "deployment_cost_total": deployment_cost,
+        "deployment_cost_per_example": objective_cost,
         "deployment_input_tokens": deployment_input_tokens,
         "deployment_output_tokens": deployment_output_tokens,
         "search_cost": search_cost,
@@ -316,7 +321,7 @@ def merge_results(
     return EvaluationResult(
         candidate_id=candidate_id,
         performance=weighted_average("performance"),
-        cost=deployment_cost,
+        cost=objective_cost,
         risk=weighted_average("risk"),
         fairness_risk=weighted_average("fairness_risk"),
         drift=weighted_average("drift"),

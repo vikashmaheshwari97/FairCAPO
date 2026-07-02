@@ -66,6 +66,13 @@ export HF_HOME="${HF_HOME:-$PWD/.hf_cache}"
 export FAIRCAPO_LLM_API_URL="http://127.0.0.1:${SERVER_PORT}/v1"
 export FAIRCAPO_MODEL_ID="${SERVED_MODEL_NAME}"
 
+if grep -q "fairness_bios_probe_search_seed0.jsonl" "${CONFIG}"; then
+  test -s data/fairness_bios_probe_search_seed0.jsonl || {
+    echo "Missing BIOS fairness probe: data/fairness_bios_probe_search_seed0.jsonl" >&2
+    exit 3
+  }
+fi
+
 echo "Starting vLLM on $(hostname):${SERVER_PORT}"
 python -m vllm.entrypoints.openai.api_server \
   --model "${MODEL_PATH}" \

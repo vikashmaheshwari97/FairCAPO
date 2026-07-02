@@ -115,7 +115,7 @@ def test_evaluate_blocks_and_history():
     assert block_evaluator.unevaluated_blocks(candidate.candidate_id) == [2]
 
 
-def test_merge_results_weighted_average_and_cost_sum():
+def test_merge_results_weighted_average_and_cost_per_example():
     candidate = PromptCandidate(instruction="Classify.")
     evaluator = DummyEvaluator()
     block_evaluator = BlockEvaluator.from_data(
@@ -128,10 +128,12 @@ def test_merge_results_weighted_average_and_cost_sum():
     merged = merge_results(candidate.candidate_id, evaluations)
 
     assert merged.candidate_id == candidate.candidate_id
-    assert merged.cost == 6.0
+    assert merged.cost == 2.0
     assert merged.n_examples == 3
     assert merged.details["num_block_evaluations"] == 2
     assert merged.details["merged_from_blocks"] == [0, 1]
+    assert merged.details["deployment_cost_total"] == 6.0
+    assert merged.details["deployment_cost_per_example"] == 2.0
 
 
 def test_aggregate_candidate():
@@ -146,7 +148,8 @@ def test_aggregate_candidate():
     block_evaluator.evaluate_blocks(candidate, [0, 1])
     aggregate = block_evaluator.aggregate_candidate(candidate.candidate_id)
 
-    assert aggregate.cost == 8.0
+    assert aggregate.cost == 2.0
+    assert aggregate.details["deployment_cost_total"] == 8.0
     assert aggregate.n_examples == 4
 
 
