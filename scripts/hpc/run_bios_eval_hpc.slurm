@@ -4,7 +4,9 @@
 #SBATCH --error=outputs/hpc/logs/%x_%A_seed%a.err
 #SBATCH --array=0
 #SBATCH --partition=gpu
-#SBATCH --nodelist=firefly1
+## Previous Firefly target:
+##SBATCH --nodelist=firefly1
+#SBATCH --nodelist=firefly2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
