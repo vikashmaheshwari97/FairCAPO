@@ -562,23 +562,65 @@ class NSGA2PORunner:
             return
 
         details = result.details or {}
+
+        deployment_input_tokens = float(
+            details.get(
+                "deployment_input_tokens",
+                details.get("input_tokens", 0.0),
+            )
+            or 0.0
+        )
+        deployment_output_tokens = float(
+            details.get(
+                "deployment_output_tokens",
+                details.get("output_tokens", 0.0),
+            )
+            or 0.0
+        )
+
+        search_input_tokens = float(
+            details.get(
+                "search_input_tokens",
+                deployment_input_tokens,
+            )
+            or 0.0
+        )
+        search_output_tokens = float(
+            details.get(
+                "search_output_tokens",
+                deployment_output_tokens,
+            )
+            or 0.0
+        )
+
         self.budget_allocator.record(
             candidate_id=result.candidate_id,
-            cost=float(details.get("search_cost", result.cost) or 0.0),
-            input_tokens=float(
-                details.get(
-                    "search_input_tokens",
-                    details.get("input_tokens", 0.0),
-                )
+            cost=float(
+                details.get("deployment_cost", result.cost)
                 or 0.0
             ),
-            output_tokens=float(
-                details.get(
-                    "search_output_tokens",
-                    details.get("output_tokens", 0.0),
-                )
+            input_tokens=deployment_input_tokens,
+            output_tokens=deployment_output_tokens,
+            search_cost=float(
+                details.get("search_cost", result.cost)
                 or 0.0
             ),
+            search_input_tokens=search_input_tokens,
+            search_output_tokens=search_output_tokens,
+            metadata={
+                "fairness_audit_cost": float(
+                    details.get("fairness_audit_cost", 0.0)
+                    or 0.0
+                ),
+                "fairness_audit_input_tokens": float(
+                    details.get("fairness_audit_input_tokens", 0.0)
+                    or 0.0
+                ),
+                "fairness_audit_output_tokens": float(
+                    details.get("fairness_audit_output_tokens", 0.0)
+                    or 0.0
+                ),
+            },
         )
 
     def _evaluate_under_budget(
