@@ -58,21 +58,51 @@ def choose_closest_incumbent(
     incumbent_results: dict[str, EvaluationResult],
 ) -> Optional[str]:
     """
-    Choose closest incumbent in objective-vector space.
+    Choose closest incumbent in normalized objective-vector space.
 
-    Objective vectors are used directly. Later we can add min-max normalization.
+    MO-CAPO compares against the geometrically closest incumbent after min-max
+    normalizing objectives. Without normalization, the cost dimension can swamp
+    performance and fairness because it is measured on a much larger scale.
     """
     if not incumbent_results:
         return None
 
-    challenger_vector = challenger_result.objective_vector
+    challenger_vector = tuple(
+        float(value) for value in challenger_result.objective_vector
+    )
+    incumbent_vectors = {
+        candidate_id: tuple(float(value) for value in result.objective_vector)
+        for candidate_id, result in incumbent_results.items()
+    }
+
+    all_vectors = [challenger_vector, *incumbent_vectors.values()]
+    mins = tuple(
+        min(vector[index] for vector in all_vectors)
+        for index in range(len(challenger_vector))
+    )
+    maxs = tuple(
+        max(vector[index] for vector in all_vectors)
+        for index in range(len(challenger_vector))
+    )
+
+    def normalize(vector: tuple[float, ...]) -> tuple[float, ...]:
+        normalized = []
+        for value, low, high in zip(vector, mins, maxs):
+            span = high - low
+            if span == 0:
+                normalized.append(0.0)
+            else:
+                normalized.append((value - low) / span)
+        return tuple(normalized)
+
+    challenger_normalized = normalize(challenger_vector)
 
     def distance(candidate_id: str) -> float:
-        incumbent_vector = incumbent_results[candidate_id].objective_vector
+        incumbent_vector = normalize(incumbent_vectors[candidate_id])
 
         return sum(
             (float(a) - float(b)) ** 2
-            for a, b in zip(challenger_vector, incumbent_vector)
+            for a, b in zip(challenger_normalized, incumbent_vector)
         )
 
     return min(incumbent_results.keys(), key=distance)

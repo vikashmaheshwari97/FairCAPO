@@ -117,6 +117,34 @@ def test_choose_closest_incumbent():
     assert choose_closest_incumbent(challenger, incumbents) == "near"
 
 
+def test_choose_closest_incumbent_normalizes_objective_scales():
+    challenger = EvaluationResult(
+        candidate_id="c",
+        performance=0.8,
+        cost=1000.0,
+        risk=0.2,
+        fairness_risk=0.5,
+    )
+    incumbents = {
+        "balanced": EvaluationResult(
+            candidate_id="balanced",
+            performance=0.79,
+            cost=990.0,
+            risk=0.21,
+            fairness_risk=0.0,
+        ),
+        "cost_adjacent_but_bad": EvaluationResult(
+            candidate_id="cost_adjacent_but_bad",
+            performance=0.2,
+            cost=1001.0,
+            risk=0.8,
+            fairness_risk=0.9,
+        ),
+    }
+
+    assert choose_closest_incumbent(challenger, incumbents) == "balanced"
+
+
 def test_intensify_accepts_when_no_incumbents():
     block_evaluator = _make_block_evaluator()
     budget = BudgetAllocator(max_budget=100.0)
