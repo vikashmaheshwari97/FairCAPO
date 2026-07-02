@@ -9,10 +9,11 @@ dataset: bias_in_bios
 task_type: classification
 seed: 0
 dataset_split: test
-dev_size: 75
-shots_size: 25
-test_size: 500
+dev_size: 280
+shots_size: 112
+test_size: 1000
 stratified: true
+stratify_group_key: gender
 allow_smaller: false
 
 labels:

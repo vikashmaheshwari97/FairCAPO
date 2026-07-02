@@ -255,6 +255,9 @@ def get_test_data(config: dict) -> list[dict]:
         allow_smaller=bool(config.get("allow_smaller", False)),
         stratified=bool(config.get("stratified", True)),
         dataset_split=config.get("dataset_split"),
+        stratify_group_key=config.get("stratify_group_key")
+        or config.get("group_key")
+        or config.get("fairness", {}).get("group_key"),
     )
 
     return [example_to_row(example) for example in split.test]

@@ -11,7 +11,21 @@ def _block_eval(
     cost=5.0,
     input_tokens=10,
     output_tokens=3,
+    search_cost=None,
+    search_input_tokens=None,
+    search_output_tokens=None,
 ):
+    details = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
+    if search_cost is not None:
+        details["search_cost"] = search_cost
+    if search_input_tokens is not None:
+        details["search_input_tokens"] = search_input_tokens
+    if search_output_tokens is not None:
+        details["search_output_tokens"] = search_output_tokens
+
     return BlockEvaluation(
         candidate_id=candidate_id,
         block_id=block_id,
@@ -23,10 +37,7 @@ def _block_eval(
             fairness_risk=0.1,
             drift=0.0,
             n_examples=2,
-            details={
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-            },
+            details=details,
         ),
     )
 
@@ -108,6 +119,28 @@ def test_record_block_evaluation():
     assert record.cost == 5.0
     assert record.input_tokens == 10
     assert record.output_tokens == 3
+    assert record.search_cost == 5.0
+    assert record.search_input_tokens == 10
+    assert record.search_output_tokens == 3
+
+
+def test_cost_budget_uses_search_cost_but_preserves_deployment_cost():
+    allocator = BudgetAllocator(max_budget=20.0, budget_unit="cost")
+    evaluation = _block_eval(
+        cost=5.0,
+        input_tokens=10,
+        output_tokens=3,
+        search_cost=12.0,
+        search_input_tokens=50,
+        search_output_tokens=10,
+    )
+
+    record = allocator.record_block_evaluation(evaluation)
+
+    assert record.cost == 5.0
+    assert record.search_cost == 12.0
+    assert allocator.used_budget == 12.0
+    assert allocator.candidate_cost("p1") == 5.0
 
 
 def test_candidate_cost_and_tokens():
@@ -212,6 +245,27 @@ def test_tokens_mode_charges_raw_tokens_not_cost():
     assert allocator.remaining_budget == 88.0
 
 
+def test_tokens_mode_uses_search_tokens_but_preserves_deployment_tokens():
+    allocator = BudgetAllocator(max_budget=100.0, budget_unit="tokens")
+    evaluation = _block_eval(
+        cost=5.0,
+        input_tokens=10,
+        output_tokens=3,
+        search_cost=12.0,
+        search_input_tokens=50,
+        search_output_tokens=10,
+    )
+
+    record = allocator.record_block_evaluation(evaluation)
+
+    assert record.cost == 5.0
+    assert record.input_tokens == 10
+    assert record.output_tokens == 3
+    assert record.search_input_tokens == 50
+    assert record.search_output_tokens == 10
+    assert allocator.used_budget == 60.0
+
+
 def test_tokens_mode_exhaustion_uses_tokens():
     allocator = BudgetAllocator(max_budget=15.0, budget_unit="tokens")
     allocator.record_block_evaluation(
@@ -235,7 +289,8 @@ def test_tokens_mode_summary_used_budget_equals_total_tokens():
 
     summary = allocator.summary()
     assert summary["budget_unit"] == "tokens"
-    # used_budget (tokens) must equal the reported total token count.
-    assert summary["used_budget"] == summary["total_tokens"] == 37.0
+    # used_budget (tokens) must equal the reported search token count.
+    assert summary["used_budget"] == summary["search_total_tokens"] == 37.0
+    assert summary["total_tokens"] == summary["deployment_total_tokens"] == 37.0
     # The cost objective is still the weighted cost, independent of metering.
     assert summary["candidate_costs"]["p1"] == 5.0

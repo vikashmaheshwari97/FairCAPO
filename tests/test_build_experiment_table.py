@@ -288,14 +288,14 @@ def test_empty_row_shape():
 
 
 def write_holdout_csv(path):
-    # Held-out Dtest format: total `cost` folds the fairness audit in;
-    # detail_fairness_eval_cost is separable; detail_total is the call count.
+    # Held-out Dtest format: `cost` is deployment inference cost;
+    # detail_fairness_audit_cost is separable; detail_total is the call count.
     path.write_text(
-        "candidate_id,is_pareto,performance,cost,detail_fairness_eval_cost,detail_total\n"
-        # cheapest inference: (300-100)/50 = 4.0 per call
-        "a,True,0.95,300.0,100.0,50\n"
-        # pricier: (600-200)/50 = 8.0 per call
-        "b,True,0.97,600.0,200.0,50\n"
+        "candidate_id,is_pareto,performance,cost,detail_fairness_audit_cost,detail_total\n"
+        # cheapest inference: 200/50 = 4.0 per call
+        "a,True,0.95,200.0,100.0,50\n"
+        # pricier: 400/50 = 8.0 per call
+        "b,True,0.97,400.0,200.0,50\n"
         # dominated row excluded by only_pareto
         "c,False,0.50,999.0,500.0,50\n",
         encoding="utf-8",

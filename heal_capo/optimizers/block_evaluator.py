@@ -249,6 +249,51 @@ def merge_results(
         return total / sum(weights)
 
     block_ids = sorted(evaluation.block_id for evaluation in evaluations)
+    deployment_cost = sum(evaluation.result.cost for evaluation in evaluations)
+    deployment_input_tokens = sum(
+        float(
+            (evaluation.result.details or {}).get(
+                "deployment_input_tokens",
+                (evaluation.result.details or {}).get("input_tokens", 0.0),
+            )
+        )
+        for evaluation in evaluations
+    )
+    deployment_output_tokens = sum(
+        float(
+            (evaluation.result.details or {}).get(
+                "deployment_output_tokens",
+                (evaluation.result.details or {}).get("output_tokens", 0.0),
+            )
+        )
+        for evaluation in evaluations
+    )
+    search_cost = sum(
+        float((evaluation.result.details or {}).get("search_cost", evaluation.result.cost))
+        for evaluation in evaluations
+    )
+    search_input_tokens = sum(
+        float(
+            (evaluation.result.details or {}).get(
+                "search_input_tokens",
+                (evaluation.result.details or {}).get("input_tokens", 0.0),
+            )
+        )
+        for evaluation in evaluations
+    )
+    search_output_tokens = sum(
+        float(
+            (evaluation.result.details or {}).get(
+                "search_output_tokens",
+                (evaluation.result.details or {}).get("output_tokens", 0.0),
+            )
+        )
+        for evaluation in evaluations
+    )
+    fairness_audit_cost = sum(
+        float((evaluation.result.details or {}).get("fairness_audit_cost", 0.0))
+        for evaluation in evaluations
+    )
     merged_details = {
         "merged_from_blocks": [evaluation.block_id for evaluation in evaluations],
         # Canonical key read by parent_selection.get_evaluated_blocks /
@@ -259,12 +304,19 @@ def merge_results(
         # misleads incumbent advancement and block-aware tournaments.
         "evaluated_blocks": block_ids,
         "num_block_evaluations": len(evaluations),
+        "deployment_cost": deployment_cost,
+        "deployment_input_tokens": deployment_input_tokens,
+        "deployment_output_tokens": deployment_output_tokens,
+        "search_cost": search_cost,
+        "search_input_tokens": search_input_tokens,
+        "search_output_tokens": search_output_tokens,
+        "fairness_audit_cost": fairness_audit_cost,
     }
 
     return EvaluationResult(
         candidate_id=candidate_id,
         performance=weighted_average("performance"),
-        cost=sum(evaluation.result.cost for evaluation in evaluations),
+        cost=deployment_cost,
         risk=weighted_average("risk"),
         fairness_risk=weighted_average("fairness_risk"),
         drift=weighted_average("drift"),

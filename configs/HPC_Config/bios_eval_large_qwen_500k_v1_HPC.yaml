@@ -9,8 +9,11 @@ seed: 0
 portfolio_csv: outputs/hpc/bios_faircapo_qwen_500k_v1/seed_0/phase2_prompt_portfolio.csv
 output_dir: outputs/hpc/evaluation_large/seed_0/bios_faircapo_qwen_500k_v1
 
-test_size: 500
+dev_size: 280
+shots_size: 112
+test_size: 1000
 stratified: true
+stratify_group_key: gender
 allow_smaller: false
 num_preference_vectors: 500
 

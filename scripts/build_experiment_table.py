@@ -370,13 +370,12 @@ def holdout_inference_cost(
     """
     Honest per-call INFERENCE cost from a held-out Dtest CSV.
 
-    The held-out evaluator logs each candidate's total ``cost`` (summed over the
-    test set with the one-time fairness audit folded in), the separable
-    ``detail_fairness_eval_cost``, and the call count ``detail_total``. A deployed
-    prompt pays only inference per query, NOT the fairness audit, so:
+    The held-out evaluator logs each candidate's deployment ``cost`` (summed over
+    the test set) separately from the one-time fairness audit. A deployed prompt
+    pays only inference per query, NOT the fairness audit, so:
 
-        inference_cost       = cost - detail_fairness_eval_cost
-        inference_per_call   = inference_cost / detail_total
+        inference_cost       = cost
+        inference_per_call   = cost / detail_total
 
     Returns the cheapest-to-deploy front member's per-call + total inference cost
     and the mean fairness-audit cost (reported separately, not hidden in cost).
@@ -395,8 +394,13 @@ def holdout_inference_cost(
         n = parse_float(row.get("detail_total"), None)
         if cost is None or not n:
             continue
-        audit = parse_float(row.get("detail_fairness_eval_cost"), 0.0) or 0.0
-        inference = max(0.0, cost - audit)
+        audit = (
+            parse_float(row.get("detail_fairness_audit_cost"), None)
+            or parse_float(row.get("detail_fairness_eval_cost_charged"), None)
+            or parse_float(row.get("detail_fairness_eval_cost"), 0.0)
+            or 0.0
+        )
+        inference = max(0.0, cost)
         per_call.append((inference / n, inference, n))
         audit_costs.append(audit)
 

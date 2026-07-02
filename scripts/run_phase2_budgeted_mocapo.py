@@ -1288,10 +1288,12 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
 
         performance = correct / total if total else 0.0
 
-        cost = (
+        deployment_cost = (
             self.input_weight * input_tokens
             + self.output_weight * output_tokens
         )
+        deployment_input_tokens = input_tokens
+        deployment_output_tokens = output_tokens
 
         base_risk = 1.0 - performance
         risk = min(
@@ -1303,6 +1305,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         )
 
         fairness_details: dict = {}
+        fairness_cost = 0.0
 
         if self.fairness_in_loop:
             if self.fairness_mode == "bbq_bias_score":
@@ -1332,17 +1335,6 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                                 )
                             )
                             fairness_source = "group_fairness_probe"
-                            cost += fairness_cost
-                            input_tokens += int(
-                                fairness_details.get(
-                                    "fairness_eval_input_tokens", 0
-                                )
-                            )
-                            output_tokens += int(
-                                fairness_details.get(
-                                    "fairness_eval_output_tokens", 0
-                                )
-                            )
                             fairness_risk, fairness_details = (
                                 self._apply_fairness_performance_gate(
                                     performance=performance,
@@ -1350,10 +1342,37 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                                     fairness_details=fairness_details,
                                 )
                             )
+                            fairness_audit_input_tokens = (
+                                int(
+                                    fairness_details.get(
+                                        "fairness_eval_input_tokens", 0
+                                    )
+                                )
+                                if fairness_cost > 0.0
+                                else 0
+                            )
+                            fairness_audit_output_tokens = (
+                                int(
+                                    fairness_details.get(
+                                        "fairness_eval_output_tokens", 0
+                                    )
+                                )
+                                if fairness_cost > 0.0
+                                else 0
+                            )
+                            search_input_tokens = (
+                                deployment_input_tokens
+                                + fairness_audit_input_tokens
+                            )
+                            search_output_tokens = (
+                                deployment_output_tokens
+                                + fairness_audit_output_tokens
+                            )
+                            search_cost = deployment_cost + fairness_cost
                             return EvaluationResult(
                                 candidate_id=candidate.candidate_id,
                                 performance=performance,
-                                cost=cost,
+                                cost=deployment_cost,
                                 risk=risk,
                                 fairness_risk=fairness_risk,
                                 drift=0.0,
@@ -1363,8 +1382,18 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                                     "model_id": self.config.get("llm", {}).get(
                                         "model_id"
                                     ),
-                                    "input_tokens": input_tokens,
-                                    "output_tokens": output_tokens,
+                                    "input_tokens": deployment_input_tokens,
+                                    "output_tokens": deployment_output_tokens,
+                                    "deployment_cost": deployment_cost,
+                                    "deployment_input_tokens": deployment_input_tokens,
+                                    "deployment_output_tokens": deployment_output_tokens,
+                                    "search_cost": search_cost,
+                                    "search_input_tokens": search_input_tokens,
+                                    "search_output_tokens": search_output_tokens,
+                                    "fairness_audit_cost": fairness_cost,
+                                    "fairness_audit_input_tokens": fairness_audit_input_tokens,
+                                    "fairness_audit_output_tokens": fairness_audit_output_tokens,
+                                    "fairness_eval_cost_charged": fairness_cost,
                                     "correct": correct,
                                     "total": total,
                                     "fairness_source": fairness_source,
@@ -1458,11 +1487,6 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                     self._evaluate_candidate_fairness(candidate)
                 )
                 fairness_source = "counterfactual_in_loop"
-            # Fold the one-time fairness-eval cost into this block's cost so it
-            # counts against the optimization budget (0.0 on cache reuse).
-            cost += fairness_cost
-            input_tokens += int(fairness_details.get("fairness_eval_input_tokens", 0))
-            output_tokens += int(fairness_details.get("fairness_eval_output_tokens", 0))
         else:
             fairness_risk = heuristic_fairness_risk(candidate.instruction)
             fairness_source = "prompt_heuristic"
@@ -1472,11 +1496,24 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             fairness_risk=fairness_risk,
             fairness_details=fairness_details,
         )
+        fairness_audit_input_tokens = (
+            int(fairness_details.get("fairness_eval_input_tokens", 0))
+            if fairness_cost > 0.0
+            else 0
+        )
+        fairness_audit_output_tokens = (
+            int(fairness_details.get("fairness_eval_output_tokens", 0))
+            if fairness_cost > 0.0
+            else 0
+        )
+        search_input_tokens = deployment_input_tokens + fairness_audit_input_tokens
+        search_output_tokens = deployment_output_tokens + fairness_audit_output_tokens
+        search_cost = deployment_cost + fairness_cost
 
         return EvaluationResult(
             candidate_id=candidate.candidate_id,
             performance=performance,
-            cost=cost,
+            cost=deployment_cost,
             risk=risk,
             fairness_risk=fairness_risk,
             drift=0.0,
@@ -1484,8 +1521,18 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             details={
                 "evaluator": "lmstudio",
                 "model_id": self.config.get("llm", {}).get("model_id"),
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
+                "input_tokens": deployment_input_tokens,
+                "output_tokens": deployment_output_tokens,
+                "deployment_cost": deployment_cost,
+                "deployment_input_tokens": deployment_input_tokens,
+                "deployment_output_tokens": deployment_output_tokens,
+                "search_cost": search_cost,
+                "search_input_tokens": search_input_tokens,
+                "search_output_tokens": search_output_tokens,
+                "fairness_audit_cost": fairness_cost,
+                "fairness_audit_input_tokens": fairness_audit_input_tokens,
+                "fairness_audit_output_tokens": fairness_audit_output_tokens,
+                "fairness_eval_cost_charged": fairness_cost,
                 "correct": correct,
                 "total": total,
                 "fairness_source": fairness_source,
@@ -1601,6 +1648,9 @@ def get_dev_data(config: dict) -> list[dict]:
             allow_smaller=bool(dev_cfg.get("allow_smaller", True)),
             stratified=bool(dev_cfg.get("stratified", True)),
             dataset_split=dev_cfg.get("split") or dev_cfg.get("dataset_split"),
+            stratify_group_key=dev_cfg.get("stratify_group_key")
+            or dev_cfg.get("group_key")
+            or config.get("fairness", {}).get("group_key"),
         )
         return [_example_to_row(ex) for ex in split.dev]
 
@@ -1763,6 +1813,9 @@ def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
             allow_smaller=True,
             stratified=bool(fs_cfg.get("stratified", task_type == "classification")),
             dataset_split=fs_cfg.get("split") or fs_cfg.get("dataset_split"),
+            stratify_group_key=fs_cfg.get("stratify_group_key")
+            or fs_cfg.get("group_key")
+            or config.get("fairness", {}).get("group_key"),
         )
         rows = [_example_to_row(ex) for ex in split.dev]
 

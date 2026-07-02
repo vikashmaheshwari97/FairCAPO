@@ -79,6 +79,54 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
     dev = config.get("dev") or {}
     if dev and str(dev.get("dataset", "")).strip().lower() != "bias_in_bios":
         add(findings, "error", path, "dev.dataset is not bias_in_bios.")
+    if dev:
+        dev_size = int(dev.get("dev_size", 0) or 0)
+        shots_size = int(dev.get("shots_size", 0) or 0)
+        test_size = int(dev.get("test_size", 0) or 0)
+        if dev_size and dev_size < 280:
+            add(
+                findings,
+                "warn",
+                path,
+                "BIOS dev_size is below 280; 28-label accuracy estimates will be noisy.",
+            )
+        if shots_size and shots_size < 112:
+            add(
+                findings,
+                "warn",
+                path,
+                "BIOS shots_size is below 112; few-shot pool has less than ~4 examples per profession.",
+            )
+        if test_size and test_size < 500:
+            add(
+                findings,
+                "warn",
+                path,
+                "BIOS dev.test_size is below 500; keep this as smoke-only evidence.",
+            )
+        if str(dev.get("stratify_group_key", "")).strip().lower() != "gender":
+            add(
+                findings,
+                "error",
+                path,
+                "BIOS dev split must use stratify_group_key: gender.",
+            )
+    elif config.get("dataset_split") == "test":
+        test_size = int(config.get("test_size", 0) or 0)
+        if test_size and test_size < 1000:
+            add(
+                findings,
+                "warn",
+                path,
+                "BIOS large-held-out test_size is below 1000; use only as a pilot.",
+            )
+        if str(config.get("stratify_group_key", "")).strip().lower() != "gender":
+            add(
+                findings,
+                "error",
+                path,
+                "BIOS held-out eval must use stratify_group_key: gender.",
+            )
 
     fairness = config.get("fairness") or {}
     fairness_mode = fairness.get("mode")

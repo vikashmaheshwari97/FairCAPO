@@ -72,7 +72,7 @@ def test_normalize_multiple_choice_answer_variants():
     assert normalize_multiple_choice_answer("") == ""
 
 
-def test_bbq_inloop_fairness_drives_risk_and_folds_cost(tmp_path):
+def test_bbq_inloop_fairness_drives_risk_and_separates_search_cost(tmp_path):
     path = _write_bbq_fairness_file(tmp_path / "f.jsonl")
     evaluator = LLMObjectiveEvaluator(_bbq_config(path), llm=LetterLLM("A"))
 
@@ -88,6 +88,10 @@ def test_bbq_inloop_fairness_drives_risk_and_folds_cost(tmp_path):
     assert result.fairness_risk == 1.0
     assert result.details["bbq_sAMB"] == 1.0
     assert result.details["fairness_eval_cost"] > 0.0
+    assert result.details["fairness_audit_cost"] > 0.0
+    assert result.details["deployment_cost"] == result.cost
+    assert result.details["search_cost"] > result.cost
+    assert result.details["search_input_tokens"] > result.details["input_tokens"]
     # Multiple-choice scoring: gold 'A' matched.
     assert result.performance == 1.0
 

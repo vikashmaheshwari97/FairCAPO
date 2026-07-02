@@ -14,9 +14,16 @@ class BudgetRecord:
 
     candidate_id: str
     block_id: Optional[int]
+    # Deployment cost: normal prompt inference cost used as the Pareto cost
+    # objective. This intentionally excludes extra search-time audits.
     cost: float
     input_tokens: float = 0.0
     output_tokens: float = 0.0
+    # Search cost: actual optimization spending, including fairness probes or
+    # other audit calls. Defaults to deployment values for legacy evaluators.
+    search_cost: float = 0.0
+    search_input_tokens: float = 0.0
+    search_output_tokens: float = 0.0
     metadata: dict = field(default_factory=dict)
 
 
@@ -129,15 +136,26 @@ class BudgetAllocator:
         cost: float,
         input_tokens: float = 0.0,
         output_tokens: float = 0.0,
+        search_cost: Optional[float] = None,
+        search_input_tokens: Optional[float] = None,
+        search_output_tokens: Optional[float] = None,
     ) -> float:
         """
         Amount deducted from the budget for one evaluation, per ``budget_unit``.
         "cost" -> weighted cost; "tokens" -> raw input+output tokens.
         """
-        if self.budget_unit == "tokens":
-            return float(input_tokens) + float(output_tokens)
+        effective_cost = float(cost if search_cost is None else search_cost)
+        effective_input_tokens = float(
+            input_tokens if search_input_tokens is None else search_input_tokens
+        )
+        effective_output_tokens = float(
+            output_tokens if search_output_tokens is None else search_output_tokens
+        )
 
-        return float(cost)
+        if self.budget_unit == "tokens":
+            return effective_input_tokens + effective_output_tokens
+
+        return effective_cost
 
     def record(
         self,
@@ -146,21 +164,49 @@ class BudgetAllocator:
         block_id: Optional[int] = None,
         input_tokens: float = 0.0,
         output_tokens: float = 0.0,
+        search_cost: Optional[float] = None,
+        search_input_tokens: Optional[float] = None,
+        search_output_tokens: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> BudgetRecord:
         """
         Record budget usage. The amount charged against the budget depends on
-        ``budget_unit`` (weighted cost vs. raw tokens); ``cost`` is always stored
-        for the cost objective regardless of the metering unit.
+        ``budget_unit`` (weighted cost vs. raw tokens). ``cost`` is deployment
+        cost, while ``search_cost``/``search_*_tokens`` are the optimization
+        spend charged against the budget.
         """
         cost = float(cost)
         input_tokens = float(input_tokens)
         output_tokens = float(output_tokens)
+        search_cost = float(cost if search_cost is None else search_cost)
+        search_input_tokens = float(
+            input_tokens if search_input_tokens is None else search_input_tokens
+        )
+        search_output_tokens = float(
+            output_tokens if search_output_tokens is None else search_output_tokens
+        )
 
-        if cost < 0:
-            raise ValueError("cost must be non-negative.")
+        if (
+            min(
+                cost,
+                input_tokens,
+                output_tokens,
+                search_cost,
+                search_input_tokens,
+                search_output_tokens,
+            )
+            < 0
+        ):
+            raise ValueError("cost and token counts must be non-negative.")
 
-        charge = self.charge_for(cost, input_tokens, output_tokens)
+        charge = self.charge_for(
+            cost,
+            input_tokens,
+            output_tokens,
+            search_cost=search_cost,
+            search_input_tokens=search_input_tokens,
+            search_output_tokens=search_output_tokens,
+        )
         self.require_budget(charge)
 
         record = BudgetRecord(
@@ -169,6 +215,9 @@ class BudgetAllocator:
             cost=cost,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            search_cost=search_cost,
+            search_input_tokens=search_input_tokens,
+            search_output_tokens=search_output_tokens,
             metadata=dict(metadata or {}),
         )
 
@@ -192,26 +241,65 @@ class BudgetAllocator:
         """
         details = evaluation.result.details or {}
 
-        input_tokens = details.get(
-            "input_tokens",
-            details.get("dev_input_tokens", 0.0),
+        deployment_input_tokens = details.get(
+            "deployment_input_tokens",
+            details.get(
+                "input_tokens",
+                details.get("dev_input_tokens", 0.0),
+            ),
         )
-        output_tokens = details.get(
-            "output_tokens",
-            details.get("dev_output_tokens", 0.0),
+        deployment_output_tokens = details.get(
+            "deployment_output_tokens",
+            details.get(
+                "output_tokens",
+                details.get("dev_output_tokens", 0.0),
+            ),
         )
+        search_input_tokens = details.get(
+            "search_input_tokens",
+            details.get(
+                "input_tokens",
+                details.get("dev_input_tokens", 0.0),
+            ),
+        )
+        search_output_tokens = details.get(
+            "search_output_tokens",
+            details.get(
+                "output_tokens",
+                details.get("dev_output_tokens", 0.0),
+            ),
+        )
+        search_cost = details.get("search_cost", evaluation.result.cost)
 
         return self.record(
             candidate_id=evaluation.candidate_id,
             block_id=evaluation.block_id,
             cost=evaluation.result.cost,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=deployment_input_tokens,
+            output_tokens=deployment_output_tokens,
+            search_cost=search_cost,
+            search_input_tokens=search_input_tokens,
+            search_output_tokens=search_output_tokens,
             metadata={
                 "performance": evaluation.result.performance,
                 "risk": evaluation.result.risk,
                 "fairness_risk": evaluation.result.fairness_risk,
                 "n_examples": evaluation.result.n_examples,
+                "deployment_cost": evaluation.result.cost,
+                "deployment_input_tokens": deployment_input_tokens,
+                "deployment_output_tokens": deployment_output_tokens,
+                "search_cost": search_cost,
+                "search_input_tokens": search_input_tokens,
+                "search_output_tokens": search_output_tokens,
+                "fairness_audit_cost": details.get("fairness_audit_cost", 0.0),
+                "fairness_audit_input_tokens": details.get(
+                    "fairness_audit_input_tokens",
+                    0.0,
+                ),
+                "fairness_audit_output_tokens": details.get(
+                    "fairness_audit_output_tokens",
+                    0.0,
+                ),
             },
         )
 
@@ -286,6 +374,17 @@ class BudgetAllocator:
 
         total_input_tokens = sum(record.input_tokens for record in self.state.records)
         total_output_tokens = sum(record.output_tokens for record in self.state.records)
+        total_search_input_tokens = sum(
+            record.search_input_tokens for record in self.state.records
+        )
+        total_search_output_tokens = sum(
+            record.search_output_tokens for record in self.state.records
+        )
+        total_search_cost = sum(record.search_cost for record in self.state.records)
+        total_fairness_audit_cost = sum(
+            float(record.metadata.get("fairness_audit_cost", 0.0))
+            for record in self.state.records
+        )
 
         return {
             "max_budget": self.max_budget,
@@ -301,13 +400,32 @@ class BudgetAllocator:
                 candidate_id: self.candidate_cost(candidate_id)
                 for candidate_id in candidate_ids
             },
+            "candidate_search_costs": {
+                candidate_id: sum(
+                    record.search_cost
+                    for record in self.state.records
+                    if record.candidate_id == candidate_id
+                )
+                for candidate_id in candidate_ids
+            },
             "block_costs": {
                 block_id: self.block_cost(block_id)
                 for block_id in block_ids
             },
+            "deployment_cost": sum(record.cost for record in self.state.records),
+            "search_cost": total_search_cost,
+            "fairness_audit_cost": total_fairness_audit_cost,
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "total_tokens": total_input_tokens + total_output_tokens,
+            "deployment_input_tokens": total_input_tokens,
+            "deployment_output_tokens": total_output_tokens,
+            "deployment_total_tokens": total_input_tokens + total_output_tokens,
+            "search_input_tokens": total_search_input_tokens,
+            "search_output_tokens": total_search_output_tokens,
+            "search_total_tokens": (
+                total_search_input_tokens + total_search_output_tokens
+            ),
         }
 
     def to_rows(self) -> list[dict]:
@@ -320,6 +438,9 @@ class BudgetAllocator:
                 "cost": record.cost,
                 "input_tokens": record.input_tokens,
                 "output_tokens": record.output_tokens,
+                "search_cost": record.search_cost,
+                "search_input_tokens": record.search_input_tokens,
+                "search_output_tokens": record.search_output_tokens,
             }
 
             for key, value in record.metadata.items():

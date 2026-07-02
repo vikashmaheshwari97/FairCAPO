@@ -60,3 +60,48 @@ def test_load_paper_dataset_passes_bias_in_bios_split(monkeypatch):
     )
 
     assert seen["split"] == "test"
+
+
+def test_bias_in_bios_stratifies_by_profession_and_gender(monkeypatch):
+    rows = []
+    professions = [0, 1]  # attorney, physician in the patched label list
+    genders = [0, 1]       # male, female
+    for profession in professions:
+        for gender in genders:
+            for idx in range(4):
+                rows.append(
+                    {
+                        "hard_text": f"bio {profession} {gender} {idx}",
+                        "profession": profession,
+                        "gender": gender,
+                    }
+                )
+
+    monkeypatch.setattr(datasets, "_load_hf_dataset", lambda *args, **kwargs: rows)
+    monkeypatch.setattr(
+        datasets,
+        "BIOS_PROFESSION_LABELS",
+        ["attorney", "physician"],
+    )
+
+    split = datasets.load_bias_in_bios(
+        dev_size=4,
+        shots_size=4,
+        test_size=4,
+        seed=0,
+        allow_smaller=False,
+        stratified=True,
+        stratify_group_key="gender",
+    )
+
+    for part in (split.dev, split.shots, split.test):
+        cells = {
+            (ex.label, ex.metadata["gender"])
+            for ex in part
+        }
+        assert cells == {
+            ("attorney", "male"),
+            ("attorney", "female"),
+            ("physician", "male"),
+            ("physician", "female"),
+        }

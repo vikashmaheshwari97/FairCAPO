@@ -165,6 +165,11 @@ def _take_from_label_buckets(
     return selected
 
 
+def _metadata_value(example: Example, key: str) -> str:
+    metadata = example.metadata or {}
+    return _normalize_lower_label(metadata.get(key, ""))
+
+
 def _stratified_sample_split(
     examples: list[Example],
     name: str,
@@ -176,9 +181,12 @@ def _stratified_sample_split(
     test_size: int = 500,
     seed: int = 42,
     allow_smaller: bool = False,
+    group_key: Optional[str] = None,
 ) -> DatasetSplit:
     """
-    Label-balanced split for classification datasets.
+    Label-balanced split for classification datasets. When ``group_key`` is
+    provided, buckets are built from ``(label, protected_group)`` cells so
+    fairness datasets preserve protected-group support within labels.
 
     This is important for small local runs such as:
       dev=10, shots=2, test=5
@@ -191,7 +199,9 @@ def _stratified_sample_split(
     normalized_classes = [_normalize_label(c) for c in classes]
     class_lookup = {c.lower(): c for c in normalized_classes}
 
-    buckets: dict[str, list[Example]] = defaultdict(list)
+    grouped = bool(group_key)
+    buckets: dict[Any, list[Example]] = defaultdict(list)
+    keys_by_label: dict[str, list[Any]] = defaultdict(list)
 
     for ex in examples:
         label_key = _normalize_label(ex.label).lower()
@@ -202,10 +212,17 @@ def _stratified_sample_split(
             label=canonical_label,
             metadata=ex.metadata,
         )
-        buckets[canonical_label].append(normalized_example)
+        if grouped:
+            group_value = _metadata_value(normalized_example, str(group_key))
+            bucket_key = (canonical_label, group_value)
+            if bucket_key not in keys_by_label[canonical_label]:
+                keys_by_label[canonical_label].append(bucket_key)
+        else:
+            bucket_key = canonical_label
+        buckets[bucket_key].append(normalized_example)
 
-    for label in normalized_classes:
-        rng.shuffle(buckets[label])
+    for bucket_rows in buckets.values():
+        rng.shuffle(bucket_rows)
 
     total_needed = dev_size + shots_size + test_size
 
@@ -222,9 +239,29 @@ def _stratified_sample_split(
         shots_size = min(shots_size, max(0, int(0.2 * n)))
         test_size = min(test_size, max(0, remaining - shots_size))
 
-    dev_counts = _allocate_counts(dev_size, normalized_classes)
-    shots_counts = _allocate_counts(shots_size, normalized_classes)
-    test_counts = _allocate_counts(test_size, normalized_classes)
+    if grouped:
+        def allocate_group_counts(total: int) -> dict[Any, int]:
+            counts: dict[Any, int] = {}
+            per_label = _allocate_counts(total, normalized_classes)
+            for label in normalized_classes:
+                keys = sorted(keys_by_label.get(label, []))
+                if not keys:
+                    continue
+                group_counts = _allocate_counts(per_label.get(label, 0), keys)
+                counts.update(group_counts)
+            return counts
+
+        # Touch all labels even when a split is smaller than the number of
+        # label/group cells; _allocate_counts handles the remainder
+        # deterministically. This preserves label balance first, then group
+        # balance within each label.
+        dev_counts = allocate_group_counts(dev_size)
+        shots_counts = allocate_group_counts(shots_size)
+        test_counts = allocate_group_counts(test_size)
+    else:
+        dev_counts = _allocate_counts(dev_size, normalized_classes)
+        shots_counts = _allocate_counts(shots_size, normalized_classes)
+        test_counts = _allocate_counts(test_size, normalized_classes)
 
     dev = _take_from_label_buckets(
         buckets=buckets,
@@ -272,6 +309,7 @@ def _sample_split(
     seed: int = 42,
     allow_smaller: bool = False,
     stratified: bool = True,
+    stratify_group_key: Optional[str] = None,
 ) -> DatasetSplit:
     """
     Unified sampling wrapper.
@@ -291,6 +329,7 @@ def _sample_split(
             test_size=test_size,
             seed=seed,
             allow_smaller=allow_smaller,
+            group_key=stratify_group_key,
         )
 
     return _random_sample_split(
@@ -661,6 +700,7 @@ def load_bias_in_bios(
     seed: int = 42,
     allow_smaller: bool = False,
     stratified: bool = True,
+    stratify_group_key: Optional[str] = "gender",
     split: str = "train",
 ) -> DatasetSplit:
     """
@@ -714,6 +754,7 @@ def load_bias_in_bios(
         seed=seed,
         allow_smaller=allow_smaller,
         stratified=stratified,
+        stratify_group_key=stratify_group_key if stratified else None,
     )
 
 
@@ -905,6 +946,7 @@ def load_paper_dataset(
     allow_smaller: bool = False,
     stratified: bool = True,
     dataset_split: Optional[str] = None,
+    stratify_group_key: Optional[str] = None,
 ) -> DatasetSplit:
     """
     Unified loader for datasets used in MO-CAPO / Promptolution / EvoPrompt papers.
@@ -955,6 +997,7 @@ def load_paper_dataset(
             allow_smaller,
             stratified=stratified,
             split=dataset_split or "train",
+            stratify_group_key=stratify_group_key or "gender",
         )
 
     raise ValueError(
