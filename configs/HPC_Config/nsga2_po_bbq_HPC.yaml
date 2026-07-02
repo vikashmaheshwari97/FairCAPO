@@ -96,7 +96,6 @@ nsga2_po:
   objectives:
     - performance
     - cost
-    - risk
     - fairness_risk
 
 routing_preferences:

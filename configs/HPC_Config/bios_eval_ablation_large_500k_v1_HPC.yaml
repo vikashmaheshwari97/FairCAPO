@@ -75,8 +75,6 @@ objectives:
     direction: maximize
   - name: cost
     direction: minimize
-  - name: risk
-    direction: minimize
   - name: fairness_risk
     direction: minimize
 
