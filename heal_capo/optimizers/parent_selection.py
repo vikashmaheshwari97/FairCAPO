@@ -14,7 +14,6 @@ ObjectiveName = str
 DEFAULT_OBJECTIVES: tuple[ObjectiveName, ...] = (
     "performance",
     "cost",
-    "risk",
     "fairness_risk",
 )
 
@@ -112,7 +111,8 @@ def dominates(
     True if left Pareto-dominates right.
 
     performance is maximized.
-    cost/risk/fairness_risk/drift are minimized.
+    cost/fairness_risk/drift are minimized. ``risk`` remains available as a
+    diagnostic or explicit ablation objective, but is not optimized by default.
     """
     config = config or ParentSelectionConfig()
 

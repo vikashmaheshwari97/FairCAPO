@@ -18,7 +18,8 @@ def test_core_evaluation_result_has_trust_fields():
         drift=0.0,
     )
 
-    assert result.objective_vector == (-0.8, 1.0, 0.2, 0.1)
+    assert result.objective_vector == (-0.8, 1.0, 0.1)
+    assert result.risk == 0.2
 
 
 def test_failure_memory_and_repair_align():

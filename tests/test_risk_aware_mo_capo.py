@@ -176,7 +176,7 @@ def test_risk_aware_mocapo_summary_contains_fairness():
     assert rows[0]["performance"] == 0.9
     assert rows[0]["risk"] == 0.1
     assert rows[0]["fairness_risk"] == 0.05
-    assert len(rows[0]["objective_vector"]) == 4
+    assert len(rows[0]["objective_vector"]) == 3
 
 
 def test_risk_aware_mocapo_rejects_empty_initial_prompts():

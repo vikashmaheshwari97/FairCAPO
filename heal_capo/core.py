@@ -51,12 +51,16 @@ class EvaluationResult:
     Objective convention:
       - performance should be maximized
       - cost should be minimized
-      - risk should be minimized
       - fairness_risk should be minimized
       - drift should be minimized
 
     Pareto methods use the minimization vector:
-      (-performance, cost, risk, fairness_risk)
+      (-performance, cost, fairness_risk)
+
+    ``risk`` is still logged as a diagnostic field, but it is not part of the
+    default optimization vector. In the current LLM experiments risk is mostly
+    derived from 1 - performance, so optimizing both performance and risk double
+    counts accuracy.
     """
 
     candidate_id: str
@@ -69,25 +73,23 @@ class EvaluationResult:
     details: Dict[str, Any] = field(default_factory=dict)
 
     @property
-    def objective_vector(self) -> tuple[float, float, float, float]:
+    def objective_vector(self) -> tuple[float, float, float]:
         """
         Main HEAL-CAPO objective vector.
 
         Minimization convention:
           maximize performance by minimizing -performance
           minimize cost
-          minimize risk
           minimize fairness_risk
         """
         return (
             -self.performance,
             self.cost,
-            self.risk,
             self.fairness_risk,
         )
 
     @property
-    def objective_vector_with_drift(self) -> tuple[float, float, float, float, float]:
+    def objective_vector_with_drift(self) -> tuple[float, float, float, float]:
         """
         Optional extended objective vector including drift.
 
@@ -97,7 +99,6 @@ class EvaluationResult:
         return (
             -self.performance,
             self.cost,
-            self.risk,
             self.fairness_risk,
             self.drift,
         )

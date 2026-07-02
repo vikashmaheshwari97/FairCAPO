@@ -15,7 +15,6 @@ ObjectiveName = str
 DEFAULT_OBJECTIVES: tuple[ObjectiveName, ...] = (
     "performance",
     "cost",
-    "risk",
     "fairness_risk",
 )
 
@@ -45,7 +44,6 @@ class ObjectiveSpec:
 DEFAULT_OBJECTIVE_SPECS: tuple[ObjectiveSpec, ...] = (
     ObjectiveSpec("performance", "maximize"),
     ObjectiveSpec("cost", "minimize"),
-    ObjectiveSpec("risk", "minimize"),
     ObjectiveSpec("fairness_risk", "minimize"),
 )
 
@@ -160,7 +158,6 @@ def fixed_bounds_from_config(
       bounds:
         performance: [0.0, 1.0]
         cost: [0.0, 50.0]
-        risk: [0.0, 1.0]
         fairness_risk: [0.0, 1.0]
 
     Returns None if bounds_config is empty.

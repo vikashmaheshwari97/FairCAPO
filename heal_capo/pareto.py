@@ -12,7 +12,6 @@ def dominates(a: EvaluationResult, b: EvaluationResult) -> bool:
     We use a minimization convention:
       - lower -performance is better, meaning higher performance is better
       - lower cost is better
-      - lower risk is better
       - lower fairness_risk is better
 
     a dominates b if:
@@ -80,16 +79,16 @@ def sort_pareto_results(
 
     Priority:
       1. Higher performance
-      2. Lower risk
-      3. Lower fairness risk
-      4. Lower cost
+      2. Lower fairness risk
+      3. Lower cost
+      4. Lower diagnostic risk
     """
     return sorted(
         list(results),
         key=lambda result: (
             -result.performance,
-            result.risk,
             result.fairness_risk,
             result.cost,
+            result.risk,
         ),
     )

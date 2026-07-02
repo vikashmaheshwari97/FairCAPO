@@ -72,7 +72,7 @@ def test_results_to_matrix():
 
     assert len(matrix) == 3
     assert len(matrix[0]) == len(DEFAULT_OBJECTIVE_SPECS)
-    assert matrix[0] == [0.9, 10.0, 0.1, 0.1]
+    assert matrix[0] == [0.9, 10.0, 0.1]
 
 
 def test_infer_bounds():
@@ -111,14 +111,14 @@ def test_normalize_result_handles_max_and_min_objectives():
 
     vector = normalize_result(result, bounds)
 
-    assert vector == [1.0, 1.0, 1.0, 1.0]
+    assert vector == [1.0, 1.0, 1.0]
 
 
 def test_normalize_results_infers_bounds():
     vectors = normalize_results(sample_results())
 
     assert len(vectors) == 3
-    assert all(len(vector) == 4 for vector in vectors)
+    assert all(len(vector) == 3 for vector in vectors)
     assert all(0.0 <= value <= 1.0 for vector in vectors for value in vector)
 
 
@@ -278,7 +278,7 @@ def test_summarize_mo_metrics_returns_expected_fields():
     data = summary.to_dict()
 
     assert data["num_points"] == 3
-    assert data["num_objectives"] == 4
+    assert data["num_objectives"] == 3
     assert "hypervolume" in data
     assert "optimistic_hypervolume" in data
     assert "pessimistic_hypervolume" in data
@@ -287,7 +287,6 @@ def test_summarize_mo_metrics_returns_expected_fields():
     assert data["objective_names"] == [
         "performance",
         "cost",
-        "risk",
         "fairness_risk",
     ]
 

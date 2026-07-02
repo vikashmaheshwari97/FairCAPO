@@ -143,7 +143,6 @@ def test_objective_specs_from_config_defaults_and_custom():
     assert [s.name for s in default_specs] == [
         "performance",
         "cost",
-        "risk",
         "fairness_risk",
     ]
     assert default_specs[0].direction == "maximize"

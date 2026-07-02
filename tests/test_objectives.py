@@ -22,7 +22,7 @@ def test_toy_objective_returns_fairness_risk():
     assert result.cost > 0
     assert result.risk >= 0
     assert result.fairness_risk >= 0
-    assert len(result.objective_vector) == 4
+    assert len(result.objective_vector) == 3
     assert result.details["toy"] is True
 
 
@@ -304,8 +304,8 @@ def test_objective_vector_contains_fairness():
 
     objective_vector = result.objective_vector
 
-    assert len(objective_vector) == 4
+    assert len(objective_vector) == 3
     assert objective_vector[0] == -result.performance
     assert objective_vector[1] == result.cost
-    assert objective_vector[2] == result.risk
-    assert objective_vector[3] == result.fairness_risk
+    assert objective_vector[2] == result.fairness_risk
+    assert result.risk >= 0
