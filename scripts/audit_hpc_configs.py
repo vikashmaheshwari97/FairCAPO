@@ -103,12 +103,20 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
             )
         selection = config.get("selection") or {}
         min_perf = float(selection.get("min_performance_for_fairness", 0.0) or 0.0)
-        if min_perf < 0.75:
+        gate_mode = str(selection.get("fairness_gate_mode", "continuous") or "continuous").lower()
+        if gate_mode in {"hard", "clamp"} and min_perf > 0.0:
             add(
                 findings,
                 "error",
                 path,
-                "Label-conditioned BIOS fairness should set selection.min_performance_for_fairness >= 0.75.",
+                "Label-conditioned BIOS fairness should not use a hard performance gate; use a continuous shortfall penalty.",
+            )
+        elif min_perf > 0.60:
+            add(
+                findings,
+                "warn",
+                path,
+                "Label-conditioned BIOS fairness uses a high performance threshold; early exploratory runs should use a moderate continuous gate.",
             )
 
     evaluation = config.get("evaluation") or {}

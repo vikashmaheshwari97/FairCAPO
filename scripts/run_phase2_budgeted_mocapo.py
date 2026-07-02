@@ -702,10 +702,17 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         self.low_performance_fairness_penalty = float(
             self.selection_cfg.get(
                 "low_performance_fairness_penalty",
-                self.fairness_cfg.get("low_performance_fairness_penalty", 1.0),
+                self.fairness_cfg.get("low_performance_fairness_penalty", 0.5),
             )
-            or 1.0
+            or 0.0
         )
+        self.fairness_gate_mode = str(
+            self.selection_cfg.get(
+                "fairness_gate_mode",
+                self.fairness_cfg.get("fairness_gate_mode", "continuous"),
+            )
+            or "continuous"
+        ).strip().lower()
         self.use_expected_same = bool(
             self.fairness_cfg.get("use_expected_same_prediction", True)
         )
@@ -741,12 +748,17 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         fairness_details: dict,
     ) -> tuple[float, dict]:
         """
-        Stop collapsed classifiers from being selected as "fair".
+        Discourage collapsed classifiers from being selected as "fair".
 
         A prompt that predicts the same wrong label for most examples can have a
-        deceptively low group gap. When configured, this gate assigns such
-        low-accuracy candidates a high fairness risk, so FairCAPO optimizes
-        fairness only among usable classifiers.
+        deceptively low group gap. When configured, this applies a continuous
+        shortfall penalty by default:
+
+            adjusted = measured + lambda * max(0, threshold - performance)
+
+        The old hard clamp is still available with ``fairness_gate_mode: hard``
+        for ablations, but should not be used for exploratory BIOS runs because
+        it can collapse all low-accuracy prompts to the same fairness value.
         """
         threshold = self.min_performance_for_fairness
         if threshold <= 0.0:
@@ -755,14 +767,26 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         details = dict(fairness_details)
         details["fairness_gate_min_performance"] = threshold
         details["fairness_gate_penalty"] = self.low_performance_fairness_penalty
-        details["fairness_gate_applied"] = performance < threshold
+        details["fairness_gate_mode"] = self.fairness_gate_mode
+        shortfall = max(0.0, threshold - performance)
+        details["fairness_gate_shortfall"] = shortfall
+        details["fairness_gate_applied"] = shortfall > 0.0
 
-        if performance < threshold:
+        if shortfall > 0.0:
             details["fairness_gate_original_fairness_risk"] = fairness_risk
-            fairness_risk = max(
-                fairness_risk,
-                self.low_performance_fairness_penalty,
-            )
+
+            if self.fairness_gate_mode in {"hard", "clamp"}:
+                fairness_risk = max(
+                    fairness_risk,
+                    self.low_performance_fairness_penalty,
+                )
+            else:
+                fairness_risk = min(
+                    1.0,
+                    fairness_risk
+                    + self.low_performance_fairness_penalty * shortfall,
+                )
+
             details["fairness_gate_fairness_risk"] = fairness_risk
 
         return fairness_risk, details

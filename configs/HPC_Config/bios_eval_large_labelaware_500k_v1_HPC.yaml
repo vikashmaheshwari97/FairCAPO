@@ -56,8 +56,11 @@ fairness:
   min_count_per_group: 5
 
 selection:
-  min_performance_for_fairness: 0.75
-  low_performance_fairness_penalty: 1.0
+  # Continuous penalty, not a hard clamp:
+  # adjusted_fairness = measured_fairness + 0.5 * max(0, 0.40 - accuracy)
+  min_performance_for_fairness: 0.40
+  low_performance_fairness_penalty: 0.5
+  fairness_gate_mode: continuous
 
 llm:
   backend: lmstudio

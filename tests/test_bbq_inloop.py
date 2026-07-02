@@ -131,8 +131,8 @@ def test_performance_gate_penalizes_low_accuracy_label_fairness():
             "min_count_per_group": 1,
         },
         "selection": {
-            "min_performance_for_fairness": 0.75,
-            "low_performance_fairness_penalty": 1.0,
+            "min_performance_for_fairness": 0.40,
+            "low_performance_fairness_penalty": 0.5,
         },
     }
     evaluator = LLMObjectiveEvaluator(config, llm=LetterLLM("accountant"))
@@ -145,8 +145,10 @@ def test_performance_gate_penalizes_low_accuracy_label_fairness():
     result = evaluator.evaluate(candidate, data)
 
     assert result.performance == 0.0
-    assert result.fairness_risk == 1.0
+    assert result.fairness_risk == 0.2
     assert result.details["fairness_gate_applied"] is True
+    assert result.details["fairness_gate_mode"] == "continuous"
+    assert result.details["fairness_gate_shortfall"] == 0.4
     assert result.details["fairness_gate_original_fairness_risk"] == 0.0
 
 

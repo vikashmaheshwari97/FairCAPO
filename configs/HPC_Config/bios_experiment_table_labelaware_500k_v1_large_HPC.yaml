@@ -6,7 +6,7 @@ model: mistralai/mistral-small-3.2
 seed: 0
 
 selection:
-  min_performance_for_fairness: 0.75
+  min_performance_for_fairness: 0.40
 
 objectives:
   - name: performance
