@@ -1,0 +1,92 @@
+# Large-held-out evaluation for Bias-in-Bios NSGA-II-PO 500k smoke v2.
+
+experiment_name: bios_eval_nsga_large_500k_smoke_v2
+
+portfolio_csv: outputs/hpc/bios_nsga2po_500k_smoke_v2/seed_0/nsga2_po_pareto_portfolio.csv
+output_dir: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_smoke_v2
+
+dataset: bias_in_bios
+task_type: classification
+seed: 0
+dataset_split: test
+dev_size: 280
+shots_size: 112
+test_size: 1000
+stratified: true
+stratify_group_key: gender
+allow_smaller: false
+
+labels:
+  - accountant
+  - architect
+  - attorney
+  - chiropractor
+  - comedian
+  - composer
+  - dentist
+  - dietitian
+  - dj
+  - filmmaker
+  - interior_designer
+  - journalist
+  - model
+  - nurse
+  - painter
+  - paralegal
+  - pastor
+  - personal_trainer
+  - photographer
+  - physician
+  - poet
+  - professor
+  - psychologist
+  - rapper
+  - software_engineer
+  - surgeon
+  - teacher
+  - yoga_teacher
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+
+fairness:
+  in_loop: true
+  mode: label_conditioned_group_accuracy_gap
+  group_key: gender
+  min_count_per_group: 5
+
+selection:
+  min_performance_for_fairness: 0.40
+  low_performance_fairness_penalty: 0.5
+  fairness_gate_mode: continuous
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 32
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 12000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0

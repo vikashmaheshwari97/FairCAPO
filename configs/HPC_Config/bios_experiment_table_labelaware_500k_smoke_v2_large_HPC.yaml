@@ -1,0 +1,49 @@
+# Cross-method table -- Bias-in-Bios label-aware FairCAPO diagnostic.
+
+output_dir: outputs/experiment_table/bios_mistral_hpc_labelaware_500k_smoke_v2_large_seed0
+dataset: Bias-in-Bios
+model: mistralai/mistral-small-3.2
+seed: 0
+
+selection:
+  min_performance_for_fairness: 0.40
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 12000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0
+
+methods:
+  - name: FairCAPO label-aware
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_faircapo_labelaware_500k_smoke_v2/test_eval_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bios_faircapo_labelaware_500k_smoke_v2/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_faircapo_labelaware_500k_smoke_v2/test_eval_candidates.csv
+
+  - name: MO-CAPO (fairness off)
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_ablation_500k_smoke_v2/test_eval_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bios_ablation_500k_smoke_v2/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_ablation_500k_smoke_v2/test_eval_candidates.csv
+
+  - name: NSGA-II-PO + fairness
+    type: pareto_set
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_smoke_v2/test_eval_candidates.csv
+    only_pareto: true
+    budget_json: outputs/hpc/bios_nsga2po_500k_smoke_v2/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/bios_nsga2po_500k_smoke_v2/test_eval_candidates.csv
