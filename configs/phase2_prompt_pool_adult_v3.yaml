@@ -11,13 +11,13 @@ labels:
   - ">50K"
 
 prompt_pool:
-  - id: direct_semantic
+  - id: cheap_direct
     category: cost_first
     cost_level: cheap
     few_shot_count: 0
     prompt: >
-      Predict the annual income bracket from the person record. Return exactly
-      one label, <=50K or >50K, inside <final_answer> tags.
+      Read the person record and predict annual income. Return exactly one label:
+      <=50K or >50K.
 
   - id: concise_scorecard
     category: cost_first
