@@ -13,9 +13,10 @@ task_description: >
   Each input is a semantic text rendering of an Adult census record. Predict
   annual income as exactly <=50K or >50K. Combine ordinal education, occupation,
   work class, age band, weekly hours, capital gain, capital loss, and household
-  context. Sex and race are hidden from the prompt and retained only as metadata
-  for evaluation. Evolve concise prompts that improve predictive accuracy,
-  retain diverse accuracy-cost trade-offs, and avoid constant-label collapse.
+  context. Protected sex and race are hidden from the prompt and available only
+  for equalized-odds evaluation. Evolve concise prompts that improve predictive
+  accuracy, retain diverse accuracy-cost trade-offs, avoid constant-label
+  collapse, and apply one evidence threshold consistently across groups.
 
 labels:
   - "<=50K"
