@@ -2,7 +2,50 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
+import os
+import re
 import uuid
+
+
+def _adult_demo_reasoning(text: str, output: str) -> str:
+    """Build a concise, protected-attribute-free rationale for Adult demos."""
+    match = re.search(
+        r"<final_answer>\s*(<=50K|>50K)\s*</final_answer>",
+        str(output or ""),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return str(output or "")
+
+    label = "<=50K" if match.group(1).lower() == "<=50k" else ">50K"
+    fields: dict[str, str] = {}
+    for line in str(text or "").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        fields[key.strip().lower()] = value.strip()
+
+    evidence = []
+    for key in (
+        "education",
+        "occupation",
+        "work class",
+        "hours per week",
+        "capital gain",
+        "capital loss",
+        "age",
+    ):
+        value = fields.get(key)
+        if value:
+            evidence.append(f"{key}={value}")
+
+    joined = "; ".join(evidence)
+    rationale = (
+        "Reasoning: combine the economic evidence rather than relying on one "
+        f"field. This labeled example has {joined}. Applying the same decision "
+        f"standard across records gives {label}."
+    )
+    return f"{rationale}\n<final_answer>{label}</final_answer>"
 
 
 @dataclass
@@ -22,11 +65,34 @@ class PromptCandidate:
     def render(self, x: str) -> str:
         """
         Render the prompt for one input example.
+
+        When ``FAIRCAPO_ADULT_REASONING_SHOTS=1``, label-only Adult few-shot
+        examples are expanded into deterministic evidence rationales. Protected
+        attributes are absent from the rendered record, so they cannot enter the
+        rationale. This mirrors MO-CAPO's reasoning-bearing few-shot setup while
+        keeping the stored portfolio compact and reproducible.
         """
-        shots = "\n".join(
-            f"Input: {ex.get('input', '')}\nOutput: {ex.get('output', '')}"
-            for ex in self.examples
-        )
+        use_adult_reasoning = os.environ.get(
+            "FAIRCAPO_ADULT_REASONING_SHOTS", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+        rendered_examples = []
+        for ex in self.examples:
+            example_input = str(ex.get("input", ""))
+            example_output = str(ex.get("output", ""))
+            if (
+                use_adult_reasoning
+                and "person record:" in example_input.lower()
+            ):
+                example_output = _adult_demo_reasoning(
+                    example_input,
+                    example_output,
+                )
+            rendered_examples.append(
+                f"Input: {example_input}\nOutput: {example_output}"
+            )
+
+        shots = "\n".join(rendered_examples)
 
         if shots:
             return (
