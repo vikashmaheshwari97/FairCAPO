@@ -258,6 +258,7 @@ def get_test_data(config: dict) -> list[dict]:
         stratify_group_key=config.get("stratify_group_key")
         or config.get("group_key")
         or config.get("fairness", {}).get("group_key"),
+        data_path=config.get("data_path"),
     )
 
     return [example_to_row(example) for example in split.test]

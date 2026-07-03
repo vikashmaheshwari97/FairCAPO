@@ -51,8 +51,23 @@ case "${METHOD}" in
     DEFAULT_PORTFOLIO_CSV="outputs/hpc/bios_nsga2po_guided_500k_v1/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
     DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/bios_nsga2po_guided_500k_v1"
     ;;
+  adult_faircapo)
+    DEFAULT_CONFIG="configs/HPC_Config/adult_eval_large_500k_v1_HPC.yaml"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/adult_faircapo_500k_v1/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/adult_faircapo_500k_v1"
+    ;;
+  adult_ablation)
+    DEFAULT_CONFIG="configs/HPC_Config/adult_eval_ablation_large_500k_v1_HPC.yaml"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/adult_ablation_500k_v1/seed_${SEED}/phase2_prompt_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/adult_ablation_500k_v1"
+    ;;
+  adult_nsga)
+    DEFAULT_CONFIG="configs/HPC_Config/adult_eval_nsga_large_500k_v1_HPC.yaml"
+    DEFAULT_PORTFOLIO_CSV="outputs/hpc/adult_nsga2po_500k_v1/seed_${SEED}/nsga2_po_pareto_portfolio.csv"
+    DEFAULT_OUT_DIR="outputs/hpc/evaluation_large/seed_${SEED}/adult_nsga2po_500k_v1"
+    ;;
   *)
-    echo "Unknown METHOD=${METHOD}; expected faircapo, ablation, nsga, faircapo_guided, ablation_guided, or nsga_guided." >&2
+    echo "Unknown METHOD=${METHOD}; expected faircapo, ablation, nsga, faircapo_guided, ablation_guided, nsga_guided, adult_faircapo, adult_ablation, or adult_nsga." >&2
     exit 2
     ;;
 esac

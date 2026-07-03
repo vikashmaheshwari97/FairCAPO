@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
+import csv
 import importlib
 import json
 import os
@@ -25,6 +26,9 @@ class DatasetSplit:
     task_type: str
     classes: Optional[list[str]] = None
     task_description: Optional[str] = None
+
+
+ADULT_INCOME_LABELS = ["<=50K", ">50K"]
 
 
 def _load_hf_dataset(*args, **kwargs):
@@ -54,6 +58,82 @@ def _normalize_lower_label(label: Any) -> str:
     in our prompt/evaluation setup.
     """
     return str(label).strip().lower()
+
+
+def _adult_dataset_alias(name: str) -> bool:
+    return name.lower().strip() in {
+        "adult",
+        "adult_income",
+        "adult-census-income",
+        "adult_census_income",
+    }
+
+
+def _adult_default_paths() -> list[str]:
+    return [
+        os.environ.get("FAIRCAPO_ADULT_CSV", ""),
+        "data/adult.csv",
+        "data/adult/adult.csv",
+        "datasets/adult.csv",
+    ]
+
+
+def _resolve_adult_csv_path(data_path: Optional[str] = None) -> str:
+    candidates = [data_path] if data_path else []
+    candidates.extend(_adult_default_paths())
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+
+    tried = ", ".join(path for path in candidates if path)
+    raise FileNotFoundError(
+        "Adult CSV not found. Place adult.csv at data/adult.csv, set "
+        "FAIRCAPO_ADULT_CSV, or pass dev.data_path in the config. "
+        f"Tried: {tried}"
+    )
+
+
+def _adult_clean(value: Any) -> str:
+    text = str(value).strip()
+    if not text or text == "?":
+        return "Unknown"
+    return text.replace("-", " ").replace(".", " ")
+
+
+def _normalize_adult_income(value: Any) -> str:
+    text = str(value).strip().replace(".", "")
+    if text in {">50K", ">50k"}:
+        return ">50K"
+    if text in {"<=50K", "<=50k"}:
+        return "<=50K"
+    raise ValueError(f"Unknown Adult income label: {value!r}")
+
+
+def _render_adult_record(row: dict[str, Any]) -> str:
+    """
+    Render Adult tabular features as a compact record for LLM classification.
+
+    The protected attributes (sex/race), target (income), sample weight
+    (fnlwgt), and duplicate numeric education feature are deliberately omitted.
+    They remain available only in metadata for fairness evaluation.
+    """
+    fields = [
+        ("Age", row.get("age")),
+        ("Work class", row.get("workclass")),
+        ("Education", row.get("education")),
+        ("Marital status", row.get("marital.status")),
+        ("Occupation", row.get("occupation")),
+        ("Relationship", row.get("relationship")),
+        ("Capital gain", row.get("capital.gain")),
+        ("Capital loss", row.get("capital.loss")),
+        ("Hours per week", row.get("hours.per.week")),
+        ("Native country", row.get("native.country")),
+    ]
+    lines = ["Person record:"]
+    for label, value in fields:
+        lines.append(f"{label}: {_adult_clean(value)}")
+    return "\n".join(lines)
 
 
 def load_toy_subjectivity() -> list[Example]:
@@ -758,6 +838,91 @@ def load_bias_in_bios(
     )
 
 
+def load_adult_income(
+    dev_size: int = 400,
+    shots_size: int = 100,
+    test_size: int = 1000,
+    seed: int = 42,
+    allow_smaller: bool = False,
+    stratified: bool = True,
+    stratify_group_key: Optional[str] = "sex",
+    data_path: Optional[str] = None,
+) -> DatasetSplit:
+    """
+    Adult income: tabular census-style rows rendered as text records.
+
+    The prompt text intentionally excludes the target ``income``, sampling
+    weight ``fnlwgt``, duplicate ``education.num``, and protected attributes
+    ``sex``/``race``. Protected attributes remain in metadata so the evaluator
+    can compute equalized-odds and other group fairness metrics.
+    """
+    csv_path = _resolve_adult_csv_path(data_path)
+
+    examples: list[Example] = []
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {
+            "age",
+            "workclass",
+            "education",
+            "marital.status",
+            "occupation",
+            "relationship",
+            "race",
+            "sex",
+            "capital.gain",
+            "capital.loss",
+            "hours.per.week",
+            "native.country",
+            "income",
+        }
+        missing = sorted(required.difference(reader.fieldnames or []))
+        if missing:
+            raise ValueError(f"Adult CSV is missing required columns: {missing}")
+
+        for idx, row in enumerate(reader):
+            label = _normalize_adult_income(row.get("income"))
+            sex = _adult_clean(row.get("sex"))
+            race = _adult_clean(row.get("race"))
+
+            examples.append(
+                Example(
+                    text=_render_adult_record(row),
+                    label=label,
+                    metadata={
+                        "dataset": "adult",
+                        "source_index": idx,
+                        "sex": sex,
+                        "race": race,
+                        "group": sex,
+                        "sensitive_attribute": "sex",
+                        "income": label,
+                    },
+                )
+            )
+
+    return _sample_split(
+        examples,
+        name="adult",
+        task_type="classification",
+        classes=ADULT_INCOME_LABELS,
+        task_description=(
+            "The dataset contains tabular census-style person records rendered "
+            "as text. The task is to predict whether annual income is <=50K or "
+            ">50K from employment, education, working-hours, and financial "
+            "evidence. Sex and race are protected attributes used only for "
+            "fairness evaluation."
+        ),
+        dev_size=dev_size,
+        shots_size=shots_size,
+        test_size=test_size,
+        seed=seed,
+        allow_smaller=allow_smaller,
+        stratified=stratified,
+        stratify_group_key=stratify_group_key if stratified else None,
+    )
+
+
 # BBQ (Bias Benchmark for QA, Parrish et al. 2021).
 #
 # Three demographic categories used for FairCAPO's fairness showcase. The exact
@@ -947,6 +1112,7 @@ def load_paper_dataset(
     stratified: bool = True,
     dataset_split: Optional[str] = None,
     stratify_group_key: Optional[str] = None,
+    data_path: Optional[str] = None,
 ) -> DatasetSplit:
     """
     Unified loader for datasets used in MO-CAPO / Promptolution / EvoPrompt papers.
@@ -1000,10 +1166,22 @@ def load_paper_dataset(
             stratify_group_key=stratify_group_key or "gender",
         )
 
+    if _adult_dataset_alias(normalized_name):
+        return load_adult_income(
+            dev_size=dev_size,
+            shots_size=shots_size,
+            test_size=test_size,
+            seed=seed,
+            allow_smaller=allow_smaller,
+            stratified=stratified,
+            stratify_group_key=stratify_group_key or "sex",
+            data_path=data_path,
+        )
+
     raise ValueError(
         f"Unknown paper dataset: {name}. "
         "Supported: toy_subjectivity, subj, ag_news, sst5, gsm8k, mbpp, "
-        "bbq, bias_in_bios."
+        "bbq, bias_in_bios, adult."
     )
 
 
@@ -1024,6 +1202,9 @@ def get_dataset_classes(name: str) -> Optional[list[str]]:
 
     if normalized_name in {"bias_in_bios", "bias-in-bios", "bios", "biosbias"}:
         return list(BIOS_PROFESSION_LABELS)
+
+    if _adult_dataset_alias(normalized_name):
+        return list(ADULT_INCOME_LABELS)
 
     # BBQ is multiple-choice (variable answer text per item) -> no fixed class set,
     # like GSM8K/MBPP.
@@ -1089,6 +1270,14 @@ def get_task_description(name: str) -> str:
             "occupation. The task is to classify each biography into exactly one "
             "occupation label. Gender is a protected attribute used only for "
             "fairness evaluation, not as a target label."
+        )
+
+    if _adult_dataset_alias(normalized_name):
+        return (
+            "The dataset contains tabular census-style person records rendered "
+            "as text. The task is to predict whether annual income is <=50K or "
+            ">50K. Sex and race are protected attributes used only for fairness "
+            "evaluation, not as model input features in the main setting."
         )
 
     raise ValueError(f"Unknown dataset for task description: {name}")

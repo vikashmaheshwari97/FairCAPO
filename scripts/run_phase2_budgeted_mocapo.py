@@ -559,13 +559,21 @@ def prompt_instruction_rejection_reason(
     Reject prompt mutations that become interactive assistant messages instead
     of reusable task instructions.
 
-    This is intentionally conservative and only applies to Bias-in-Bios-style
-    classification prompts, where a valid prompt must classify the biography
-    supplied by the evaluator rather than ask the user to provide one.
+    This is intentionally conservative and only applies to dataset-backed
+    fairness classification prompts where a valid prompt must classify the
+    supplied input rather than ask the user to provide one.
     """
     dataset = str(config.get("dataset", "")).strip().lower()
     task_type = str(config.get("task_type", "")).strip().lower()
-    if dataset not in {"bias_in_bios", "bios"} or task_type != "classification":
+    guarded_datasets = {
+        "bias_in_bios",
+        "bios",
+        "adult",
+        "adult_income",
+        "adult-census-income",
+        "adult_census_income",
+    }
+    if dataset not in guarded_datasets or task_type != "classification":
         return None
 
     text = str(instruction or "").strip()
@@ -577,19 +585,19 @@ def prompt_instruction_rejection_reason(
         if pattern in lowered:
             return f"interactive_prompt_request:{pattern}"
 
-    classification_terms = (
-        "classify",
-        "predict",
-        "choose",
-        "select",
-        "profession",
-        "occupation",
-        "label",
-    )
+    classification_terms = ["classify", "predict", "choose", "select", "label"]
+    input_terms = ["text", "input"]
+    if dataset in {"bias_in_bios", "bios"}:
+        classification_terms.extend(["profession", "occupation"])
+        input_terms.append("biography")
+    elif dataset in {"adult", "adult_income", "adult-census-income", "adult_census_income"}:
+        classification_terms.extend(["income", "<=50k", ">50k"])
+        input_terms.extend(["record", "person"])
+
     if not any(term in lowered for term in classification_terms):
         return "missing_classification_instruction"
 
-    if "biography" not in lowered and "text" not in lowered:
+    if not any(term in lowered for term in input_terms):
         return "missing_input_reference"
 
     return None
@@ -1996,6 +2004,7 @@ def get_dev_data(config: dict) -> list[dict]:
             stratify_group_key=dev_cfg.get("stratify_group_key")
             or dev_cfg.get("group_key")
             or config.get("fairness", {}).get("group_key"),
+            data_path=dev_cfg.get("data_path") or config.get("data_path"),
         )
         return [_example_to_row(ex) for ex in split.dev]
 
@@ -2172,6 +2181,11 @@ def build_shot_pool(config: dict, dev_data: list[dict]) -> list[dict]:
             or dev_cfg.get("stratify_group_key")
             or dev_cfg.get("group_key")
             or config.get("fairness", {}).get("group_key"),
+            data_path=(
+                fs_cfg.get("data_path")
+                or dev_cfg.get("data_path")
+                or config.get("data_path")
+            ),
         )
         rows = [_example_to_row(ex) for ex in split.shots]
 
