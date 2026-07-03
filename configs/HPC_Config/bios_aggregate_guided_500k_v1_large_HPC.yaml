@@ -1,0 +1,13 @@
+# Aggregate guided-classifier Bias-in-Bios large-held-out Dtest results.
+
+base: outputs/hpc/evaluation_large/seed_{seed}
+seeds: [0, 1, 2]
+output_dir: outputs/experiment_table/bios_mistral_hpc_guided_500k_v1_large_multiseed
+
+methods:
+  - name: FairCAPO
+    eval_subdir: bios_faircapo_guided_500k_v1
+  - name: MO-CAPO (fairness off)
+    eval_subdir: bios_ablation_guided_500k_v1
+  - name: NSGA-II-PO + fairness
+    eval_subdir: bios_nsga2po_guided_500k_v1

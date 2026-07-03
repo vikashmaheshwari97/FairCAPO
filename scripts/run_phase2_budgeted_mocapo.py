@@ -289,6 +289,7 @@ def make_llm_prompt(
     labels: list[str],
     require_final_answer_tags: bool = False,
     task_type: str = "classification",
+    label_guidance: str = "",
 ) -> str:
     rendered = candidate.render(text)
 
@@ -314,17 +315,24 @@ def make_llm_prompt(
         )
 
     label_text = ", ".join(labels)
+    guidance_block = (
+        f"\n\nProfession boundary guide:\n{label_guidance.strip()}"
+        if label_guidance and task_type not in GENERATION_TASK_TYPES
+        else ""
+    )
 
     if require_final_answer_tags:
         return (
             f"{rendered}\n\n"
             f"Allowed labels: {label_text}\n"
+            f"{guidance_block}\n"
             f"Return only the answer inside <final_answer> and </final_answer> tags."
         )
 
     return (
         f"{rendered}\n\n"
         f"Allowed labels: {label_text}\n"
+        f"{guidance_block}\n"
         f"Return only one label: {label_text}."
     )
 
@@ -485,6 +493,46 @@ def label_confusion_group_for_prediction(
         if normalized in group:
             return group
     return []
+
+
+BIOS_PROFESSION_BOUNDARY_GUIDE = (
+    "Use exact profession boundaries, not broad semantic similarity. "
+    "Medical: surgeon requires surgery, operations, or surgical practice; "
+    "physician requires medical diagnosis, treatment, clinical medicine, or "
+    "medical practice; chiropractor requires chiropractic, spine, "
+    "musculoskeletal, or adjustment evidence; nurse requires nursing care. "
+    "Legal: attorney/lawyer practices law, represents clients, or gives legal "
+    "counsel; paralegal assists lawyers or performs legal support and should "
+    "not be promoted to attorney without practice/representation evidence. "
+    "Education and mental health: professor requires academic faculty, "
+    "university teaching, research, or publications; teacher requires school, "
+    "classroom, or instructional teaching; psychologist requires psychology, "
+    "mental behavior, diagnosis, therapy, or research in psychology. "
+    "Nutrition and fitness: dietitian requires nutrition, dietetics, or diet "
+    "counseling; personal_trainer requires fitness coaching; yoga_teacher "
+    "requires yoga instruction. Arts/media: journalist reports news or writes "
+    "journalism; poet writes poetry; filmmaker makes films; photographer takes "
+    "photographs. Technology/design: software_engineer builds software; "
+    "architect designs buildings. Return the most specific supported allowed "
+    "label."
+)
+
+
+def label_guidance_from_config(config: dict) -> str:
+    evaluation_cfg = config.get("evaluation", {}) or {}
+    mode = str(evaluation_cfg.get("label_guidance", "") or "").strip().lower()
+    if mode in {"", "none", "false"}:
+        return ""
+    if mode in {
+        "bios_profession_boundaries",
+        "profession_boundaries",
+        "bios_boundaries",
+    }:
+        return BIOS_PROFESSION_BOUNDARY_GUIDE
+    custom = evaluation_cfg.get("label_guidance_text")
+    if custom:
+        return str(custom).strip()
+    raise ValueError(f"Unknown evaluation.label_guidance: {mode}")
 
 
 INTERACTIVE_PROMPT_REQUEST_PATTERNS: tuple[str, ...] = (
@@ -787,6 +835,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         self.classification_mode = str(
             self.evaluation_cfg.get("classification_mode", "generate")
         ).strip().lower()
+        self.label_guidance = label_guidance_from_config(config)
         self.label_confusion_groups = label_confusion_groups_from_config(
             config, self.labels
         )
@@ -1010,6 +1059,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 labels=self.labels,
                 require_final_answer_tags=self.require_final_answer_tags,
                 task_type=self.task_type,
+                label_guidance=self.label_guidance,
             )
             cf_prompt = make_llm_prompt(
                 candidate=candidate,
@@ -1017,6 +1067,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 labels=self.labels,
                 require_final_answer_tags=self.require_final_answer_tags,
                 task_type=self.task_type,
+                label_guidance=self.label_guidance,
             )
 
             base_response = get_llm_response(self.llm, base_prompt)
@@ -1169,6 +1220,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 labels=self.labels,
                 require_final_answer_tags=self.require_final_answer_tags,
                 task_type=self.task_type,
+                label_guidance=self.label_guidance,
             )
             response = get_llm_response(self.llm, prompt)
             pred, is_correct = self._score_prediction(response, gold)
@@ -1287,6 +1339,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                 labels=self.labels,
                 require_final_answer_tags=self.require_final_answer_tags,
                 task_type=self.task_type,
+                label_guidance=self.label_guidance,
             )
             fallback_response = get_llm_response(self.llm, fallback_prompt)
             fallback_label = extract_label(fallback_response, self.labels)
@@ -1392,6 +1445,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             labels=self.labels,
             require_final_answer_tags=self.require_final_answer_tags,
             task_type=self.task_type,
+            label_guidance=self.label_guidance,
         )
         base_response = get_llm_response(self.llm, base_prompt)
         base_prediction = extract_label(base_response, self.labels).strip().lower()
@@ -1509,6 +1563,7 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
                     labels=self.labels,
                     require_final_answer_tags=self.require_final_answer_tags,
                     task_type=self.task_type,
+                    label_guidance=self.label_guidance,
                 )
 
                 raw_response = get_llm_response(self.llm, prompt)
