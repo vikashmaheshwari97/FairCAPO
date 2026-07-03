@@ -487,6 +487,66 @@ def label_confusion_group_for_prediction(
     return []
 
 
+INTERACTIVE_PROMPT_REQUEST_PATTERNS: tuple[str, ...] = (
+    "please provide the biography",
+    "provide the biography",
+    "send me the biography",
+    "give me the biography",
+    "please provide a biography",
+    "provide a biography",
+    "send me a biography",
+    "give me a biography",
+    "i need the biography",
+    "i'll classify",
+    "i will classify",
+    "i can classify",
+)
+
+
+def prompt_instruction_rejection_reason(
+    instruction: str,
+    config: dict,
+) -> str | None:
+    """
+    Reject prompt mutations that become interactive assistant messages instead
+    of reusable task instructions.
+
+    This is intentionally conservative and only applies to Bias-in-Bios-style
+    classification prompts, where a valid prompt must classify the biography
+    supplied by the evaluator rather than ask the user to provide one.
+    """
+    dataset = str(config.get("dataset", "")).strip().lower()
+    task_type = str(config.get("task_type", "")).strip().lower()
+    if dataset not in {"bias_in_bios", "bios"} or task_type != "classification":
+        return None
+
+    text = str(instruction or "").strip()
+    lowered = text.lower()
+    if not lowered:
+        return "empty_instruction"
+
+    for pattern in INTERACTIVE_PROMPT_REQUEST_PATTERNS:
+        if pattern in lowered:
+            return f"interactive_prompt_request:{pattern}"
+
+    classification_terms = (
+        "classify",
+        "predict",
+        "choose",
+        "select",
+        "profession",
+        "occupation",
+        "label",
+    )
+    if not any(term in lowered for term in classification_terms):
+        return "missing_classification_instruction"
+
+    if "biography" not in lowered and "text" not in lowered:
+        return "missing_input_reference"
+
+    return None
+
+
 def make_label_disambiguation_prompt(
     candidate: PromptCandidate,
     text: str,
@@ -2807,6 +2867,29 @@ def run_budgeted_mocapo(
                 )
 
             challenger = op_result.candidate
+            if bool(evolutionary_cfg.get("validate_prompt_instruction", True)):
+                rejection_reason = prompt_instruction_rejection_reason(
+                    challenger.instruction,
+                    config,
+                )
+                if rejection_reason:
+                    event_rows.append(
+                        {
+                            "candidate_id": challenger.candidate_id,
+                            "method": challenger.metadata.get("method"),
+                            "event_type": "invalid_prompt_rejected",
+                            "iteration": iteration,
+                            "offspring_index": offspring_index,
+                            "operator": op_result.operator,
+                            "accepted": False,
+                            "rejected": True,
+                            "reason": rejection_reason,
+                            "evaluated_blocks": "[]",
+                            "budget_used": budget_allocator.used_budget,
+                            "remaining_budget": budget_allocator.remaining_budget,
+                        }
+                    )
+                    continue
 
             try:
                 decision = intensifier.intensify(

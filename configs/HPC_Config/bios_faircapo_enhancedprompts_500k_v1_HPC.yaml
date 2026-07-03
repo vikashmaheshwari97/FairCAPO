@@ -125,6 +125,7 @@ evolutionary:
   use_meta_llm: true
   require_prompt_tags: true
   preserve_output_format: true
+  validate_prompt_instruction: true
   advance_after_iteration: true
 
 intensification:
