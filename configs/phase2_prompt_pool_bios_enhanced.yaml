@@ -155,11 +155,24 @@ prompt_pool:
     prompt: >
       Predict the exact profession label from occupational evidence. Be careful
       with common confusions: surgeon performs operations, physician diagnoses
-      or treats patients, nurse provides nursing care, professor conducts
-      university research or teaching, teacher teaches school or classes,
-      attorney practices law, paralegal supports legal work, journalist reports
-      news, poet writes poetry, filmmaker makes films, photographer takes
-      photographs. Return only one allowed label.
+      or treats patients, chiropractor treats spine or musculoskeletal alignment,
+      nurse provides nursing care, professor conducts university research or
+      teaching, teacher teaches school or classes, psychologist studies or treats
+      mental behavior, attorney practices law, paralegal supports legal work,
+      journalist reports news, poet writes poetry, filmmaker makes films,
+      photographer takes photographs. Return only one allowed label.
+
+  - id: accuracy_boundary_rules_short
+    category: accuracy_first
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Use exact profession boundaries. Choose surgeon only for surgery or
+      operations; chiropractor only for chiropractic or spine treatment;
+      physician only for medical diagnosis or treatment; paralegal only for
+      legal support, not practicing law; attorney only for practicing law;
+      professor only for university research or academic faculty; teacher only
+      for classroom teaching. Return only one allowed label.
 
   - id: accuracy_label_taxonomy
     category: accuracy_first
@@ -184,6 +197,24 @@ prompt_pool:
       university teaching is stated. Ignore names, pronouns, and stereotypes.
       Return exactly one allowed label.
 
+  - id: accuracy_boundary_rules_full
+    category: accuracy_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Apply these exact-label rules before answering. Medical: surgeon requires
+      operations or surgical practice; physician requires diagnosis, treatment,
+      clinical medicine, or medical practice; chiropractor requires chiropractic,
+      spine, musculoskeletal, or adjustment evidence; nurse requires nursing care.
+      Legal: attorney/lawyer practices law or represents clients; paralegal
+      assists lawyers or performs legal support. Education/mental health:
+      professor is academic faculty, research, publication, or university
+      teaching; teacher is school/classroom instruction; psychologist studies,
+      diagnoses, or treats mental processes or behavior. Nutrition/fitness:
+      dietitian requires nutrition or diet counseling; personal_trainer requires
+      fitness coaching; yoga_teacher requires yoga instruction. Return only the
+      single best allowed label.
+
   - id: fairness_specific_evidence
     category: fairness_first
     cost_level: medium
@@ -194,6 +225,17 @@ prompt_pool:
       surgeon, patient diagnosis or treatment for physician, classroom teaching
       for teacher, university research or teaching for professor, legal practice
       for attorney, and legal assistance for paralegal. Return only one label.
+
+  - id: fairness_boundary_consistency
+    category: fairness_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Apply identical profession boundaries for all gender groups. Do not let a
+      gendered name or pronoun move a biography from paralegal to attorney,
+      surgeon to physician, chiropractor to physician, teacher to professor, or
+      dietitian to professor. Use only explicit occupational evidence and return
+      one allowed label.
 
   - id: balanced_exact_profession
     category: balanced

@@ -11,6 +11,24 @@ output_dir: outputs/hpc/bios_faircapo_enhancedprompts_500k_v1/seed_0
 
 prompt_pool: configs/phase2_prompt_pool_bios_enhanced.yaml
 
+initial_prompt_ids:
+  - accuracy_boundary_rules_short
+  - accuracy_confusion_pairs
+  - accuracy_label_taxonomy
+  - accuracy_negative_evidence
+  - accuracy_boundary_rules_full
+  - fairness_boundary_consistency
+  - fairness_specific_evidence
+  - balanced_exact_profession
+  - balanced_evidence_fair
+  - risk_no_guess
+  - cheap_evidence
+  - accuracy_role_evidence
+  - fairness_gender_blind
+  - risk_context_only
+  - cheap_direct
+  - baseline
+
 task_description: >
   Each item is a short biography. Predict the person's profession from the
   biography text. Gender is a protected attribute used only for fairness
