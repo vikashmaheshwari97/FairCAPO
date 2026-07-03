@@ -435,6 +435,83 @@ def make_label_support_prompt(
     )
 
 
+DEFAULT_LABEL_CONFUSION_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("physician", "surgeon"),
+    ("professor", "teacher"),
+    ("attorney", "paralegal"),
+    ("journalist", "poet"),
+    ("filmmaker", "photographer"),
+    ("dietitian", "personal_trainer", "yoga_teacher"),
+    ("nurse", "physician"),
+    ("software_engineer", "architect"),
+)
+
+
+def _canonical_label_set(labels: list[str]) -> set[str]:
+    return {str(label).strip().lower() for label in labels}
+
+
+def label_confusion_groups_from_config(config: dict, labels: list[str]) -> list[list[str]]:
+    evaluation_cfg = config.get("evaluation", {}) or {}
+    configured = evaluation_cfg.get("label_confusion_groups")
+    known_labels = _canonical_label_set(labels)
+
+    if configured is None:
+        dataset = str(config.get("dataset", "")).strip().lower()
+        if dataset not in {"bias_in_bios", "bios"}:
+            return []
+        configured = DEFAULT_LABEL_CONFUSION_GROUPS
+
+    groups: list[list[str]] = []
+    for raw_group in configured or []:
+        group = [
+            str(label).strip().lower()
+            for label in raw_group
+            if str(label).strip().lower() in known_labels
+        ]
+        # Keep only real disambiguation groups.
+        if len(set(group)) >= 2:
+            groups.append(list(dict.fromkeys(group)))
+
+    return groups
+
+
+def label_confusion_group_for_prediction(
+    prediction: str,
+    groups: list[list[str]],
+) -> list[str]:
+    normalized = str(prediction).strip().lower()
+    for group in groups:
+        if normalized in group:
+            return group
+    return []
+
+
+def make_label_disambiguation_prompt(
+    candidate: PromptCandidate,
+    text: str,
+    initial_prediction: str,
+    candidate_labels: list[str],
+    require_final_answer_tags: bool = True,
+) -> str:
+    rendered = candidate.render(text)
+    label_text = ", ".join(candidate_labels)
+    answer_format = (
+        "Return only the chosen label inside <final_answer> and </final_answer> tags."
+        if require_final_answer_tags
+        else "Return only the chosen label."
+    )
+    return (
+        f"{rendered}\n\n"
+        f"Initial prediction: {initial_prediction}\n"
+        f"Confusable profession labels: {label_text}\n"
+        "Disambiguate using only explicit occupational evidence in the biography. "
+        "Pay close attention to credentials, job duties, workplace, and domain terms. "
+        "Do not use gender, names, or pronouns as evidence.\n"
+        f"{answer_format}"
+    )
+
+
 def parse_support_score(response: str, default: float = 0.0) -> float:
     text = extract_final_answer(response)
     matches = re.findall(r"-?\d+(?:\.\d+)?", str(text))
@@ -650,6 +727,9 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
         self.classification_mode = str(
             self.evaluation_cfg.get("classification_mode", "generate")
         ).strip().lower()
+        self.label_confusion_groups = label_confusion_groups_from_config(
+            config, self.labels
+        )
         self.label_scoring_top_k = max(
             1, int(self.evaluation_cfg.get("label_scoring_top_k", 3))
         )
@@ -1230,6 +1310,104 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             },
         )
 
+    def _predict_targeted_disambiguation(
+        self,
+        candidate: PromptCandidate,
+        text: str,
+    ) -> tuple[str, str, int, int, dict]:
+        """
+        Bias-in-Bios classification path:
+        1. make the normal one-label prediction,
+        2. if that label belongs to a known confusion group, ask a focused
+           follow-up over only that group,
+        3. use the follow-up label only when it is one of the group labels.
+
+        This keeps the cheap/free-form evaluator behavior for most examples,
+        but directly targets common exact-label errors such as
+        physician-vs-surgeon and professor-vs-teacher.
+        """
+        base_prompt = make_llm_prompt(
+            candidate=candidate,
+            text=text,
+            labels=self.labels,
+            require_final_answer_tags=self.require_final_answer_tags,
+            task_type=self.task_type,
+        )
+        base_response = get_llm_response(self.llm, base_prompt)
+        base_prediction = extract_label(base_response, self.labels).strip().lower()
+        input_tokens = simple_token_count(base_prompt)
+        output_tokens = simple_token_count(base_response)
+
+        confusion_group = label_confusion_group_for_prediction(
+            base_prediction, self.label_confusion_groups
+        )
+        if not confusion_group:
+            raw_response = json.dumps(
+                {
+                    "mode": "targeted_disambiguation",
+                    "initial_response": base_response,
+                    "initial_prediction": base_prediction,
+                    "disambiguation_applied": False,
+                    "disambiguation_group": [],
+                    "prediction": base_prediction,
+                },
+                default=_json_default,
+            )
+            return (
+                base_prediction,
+                raw_response,
+                input_tokens,
+                output_tokens,
+                {
+                    "classification_mode": "targeted_disambiguation",
+                    "disambiguation_applied": False,
+                    "initial_prediction": base_prediction,
+                    "disambiguation_group": [],
+                },
+            )
+
+        disambiguation_prompt = make_label_disambiguation_prompt(
+            candidate=candidate,
+            text=text,
+            initial_prediction=base_prediction,
+            candidate_labels=confusion_group,
+            require_final_answer_tags=self.require_final_answer_tags,
+        )
+        disambiguation_response = get_llm_response(self.llm, disambiguation_prompt)
+        disambiguated = extract_label(
+            disambiguation_response, confusion_group
+        ).strip().lower()
+        input_tokens += simple_token_count(disambiguation_prompt)
+        output_tokens += simple_token_count(disambiguation_response)
+
+        final_prediction = (
+            disambiguated if disambiguated in confusion_group else base_prediction
+        )
+        raw_response = json.dumps(
+            {
+                "mode": "targeted_disambiguation",
+                "initial_response": base_response,
+                "initial_prediction": base_prediction,
+                "disambiguation_applied": True,
+                "disambiguation_group": confusion_group,
+                "disambiguation_response": disambiguation_response,
+                "prediction": final_prediction,
+            },
+            default=_json_default,
+        )
+        return (
+            final_prediction,
+            raw_response,
+            input_tokens,
+            output_tokens,
+            {
+                "classification_mode": "targeted_disambiguation",
+                "disambiguation_applied": True,
+                "initial_prediction": base_prediction,
+                "disambiguation_group": confusion_group,
+            },
+        )
+
     def evaluate(self, candidate: PromptCandidate, data) -> EvaluationResult:
         correct = 0
         total = 0
@@ -1253,6 +1431,15 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             ):
                 pred, raw_response, prompt_tokens, response_tokens, row_details = (
                     self._predict_two_stage_label_scoring(candidate, text)
+                )
+                is_correct = pred == gold
+            elif (
+                self.classification_mode == "targeted_disambiguation"
+                and not self.is_generation
+                and not self.is_multiple_choice
+            ):
+                pred, raw_response, prompt_tokens, response_tokens, row_details = (
+                    self._predict_targeted_disambiguation(candidate, text)
                 )
                 is_correct = pred == gold
             else:

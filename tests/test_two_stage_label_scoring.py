@@ -91,3 +91,73 @@ def test_two_stage_label_scoring_falls_back_when_topk_is_invalid():
     assert result.performance == 1.0
     assert result.details["predictions"][0]["label_scoring_fallback"] is True
     assert len(llm.prompts) == 2
+
+
+def test_targeted_disambiguation_corrects_known_confusion_pair():
+    llm = QueueLLM(
+        [
+            "<final_answer>physician</final_answer>",
+            "<final_answer>surgeon</final_answer>",
+        ]
+    )
+    evaluator = LLMObjectiveEvaluator(
+        {
+            "labels": ["physician", "surgeon", "teacher"],
+            "task_type": "classification",
+            "evaluation": {
+                "require_final_answer_tags": True,
+                "classification_mode": "targeted_disambiguation",
+                "label_confusion_groups": [["physician", "surgeon"]],
+            },
+            "fairness": {"in_loop": False},
+            "llm": {"model_id": "fake"},
+        },
+        llm=llm,
+    )
+    candidate = PromptCandidate(instruction="Classify the biography.")
+    data = [
+        {
+            "text": "Biography: Performs operations in hospital operating rooms.",
+            "label": "surgeon",
+        }
+    ]
+
+    result = evaluator.evaluate(candidate, data)
+
+    assert result.performance == 1.0
+    assert len(llm.prompts) == 2
+    row = result.details["predictions"][0]
+    assert row["prediction"] == "surgeon"
+    assert row["classification_mode"] == "targeted_disambiguation"
+    assert row["disambiguation_applied"] is True
+    assert row["initial_prediction"] == "physician"
+    assert row["disambiguation_group"] == ["physician", "surgeon"]
+
+
+def test_targeted_disambiguation_skips_unconfigured_prediction():
+    llm = QueueLLM(["<final_answer>teacher</final_answer>"])
+    evaluator = LLMObjectiveEvaluator(
+        {
+            "labels": ["physician", "surgeon", "teacher"],
+            "task_type": "classification",
+            "evaluation": {
+                "require_final_answer_tags": True,
+                "classification_mode": "targeted_disambiguation",
+                "label_confusion_groups": [["physician", "surgeon"]],
+            },
+            "fairness": {"in_loop": False},
+            "llm": {"model_id": "fake"},
+        },
+        llm=llm,
+    )
+    candidate = PromptCandidate(instruction="Classify the biography.")
+    data = [{"text": "Biography: Teaches mathematics.", "label": "teacher"}]
+
+    result = evaluator.evaluate(candidate, data)
+
+    assert result.performance == 1.0
+    assert len(llm.prompts) == 1
+    row = result.details["predictions"][0]
+    assert row["prediction"] == "teacher"
+    assert row["classification_mode"] == "targeted_disambiguation"
+    assert row["disambiguation_applied"] is False

@@ -169,7 +169,14 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
         not legacy_bios_v1
         and (
             ("bios_nsga2po" in lower_path and "labelscore" not in lower_path)
-            or ("bios_eval" in lower_path and "large" in lower_path and "qwen" not in lower_path and "labelscore" not in lower_path and "fairshots" not in lower_path)
+            or (
+                "bios_eval" in lower_path
+                and "large" in lower_path
+                and "qwen" not in lower_path
+                and "labelscore" not in lower_path
+                and "fairshots" not in lower_path
+                and "disambig" not in lower_path
+            )
         )
     ):
         if fairness_in_loop and fairness_mode not in {
