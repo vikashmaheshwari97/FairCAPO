@@ -176,6 +176,7 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
                 and "labelscore" not in lower_path
                 and "fairshots" not in lower_path
                 and "disambig" not in lower_path
+                and "enhancedprompts" not in lower_path
             )
         )
     ):

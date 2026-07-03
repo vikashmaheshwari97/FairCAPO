@@ -3,7 +3,9 @@ Diagnose Bias-in-Bios held-out CSVs without new LLM calls.
 
 The held-out evaluation CSV stores ``detail_predictions`` as JSON. This script
 recomputes micro accuracy, macro accuracy, overall group accuracy gap, and the
-worst label-conditioned group accuracy gap for each candidate row.
+worst label-conditioned group accuracy gap for each candidate row. It also
+writes CPU-only error-analysis tables for profession accuracy, gender accuracy,
+gold/predicted confusion pairs, and the top label confusions per candidate.
 
 Example:
 
@@ -83,6 +85,144 @@ def macro_accuracy(predictions: list[dict[str, Any]]) -> float:
     if not by_label:
         return 0.0
     return sum(sum(vals) / len(vals) for vals in by_label.values()) / len(by_label)
+
+
+def as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return bool(value)
+
+
+def candidate_prefix(source: Path, row: dict[str, str]) -> dict[str, Any]:
+    return {
+        "source": source.as_posix(),
+        "candidate_id": row.get("candidate_id", ""),
+        "method": row.get("method", ""),
+        "category": row.get("category", ""),
+        "is_pareto": row.get("is_pareto", ""),
+        "performance": row.get("performance", ""),
+        "cost": row.get("cost", ""),
+        "fairness_risk": row.get("fairness_risk", ""),
+    }
+
+
+def profession_accuracy_rows(
+    source: Path,
+    row: dict[str, str],
+    predictions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    prefix = candidate_prefix(source, row)
+    by_label: dict[str, list[dict[str, Any]]] = {}
+    for item in predictions:
+        gold = normalize_prediction(str(item.get("gold", "")))
+        if gold:
+            by_label.setdefault(gold, []).append(item)
+
+    rows: list[dict[str, Any]] = []
+    for label, items in sorted(by_label.items()):
+        total = len(items)
+        correct = sum(1 for item in items if as_bool(item.get("correct", False)))
+        rows.append(
+            {
+                **prefix,
+                "label": label,
+                "n_examples": total,
+                "correct": correct,
+                "accuracy": correct / total if total else 0.0,
+            }
+        )
+    return rows
+
+
+def gender_accuracy_rows(
+    source: Path,
+    row: dict[str, str],
+    predictions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    prefix = candidate_prefix(source, row)
+    by_group: dict[str, list[dict[str, Any]]] = {}
+    for item in predictions:
+        group = str(item.get("group", "")).strip().lower()
+        if group:
+            by_group.setdefault(group, []).append(item)
+
+    rows: list[dict[str, Any]] = []
+    for group, items in sorted(by_group.items()):
+        total = len(items)
+        correct = sum(1 for item in items if as_bool(item.get("correct", False)))
+        rows.append(
+            {
+                **prefix,
+                "group": group,
+                "n_examples": total,
+                "correct": correct,
+                "accuracy": correct / total if total else 0.0,
+            }
+        )
+    return rows
+
+
+def confusion_rows(
+    source: Path,
+    row: dict[str, str],
+    predictions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    prefix = candidate_prefix(source, row)
+    counts: dict[tuple[str, str], dict[str, int]] = {}
+    for item in predictions:
+        gold = normalize_prediction(str(item.get("gold", "")))
+        pred = normalize_prediction(str(item.get("prediction", "")))
+        if not gold or not pred:
+            continue
+        key = (gold, pred)
+        counts.setdefault(key, {"count": 0, "correct": 0})
+        counts[key]["count"] += 1
+        if gold == pred:
+            counts[key]["correct"] += 1
+
+    rows: list[dict[str, Any]] = []
+    for (gold, pred), values in sorted(
+        counts.items(), key=lambda item: (-item[1]["count"], item[0])
+    ):
+        rows.append(
+            {
+                **prefix,
+                "gold": gold,
+                "prediction": pred,
+                "count": values["count"],
+                "correct": values["correct"],
+                "is_error": gold != pred,
+            }
+        )
+    return rows
+
+
+def top_confusion_rows(
+    confusion: list[dict[str, Any]],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    by_candidate: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in confusion:
+        if not as_bool(row.get("is_error", False)):
+            continue
+        key = (str(row.get("source", "")), str(row.get("candidate_id", "")))
+        by_candidate.setdefault(key, []).append(row)
+
+    rows: list[dict[str, Any]] = []
+    for items in by_candidate.values():
+        rows.extend(
+            sorted(
+                items,
+                key=lambda item: (
+                    -int(item.get("count", 0)),
+                    str(item.get("gold", "")),
+                    str(item.get("prediction", "")),
+                ),
+            )[:top_k]
+        )
+    return rows
 
 
 def multiclass_demographic_parity_gap(
@@ -197,6 +337,9 @@ def main() -> None:
 
     summaries: list[dict[str, Any]] = []
     per_label: list[dict[str, Any]] = []
+    profession_accuracy: list[dict[str, Any]] = []
+    gender_accuracy: list[dict[str, Any]] = []
+    confusion: list[dict[str, Any]] = []
 
     for input_path in args.inputs:
         path = Path(input_path)
@@ -208,13 +351,27 @@ def main() -> None:
             )
             summaries.append(summary)
             per_label.extend(label_rows)
+            predictions = parse_predictions(row.get("detail_predictions", ""))
+            profession_accuracy.extend(
+                profession_accuracy_rows(path, row, predictions)
+            )
+            gender_accuracy.extend(gender_accuracy_rows(path, row, predictions))
+            confusion.extend(confusion_rows(path, row, predictions))
 
     out_dir = Path(args.out_dir)
     write_csv(out_dir / "bios_fairness_diagnostics.csv", summaries)
     write_csv(out_dir / "bios_label_group_gaps.csv", per_label)
+    write_csv(out_dir / "bios_profession_accuracy.csv", profession_accuracy)
+    write_csv(out_dir / "bios_gender_accuracy.csv", gender_accuracy)
+    write_csv(out_dir / "bios_confusion_matrix.csv", confusion)
+    write_csv(out_dir / "bios_top_confusions.csv", top_confusion_rows(confusion, 5))
 
     print(f"Saved {out_dir / 'bios_fairness_diagnostics.csv'}")
     print(f"Saved {out_dir / 'bios_label_group_gaps.csv'}")
+    print(f"Saved {out_dir / 'bios_profession_accuracy.csv'}")
+    print(f"Saved {out_dir / 'bios_gender_accuracy.csv'}")
+    print(f"Saved {out_dir / 'bios_confusion_matrix.csv'}")
+    print(f"Saved {out_dir / 'bios_top_confusions.csv'}")
 
 
 if __name__ == "__main__":
