@@ -11,12 +11,11 @@ import yaml
 from experiments.datasets import load_paper_dataset
 from heal_capo.core import PromptCandidate
 
-
 FAIR_CONFIG = Path("configs/HPC_Config/adult_faircapo_1m_v3_HPC.yaml")
 MO_CONFIG = Path("configs/HPC_Config/adult_ablation_1m_v3_HPC.yaml")
 NSGA_CONFIG = Path("configs/HPC_Config/adult_nsga2po_1m_v3_HPC.yaml")
 EVAL_CONFIG = Path("configs/HPC_Config/adult_eval_large_1m_v3_HPC.yaml")
-TABLE_CONFIG = Path("configs/HPC_Config/adult_experiment_table_7p5m_v3_large_HPC.yaml")
+TABLE_CONFIG = Path("configs/HPC_Config/adult_experiment_table_1m_v3_large_HPC.yaml")
 PROMPT_POOL = Path("configs/phase2_prompt_pool_adult_v3.yaml")
 SUBMIT_PIPELINE = Path("scripts/hpc/submit_adult_7p5m_v3_pipeline.sh")
 
@@ -36,7 +35,7 @@ REQUIRED_RUNTIME_FILES = [
     Path("scripts/hpc/run_bios_hpc.slurm"),
     Path("scripts/hpc/run_bios_nsga_hpc.slurm"),
     Path("scripts/hpc/run_bios_eval_hpc.slurm"),
-    Path("scripts/hpc/build_adult_7p5m_v3_large_outputs.sh"),
+    Path("scripts/hpc/build_adult_1m_v3_outputs.sh"),
     SUBMIT_PIPELINE,
 ]
 
