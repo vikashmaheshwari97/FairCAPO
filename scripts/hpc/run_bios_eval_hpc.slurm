@@ -122,8 +122,8 @@ export HF_HOME="${HF_HOME:-$PWD/.hf_cache}"
 export FAIRCAPO_LLM_API_URL="http://127.0.0.1:${SERVER_PORT}/v1"
 export FAIRCAPO_MODEL_ID="${SERVED_MODEL_NAME}"
 
-if [ ! -f "${PORTFOLIO_CSV}" ]; then
-  echo "Missing portfolio: ${PORTFOLIO_CSV}" >&2
+if [ ! -s "${PORTFOLIO_CSV}" ]; then
+  echo "Missing or empty portfolio: ${PORTFOLIO_CSV}" >&2
   exit 3
 fi
 
@@ -141,7 +141,6 @@ python -m vllm.entrypoints.openai.api_server \
   --limit-mm-per-prompt "{\"image\":${VLLM_LIMIT_MM_IMAGE}}" \
   --max-model-len 8192 \
   --dtype auto \
-  --enforce-eager \
   --gpu-memory-utilization 0.90 \
   --max-num-seqs 4 &
 
