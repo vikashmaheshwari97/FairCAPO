@@ -22,6 +22,7 @@ METHODS = {
         "events": "budgeted_mocapo_events.csv",
         "eval": Path("outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3"),
         "event_required": "evolutionary_intensification",
+        "expect_search_fairness_zero": True,
     },
     "NSGA-II-PO + fairness": {
         "search": Path("outputs/hpc/adult_nsga2po_7p5m_v3/seed_0"),
@@ -76,6 +77,26 @@ def audit_method(name: str, cfg: dict) -> dict:
         require(isinstance(examples, list), f"{name}: few_shot_examples is not a list")
         require(len(examples) == int(float(row.get("num_few_shot") or 0)), f"{name}: few-shot count mismatch at row {index}")
         require(len(examples) <= 5, f"{name}: candidate exceeds five-shot cap")
+
+        if cfg.get("expect_search_fairness_zero"):
+            search_fairness = number(
+                row.get("fairness_risk"),
+                f"{name}.search_fairness[{index}]",
+            )
+            require(
+                abs(search_fairness) <= 1e-12,
+                f"{name}: search fairness objective was not disabled at row {index}",
+            )
+            require(
+                str(row.get("detail_fairness_source", ""))
+                == "disabled_for_adult_v3_mocapo_ablation",
+                f"{name}: strict ablation provenance is missing at row {index}",
+            )
+            require(
+                str(row.get("detail_fairness_objective_enabled", "")).lower()
+                in {"false", "0"},
+                f"{name}: fairness objective was not marked disabled at row {index}",
+            )
 
     events = read_csv(search_dir / cfg["events"])
     event_types = {str(row.get("event_type", "")) for row in events}
