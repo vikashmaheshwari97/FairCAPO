@@ -7,14 +7,20 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p outputs/hpc/logs
 
-if [[ ! -s data/adult.csv ]]; then
-  echo "Missing data/adult.csv" >&2
+# Prefer rebuilding the semantic file from the canonical raw Adult CSV. If the
+# raw CSV is unavailable but a previously generated semantic CSV exists, use it
+# only after the full preflight validates row count, split balance, leakage and
+# prompt rendering.
+if [[ -s data/adult.csv ]]; then
+  PYTHONPATH=. python scripts/prepare_adult_semantic_csv.py \
+    --input data/adult.csv \
+    --output data/adult_semantic_v3.csv
+elif [[ -s data/adult_semantic_v3.csv ]]; then
+  echo "data/adult.csv is missing; using existing data/adult_semantic_v3.csv after preflight validation."
+else
+  echo "Missing both data/adult.csv and data/adult_semantic_v3.csv" >&2
   exit 3
 fi
-
-PYTHONPATH=. python scripts/prepare_adult_semantic_csv.py \
-  --input data/adult.csv \
-  --output data/adult_semantic_v3.csv
 
 PYTHONPATH=. python scripts/preflight_adult_v3.py \
   --data data/adult_semantic_v3.csv
