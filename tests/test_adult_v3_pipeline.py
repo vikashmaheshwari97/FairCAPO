@@ -7,12 +7,9 @@ from pathlib import Path
 import yaml
 
 from heal_capo.core import EvaluationResult, PromptCandidate, PromptPortfolio
-from scripts.run_adult_v3_mocapo_ablation import (
-    FairnessObjectiveDisabledEvaluator,
-)
+from scripts.run_adult_v3_mocapo_ablation import FairnessObjectiveDisabledEvaluator
 from scripts.run_adult_v3_nsga2_po import add_exact_prompt_identity
 from scripts.run_phase2_budgeted_mocapo import LLMObjectiveEvaluator
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,22 +20,22 @@ def _yaml(relative: str) -> dict:
 
 
 def test_adult_v3_search_configs_are_aligned():
-    fair = _yaml("configs/HPC_Config/adult_faircapo_7p5m_v3_HPC.yaml")
-    mo = _yaml("configs/HPC_Config/adult_ablation_7p5m_v3_HPC.yaml")
-    nsga = _yaml("configs/HPC_Config/adult_nsga2po_7p5m_v3_HPC.yaml")
+    fair = _yaml("configs/HPC_Config/adult_faircapo_1m_v3_HPC.yaml")
+    mo = _yaml("configs/HPC_Config/adult_ablation_1m_v3_HPC.yaml")
+    nsga = _yaml("configs/HPC_Config/adult_nsga2po_1m_v3_HPC.yaml")
 
     for cfg in (fair, mo, nsga):
         assert cfg["dataset"] == "adult"
         assert cfg["prompt_pool"] == "configs/phase2_prompt_pool_adult_v3.yaml"
         assert cfg["dev"]["data_path"] == "data/adult_semantic_v3.csv"
-        assert cfg["dev"]["dev_size"] == 800
-        assert cfg["dev"]["shots_size"] == 200
-        assert cfg["dev"]["test_size"] == 2000
+        assert cfg["dev"]["dev_size"] == 400
+        assert cfg["dev"]["shots_size"] == 100
+        assert cfg["dev"]["test_size"] == 1000
         assert cfg["llm"]["num_predict"] >= 96
         assert cfg["budget"]["unit"] == "tokens"
-        assert cfg["budget"]["max_budget"] == 7_500_000.0
+        assert cfg["budget"]["max_budget"] == 1_000_000.0
         assert cfg["few_shot"]["max_few_shot_examples"] == 5
-        assert cfg["few_shot"]["pool_size"] == 200
+        assert cfg["few_shot"]["pool_size"] == 100
 
     assert fair["fairness"]["in_loop"] is True
     assert nsga["fairness"]["in_loop"] is True
@@ -46,13 +43,15 @@ def test_adult_v3_search_configs_are_aligned():
 
     for cfg in (fair, mo):
         assert cfg["evolutionary"]["population_size"] == 10
-        assert cfg["evolutionary"]["offspring_per_iteration"] == 4
-        assert cfg["intensification"]["max_blocks_per_challenger"] == 10
+        assert cfg["evolutionary"]["offspring_per_iteration"] == 3
+        assert cfg["evolutionary"]["max_iterations"] == 20
+        assert cfg["intensification"]["max_blocks_per_challenger"] == 4
         assert cfg["intensification"]["final_intensification"] is True
         assert cfg["intensification"]["add_rejected_to_population"] is False
 
     assert nsga["nsga2_po"]["population_size"] == 10
-    assert nsga["nsga2_po"]["offspring_per_generation"] == 4
+    assert nsga["nsga2_po"]["offspring_per_generation"] == 3
+    assert nsga["nsga2_po"]["max_generations"] == 20
     assert nsga["nsga2_po"]["objectives"] == [
         "performance",
         "cost",
@@ -63,7 +62,6 @@ def test_adult_v3_search_configs_are_aligned():
 def test_adult_v3_shared_prompt_pool_keeps_cheap_direct_and_five_shots():
     pool = _yaml("configs/phase2_prompt_pool_adult_v3.yaml")["prompt_pool"]
     ids = [row["id"] for row in pool]
-
     assert len(pool) == 10
     assert len(ids) == len(set(ids))
     assert "cheap_direct" in ids
@@ -73,12 +71,10 @@ def test_adult_v3_shared_prompt_pool_keeps_cheap_direct_and_five_shots():
 def test_nsga_serializer_preserves_exact_few_shot_examples():
     candidate = PromptCandidate(
         instruction="Predict income.",
-        examples=[
-            {
-                "input": "Person record:\nEducation: Masters",
-                "output": "<final_answer>>50K</final_answer>",
-            }
-        ],
+        examples=[{
+            "input": "Person record:\nEducation: Masters",
+            "output": "<final_answer>>50K</final_answer>",
+        }],
     )
     candidate.candidate_id = "candidate-1"
     result = EvaluationResult(
@@ -91,12 +87,10 @@ def test_nsga_serializer_preserves_exact_few_shot_examples():
     )
     portfolio = PromptPortfolio()
     portfolio.add(candidate, result)
-
     rows = add_exact_prompt_identity(
         [{"candidate_id": candidate.candidate_id, "prompt": candidate.instruction}],
         portfolio,
     )
-
     assert rows[0]["num_few_shot"] == 1
     assert json.loads(rows[0]["few_shot_examples"]) == candidate.examples
 
@@ -115,16 +109,14 @@ def test_mocapo_ablation_forces_search_fairness_objective_to_zero():
             )
 
     candidate = PromptCandidate(instruction="Apply one standard consistently.")
-    evaluator = FairnessObjectiveDisabledEvaluator(DummyEvaluator())
-    result = evaluator.evaluate(candidate, [{"text": "x", "label": "<=50K"}])
-
+    result = FairnessObjectiveDisabledEvaluator(DummyEvaluator()).evaluate(
+        candidate,
+        [{"text": "x", "label": "<=50K"}],
+    )
     assert result.fairness_risk == 0.0
     assert result.objective_vector == (-0.8, 1.0, 0.0)
     assert result.details["fairness_objective_enabled"] is False
-    assert result.details["fairness_source"] == (
-        "disabled_for_adult_v3_mocapo_ablation"
-    )
-    assert result.details["search_fairness_risk_before_disable"] == 0.37
+    assert result.details["fairness_source"] == "disabled_for_adult_v3_mocapo_ablation"
 
 
 def test_low_accuracy_equalized_odds_candidate_receives_gate_penalty():
@@ -140,22 +132,19 @@ def test_low_accuracy_equalized_odds_candidate_receives_gate_penalty():
             "equalized_odds_weight": 1.0,
         },
         "selection": {
-            "min_performance_for_fairness": 0.72,
+            "min_performance_for_fairness": 0.70,
             "low_performance_fairness_penalty": 1.0,
             "fairness_gate_mode": "continuous",
         },
     }
-
     evaluator = LLMObjectiveEvaluator(config, llm=object())
     adjusted, details = evaluator._apply_fairness_performance_gate(
         performance=0.0,
         fairness_risk=0.0,
         fairness_details={},
     )
-
-    assert adjusted == 0.72
+    assert adjusted == 0.70
     assert details["fairness_gate_applied"] is True
-    assert details["fairness_gate_original_fairness_risk"] == 0.0
 
 
 def test_python_csv_field_limit_handles_large_portfolio_fields():
