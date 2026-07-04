@@ -11,18 +11,29 @@ class RetrievalLLMObjectiveEvaluator(LLMObjectiveEvaluator):
     def __init__(self, config: dict, llm=None):
         super().__init__(config, llm=llm)
         self.retriever = AdultSimilarityRetriever(config)
+        self.performance_floor = float(
+            (config.get("selection") or {}).get("min_performance_feasibility", 0.0) or 0.0
+        )
 
     def evaluate(self, candidate, data):
         wrapped = RetrievalPromptCandidate(candidate, self.retriever)
         result = super().evaluate(wrapped, data)
         result.details["retrieval_enabled"] = True
+        result.details["retrieval_policy"] = self.retriever.policy
         result.details["retrieval_k"] = self.retriever.k
         result.details["retrieval_pool_size"] = len(self.retriever.bank)
+        shortfall = max(0.0, self.performance_floor - float(result.performance))
+        result.details["performance_feasibility_threshold"] = self.performance_floor
+        result.details["performance_feasibility_shortfall"] = shortfall
+        result.details["performance_feasible"] = shortfall <= 0.0
         for row in result.details.get("predictions", []):
             key = hashlib.sha256(str(row.get("text", "")).encode("utf-8")).hexdigest()
             selected = wrapped.trace.get(key, [])
             row["retrieval_source_indices"] = [item["source_index"] for item in selected]
+            row["retrieval_labels"] = [item["label"] for item in selected]
             row["retrieval_similarities"] = [item["similarity"] for item in selected]
+            row["retrieval_nearest_label"] = selected[0]["label"] if selected else ""
+            row["retrieval_top_similarity"] = selected[0]["similarity"] if selected else None
         return result
 
 
