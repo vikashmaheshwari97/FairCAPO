@@ -1,0 +1,95 @@
+dataset: adult
+task_type: classification
+seed: 0
+output_dir: outputs/hpc/adult_faircapo_accuracy_4m_v3/seed_0
+prompt_pool: configs/phase2_prompt_pool_adult_accuracy_v3.yaml
+labels: ["<=50K", ">50K"]
+
+dev:
+  dataset: adult
+  data_path: data/adult_semantic_v3.csv
+  dev_size: 400
+  shots_size: 100
+  test_size: 1000
+  stratified: true
+  stratify_group_key: sex
+  allow_smaller: false
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+  classification_mode: two_stage_label_scoring
+  label_scoring_top_k: 2
+  label_scoring_score_scale: 10
+
+cost:
+  input_weight: 0.0
+  output_weight: 0.0
+
+fairness:
+  in_loop: true
+  mode: equalized_odds
+  group_key: sex
+  positive_label: ">50K"
+  equalized_odds_weight: 1.0
+
+selection:
+  min_performance_for_fairness: 0.80
+  low_performance_fairness_penalty: 1.0
+  fairness_gate_mode: continuous
+
+few_shot:
+  enabled: true
+  few_shot_probability: 0.45
+  max_few_shot_examples: 4
+  pool_size: 100
+  use_rationale: false
+  shots_data: adult
+  data_path: data/adult_semantic_v3.csv
+  stratified: true
+  stratify_group_key: sex
+  selection_strategy: fairness_guided
+  group_key: sex
+
+block_size: 50
+drop_last_block: false
+num_seed_blocks: 1
+budget:
+  unit: tokens
+  max_budget: 4000000.0
+  allow_overspend: false
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 1.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+evolutionary:
+  population_size: 6
+  max_iterations: 80
+  offspring_per_iteration: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  validate_prompt_instruction: true
+  advance_after_iteration: true
+intensification:
+  max_blocks_per_challenger: 8
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: false
+  use_cache: true
+  final_intensification: true
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
