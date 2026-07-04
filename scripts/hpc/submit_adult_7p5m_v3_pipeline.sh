@@ -58,7 +58,7 @@ ablation_search_job=$(sbatch --parsable --job-name=adult-mo-v3 \
 echo "Submitting Adult NSGA-II-PO v3 search..."
 nsga_search_job=$(sbatch --parsable --job-name=adult-nsga-v3 \
   --dependency=afterok:${ablation_search_job} --array=0 \
-  --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_nsga2po_7p5m_v3_HPC.yaml,RUN_TAG=adult_nsga2po_7p5m_v3" \
+  --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_nsga2po_7p5m_v3_HPC.yaml,RUN_TAG=adult_nsga2po_7p5m_v3,NSGA_RUNNER=scripts/run_adult_v3_nsga2_po.py" \
   scripts/hpc/run_bios_nsga_hpc.slurm)
 
 EVAL_CONFIG="configs/HPC_Config/adult_eval_large_7p5m_v3_HPC.yaml"
