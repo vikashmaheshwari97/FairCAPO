@@ -4,7 +4,7 @@ set -euo pipefail
 # Active Adult v3 1M pilot output builder.
 cd "$(dirname "$0")/../.."
 
-TABLE_CONFIG="configs/HPC_Config/adult_experiment_table_7p5m_v3_large_HPC.yaml"
+TABLE_CONFIG="configs/HPC_Config/adult_experiment_table_1m_v3_large_HPC.yaml"
 OUT_DIR="outputs/experiment_table/adult_mistral_hpc_1m_v3_seed0"
 TABLE_CSV="${OUT_DIR}/representative_experiment_table.csv"
 FIG_DIR="outputs/figures/paper_adult_hpc_1m_v3_seed0"
