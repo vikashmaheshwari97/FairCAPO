@@ -8,7 +8,7 @@ CONFIG="configs/HPC_Config/adult_faircapo_accuracy_4m_v3_HPC.yaml"
 RUN_DIR="outputs/hpc/adult_faircapo_accuracy_4m_v3/seed_0"
 EVAL_DIR="outputs/hpc/evaluation_accuracy/seed_0/adult_faircapo_accuracy_4m_v3"
 PORTFOLIO="${RUN_DIR}/phase2_prompt_portfolio.csv"
-EVAL_CONFIG="configs/HPC_Config/adult_eval_large_1m_v3_HPC.yaml"
+EVAL_CONFIG="configs/HPC_Config/adult_eval_accuracy_4m_v3_HPC.yaml"
 
 if [[ -s data/adult.csv ]]; then
   PYTHONPATH=. python scripts/prepare_adult_semantic_csv.py \
@@ -23,6 +23,7 @@ PYTHONPATH=. python scripts/preflight_adult_v3.py \
 grep -q "classification_mode: two_stage_label_scoring" "${CONFIG}"
 grep -q "max_budget: 4000000.0" "${CONFIG}"
 grep -q "block_size: 50" "${CONFIG}"
+grep -q "classification_mode: two_stage_label_scoring" "${EVAL_CONFIG}"
 
 if [[ "${ALLOW_OVERWRITE:-0}" != "1" ]]; then
   for run_dir in "${RUN_DIR}" "${EVAL_DIR}"; do
