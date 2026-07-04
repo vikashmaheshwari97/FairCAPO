@@ -1,11 +1,13 @@
-# Accuracy-discovery Adult v3 initial prompt pool.
-# This pool is intentionally smaller than the shared ablation pool so the first
-# budget is spent exploring strong prompts rather than evaluating many seeds.
-# Protected attributes remain metadata-only and must not appear in prompt text.
+# DEPRECATED: retained only to reproduce historical Adult v3 runs.
+# Active Adult v4 configurations must use:
+#   configs/phase2_prompt_pool_adult_accuracy_v4.yaml
+# Do not reference this pool from new v4 experiments.
 
 dataset: adult
 task_type: classification
 seed: 0
+deprecated: true
+replacement: configs/phase2_prompt_pool_adult_accuracy_v4.yaml
 
 labels:
   - "<=50K"

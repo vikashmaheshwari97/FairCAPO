@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
 import os
 import re
 import uuid
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence
 
 
 def _adult_demo_reasoning(text: str, output: str) -> str:
@@ -50,11 +50,7 @@ def _adult_demo_reasoning(text: str, output: str) -> str:
 
 @dataclass
 class PromptCandidate:
-    """
-    A prompt candidate plus optional few-shot examples and metadata.
-
-    This is the main unit optimized by HEAL-CAPO.
-    """
+    """A prompt candidate plus optional few-shot examples and metadata."""
 
     instruction: str
     examples: List[Dict[str, str]] = field(default_factory=list)
@@ -63,71 +59,33 @@ class PromptCandidate:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def render(self, x: str) -> str:
-        """
-        Render the prompt for one input example.
-
-        When ``FAIRCAPO_ADULT_REASONING_SHOTS=1``, label-only Adult few-shot
-        examples are expanded into deterministic evidence rationales. Protected
-        attributes are absent from the rendered record, so they cannot enter the
-        rationale. This mirrors MO-CAPO's reasoning-bearing few-shot setup while
-        keeping the stored portfolio compact and reproducible.
-        """
+        """Render a stable instruction -> references -> current-input prompt."""
         use_adult_reasoning = os.environ.get(
             "FAIRCAPO_ADULT_REASONING_SHOTS", "0"
         ).strip().lower() in {"1", "true", "yes", "on"}
 
-        rendered_examples = []
-        for ex in self.examples:
-            example_input = str(ex.get("input", ""))
-            example_output = str(ex.get("output", ""))
-            if (
-                use_adult_reasoning
-                and "person record:" in example_input.lower()
-            ):
-                example_output = _adult_demo_reasoning(
-                    example_input,
-                    example_output,
+        sections = [f"Task instruction:\n{str(self.instruction).strip()}"]
+        if self.examples:
+            rendered_examples = []
+            for index, example in enumerate(self.examples, start=1):
+                example_input = str(example.get("input", ""))
+                example_output = str(example.get("output", ""))
+                if use_adult_reasoning and "person record:" in example_input.lower():
+                    example_output = _adult_demo_reasoning(example_input, example_output)
+                rendered_examples.append(
+                    f"Reference example {index}:\n"
+                    f"Input:\n{example_input}\n"
+                    f"Output:\n{example_output}"
                 )
-            rendered_examples.append(
-                f"Input: {example_input}\nOutput: {example_output}"
-            )
+            sections.append("Reference examples:\n" + "\n\n".join(rendered_examples))
 
-        shots = "\n".join(rendered_examples)
-
-        if shots:
-            return (
-                f"{self.instruction}\n\n"
-                f"Examples:\n{shots}\n\n"
-                f"Input: {x}\n"
-                f"Output:"
-            )
-
-        return (
-            f"{self.instruction}\n\n"
-            f"Input: {x}\n"
-            f"Output:"
-        )
+        sections.append(f"Current input:\n{x}\n\nAnswer:")
+        return "\n\n".join(section for section in sections if section)
 
 
 @dataclass
 class EvaluationResult:
-    """
-    Evaluation metrics for one PromptCandidate.
-
-    Objective convention:
-      - performance should be maximized
-      - cost should be minimized
-      - fairness_risk should be minimized
-      - drift should be minimized
-
-    Pareto methods use the minimization vector:
-      (-performance, cost, fairness_risk)
-
-    ``risk`` is still logged as a diagnostic field, but it is not part of the
-    default optimization vector. In the current LLM experiments risk is mostly
-    derived from 1 - performance, so optimizing both performance and risk double
-    counts accuracy.
-    """
+    """Evaluation metrics for one PromptCandidate."""
 
     candidate_id: str
     performance: float
@@ -140,39 +98,13 @@ class EvaluationResult:
 
     @property
     def objective_vector(self) -> tuple[float, float, float]:
-        """
-        Main HEAL-CAPO objective vector.
-
-        Minimization convention:
-          maximize performance by minimizing -performance
-          minimize cost
-          minimize fairness_risk
-        """
-        return (
-            -self.performance,
-            self.cost,
-            self.fairness_risk,
-        )
+        return (-self.performance, self.cost, self.fairness_risk)
 
     @property
     def objective_vector_with_drift(self) -> tuple[float, float, float, float]:
-        """
-        Optional extended objective vector including drift.
-
-        We usually treat drift as a hard guard/constraint, but this is useful
-        for analysis or ablations.
-        """
-        return (
-            -self.performance,
-            self.cost,
-            self.fairness_risk,
-            self.drift,
-        )
+        return (-self.performance, self.cost, self.fairness_risk, self.drift)
 
     def to_row(self) -> Dict[str, Any]:
-        """
-        Flatten result into a CSV/logging-friendly row.
-        """
         row = {
             "candidate_id": self.candidate_id,
             "performance": self.performance,
@@ -182,18 +114,14 @@ class EvaluationResult:
             "drift": self.drift,
             "n_examples": self.n_examples,
         }
-
         for key, value in self.details.items():
             row[f"detail_{key}"] = value
-
         return row
 
 
 @dataclass
 class PromptPortfolio:
-    """
-    Collection of prompt candidates and their evaluations.
-    """
+    """Unique prompt candidates keyed by candidate_id plus their latest result."""
 
     candidates: List[PromptCandidate] = field(default_factory=list)
     evaluations: Dict[str, EvaluationResult] = field(default_factory=dict)
@@ -203,37 +131,34 @@ class PromptPortfolio:
         candidate: PromptCandidate,
         result: Optional[EvaluationResult] = None,
     ) -> None:
-        """
-        Add a prompt candidate and optionally its evaluation.
-        """
-        self.candidates.append(candidate)
+        """Insert or replace a candidate without duplicating portfolio rows."""
+        for index, existing in enumerate(self.candidates):
+            if existing.candidate_id == candidate.candidate_id:
+                self.candidates[index] = candidate
+                break
+        else:
+            self.candidates.append(candidate)
 
         if result is not None:
+            if result.candidate_id != candidate.candidate_id:
+                raise ValueError(
+                    "Portfolio candidate/result ID mismatch: "
+                    f"{candidate.candidate_id!r} != {result.candidate_id!r}"
+                )
             self.evaluations[candidate.candidate_id] = result
 
     def get(self, candidate_id: str) -> PromptCandidate:
-        """
-        Retrieve a candidate by ID.
-        """
         for candidate in self.candidates:
             if candidate.candidate_id == candidate_id:
                 return candidate
-
         raise KeyError(candidate_id)
 
     def get_result(self, candidate_id: str) -> EvaluationResult:
-        """
-        Retrieve an evaluation result by candidate ID.
-        """
         if candidate_id not in self.evaluations:
             raise KeyError(candidate_id)
-
         return self.evaluations[candidate_id]
 
     def evaluated_candidates(self) -> Sequence[PromptCandidate]:
-        """
-        Return only candidates that have evaluation results.
-        """
         return [
             candidate
             for candidate in self.candidates
@@ -241,62 +166,39 @@ class PromptPortfolio:
         ]
 
     def evaluated_results(self) -> Sequence[EvaluationResult]:
-        """
-        Return all evaluation results.
-        """
         return list(self.evaluations.values())
 
     def best_by_performance(self) -> Optional[PromptCandidate]:
-        """
-        Return the evaluated candidate with highest performance.
-        """
         evaluated = self.evaluated_candidates()
-
         if not evaluated:
             return None
-
         return max(
             evaluated,
             key=lambda candidate: self.evaluations[candidate.candidate_id].performance,
         )
 
     def lowest_risk(self) -> Optional[PromptCandidate]:
-        """
-        Return the evaluated candidate with lowest risk.
-        """
         evaluated = self.evaluated_candidates()
-
         if not evaluated:
             return None
-
         return min(
             evaluated,
             key=lambda candidate: self.evaluations[candidate.candidate_id].risk,
         )
 
     def lowest_fairness_risk(self) -> Optional[PromptCandidate]:
-        """
-        Return the evaluated candidate with lowest fairness risk.
-        """
         evaluated = self.evaluated_candidates()
-
         if not evaluated:
             return None
-
         return min(
             evaluated,
             key=lambda candidate: self.evaluations[candidate.candidate_id].fairness_risk,
         )
 
     def lowest_cost(self) -> Optional[PromptCandidate]:
-        """
-        Return the evaluated candidate with lowest cost.
-        """
         evaluated = self.evaluated_candidates()
-
         if not evaluated:
             return None
-
         return min(
             evaluated,
             key=lambda candidate: self.evaluations[candidate.candidate_id].cost,
