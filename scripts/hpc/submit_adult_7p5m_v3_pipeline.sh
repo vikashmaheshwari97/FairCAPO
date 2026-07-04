@@ -49,10 +49,10 @@ fair_search_job=$(sbatch --parsable --job-name=adult-fair-v3 --array=0 \
   --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_faircapo_7p5m_v3_HPC.yaml,RUN_TAG=adult_faircapo_7p5m_v3" \
   scripts/hpc/run_bios_hpc.slurm)
 
-echo "Submitting Adult MO-CAPO fairness-objective-off v3 search..."
+echo "Submitting Adult MO-CAPO strict fairness-objective-off v3 search..."
 ablation_search_job=$(sbatch --parsable --job-name=adult-mo-v3 \
   --dependency=afterok:${fair_search_job} --array=0 \
-  --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_ablation_7p5m_v3_HPC.yaml,RUN_TAG=adult_ablation_7p5m_v3" \
+  --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_ablation_7p5m_v3_HPC.yaml,RUN_TAG=adult_ablation_7p5m_v3,MOCAPO_RUNNER=scripts/run_adult_v3_mocapo_ablation.py" \
   scripts/hpc/run_bios_hpc.slurm)
 
 echo "Submitting Adult NSGA-II-PO v3 search..."
