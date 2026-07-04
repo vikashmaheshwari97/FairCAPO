@@ -1,0 +1,17 @@
+experiment_name: adult_qwen_retrieval_v4_eval_500k
+portfolio_csv: outputs/hpc/adult_qwen_retrieval_v4_search_500k/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/adult_qwen_retrieval_v4_eval_500k/seed_0
+dataset: adult
+task_type: classification
+seed: 0
+labels: ["<=50K", ">50K"]
+dev: {dataset: adult, data_path: data/adult_semantic_v3.csv, split_manifest: data/adult_v4_fixed_split_seed0.json, dev_size: 3000, shots_size: 500, test_size: 1000, stratified: true, stratify_group_key: sex, allow_smaller: false}
+llm: {backend: lmstudio, model_id: Qwen/Qwen3-30B-A3B-Instruct-2507, api_url: http://localhost:1234/v1, temperature: 0.0, num_predict: 32, timeout: 900}
+evaluation: {use_llm: true, require_final_answer_tags: true, classification_mode: generate}
+retrieval: {enabled: true, k: 4, policy: natural_similarity}
+fairness: {in_loop: true, mode: equalized_odds, group_key: sex, positive_label: ">50K", equalized_odds_weight: 1.0}
+selection: {min_performance_for_fairness: 0.0, low_performance_fairness_penalty: 0.0, min_performance_feasibility: 0.75}
+cost: {input_weight: 0.08, output_weight: 0.32}
+objectives: [{name: performance, direction: maximize}, {name: cost, direction: minimize}, {name: fairness_risk, direction: minimize}]
+bounds: {performance: [0.0, 1.0], cost: [0.0, 100000.0], fairness_risk: [0.0, 1.0]}
+metrics: {num_preference_vectors: 500, seed: 0}
