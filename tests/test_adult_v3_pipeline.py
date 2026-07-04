@@ -7,6 +7,9 @@ from pathlib import Path
 import yaml
 
 from heal_capo.core import EvaluationResult, PromptCandidate, PromptPortfolio
+from scripts.run_adult_v3_mocapo_ablation import (
+    FairnessObjectiveDisabledEvaluator,
+)
 from scripts.run_adult_v3_nsga2_po import add_exact_prompt_identity
 from scripts.run_phase2_budgeted_mocapo import LLMObjectiveEvaluator
 
@@ -96,6 +99,32 @@ def test_nsga_serializer_preserves_exact_few_shot_examples():
 
     assert rows[0]["num_few_shot"] == 1
     assert json.loads(rows[0]["few_shot_examples"]) == candidate.examples
+
+
+def test_mocapo_ablation_forces_search_fairness_objective_to_zero():
+    class DummyEvaluator:
+        def evaluate(self, candidate, data):
+            return EvaluationResult(
+                candidate_id=candidate.candidate_id,
+                performance=0.8,
+                cost=1.0,
+                risk=0.2,
+                fairness_risk=0.37,
+                n_examples=len(data),
+                details={"fairness_source": "prompt_heuristic"},
+            )
+
+    candidate = PromptCandidate(instruction="Apply one standard consistently.")
+    evaluator = FairnessObjectiveDisabledEvaluator(DummyEvaluator())
+    result = evaluator.evaluate(candidate, [{"text": "x", "label": "<=50K"}])
+
+    assert result.fairness_risk == 0.0
+    assert result.objective_vector == (-0.8, 1.0, 0.0)
+    assert result.details["fairness_objective_enabled"] is False
+    assert result.details["fairness_source"] == (
+        "disabled_for_adult_v3_mocapo_ablation"
+    )
+    assert result.details["search_fairness_risk_before_disable"] == 0.37
 
 
 def test_low_accuracy_equalized_odds_candidate_receives_gate_penalty():
