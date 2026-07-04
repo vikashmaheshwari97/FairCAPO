@@ -1,18 +1,22 @@
-# Adult v4 accuracy-discovery seed pool.
-# Six compact, materially different decision strategies leave more of a small
-# token budget for evolutionary search than the ten-prompt v3 pool. Protected
-# sex and race remain metadata-only and never appear in the rendered record.
+# Active Adult v4 accuracy-discovery seed pool.
+# All entries are instruction seeds. Dynamic retrieval is configured separately,
+# so the IDs and metadata do not claim a fixed number of demonstrations.
 
 dataset: adult
 task_type: classification
+version: adult_accuracy_v4
 seed: 0
+protected_fields_excluded:
+  - sex
+  - race
+output_format: "<final_answer>LABEL</final_answer>"
 
 labels:
   - "<=50K"
   - ">50K"
 
 prompt_pool:
-  - id: calibrated_tree_zero_shot
+  - id: calibrated_tree
     category: accuracy_first
     cost_level: cheap
     few_shot_count: 0
@@ -27,10 +31,10 @@ prompt_pool:
       income support <=50K. Resolve conflicts using the number and strength of
       independent signals. Return exactly one label inside <final_answer> tags.
 
-  - id: asymmetric_error_control_one_shot
+  - id: asymmetric_error_control
     category: accuracy_first
-    cost_level: medium
-    few_shot_count: 1
+    cost_level: cheap
+    few_shot_count: 0
     prompt: >
       Classify income as <=50K or >50K. Do not default automatically to <=50K:
       actively look for strong positive evidence such as capital gain,
@@ -39,10 +43,10 @@ prompt_pool:
       >50K when several strong positive signals agree; otherwise prefer <=50K.
       Return only the tagged label.
 
-  - id: weighted_evidence_two_shot
+  - id: weighted_evidence
     category: accuracy_first
     cost_level: medium
-    few_shot_count: 2
+    few_shot_count: 0
     prompt: >
       Apply a weighted evidence score. Add strong weight for substantial capital
       gain, executive-managerial or professional-specialty occupation,
@@ -55,10 +59,10 @@ prompt_pool:
       clearly exceeds the negative total. Return one label in
       <final_answer>...</final_answer>.
 
-  - id: interaction_rules_two_shot
+  - id: interaction_rules
     category: accuracy_first
     cost_level: medium
-    few_shot_count: 2
+    few_shot_count: 0
     prompt: >
       Predict annual income by evaluating feature interactions rather than
       isolated fields. Advanced education is most persuasive when paired with
@@ -69,10 +73,10 @@ prompt_pool:
       hours, and no capital gain strongly supports <=50K. Use the same rule for
       every record and output exactly one tagged label.
 
-  - id: high_income_recall_three_shot
+  - id: high_income_recall
     category: accuracy_first
-    cost_level: expensive
-    few_shot_count: 3
+    cost_level: medium
+    few_shot_count: 0
     prompt: >
       Compare explicit evidence for both income brackets. Before choosing
       <=50K, verify that the record lacks a strong >50K combination such as
@@ -83,10 +87,10 @@ prompt_pool:
       constant-label behavior. Return only <=50K or >50K inside
       <final_answer> tags.
 
-  - id: fair_calibrated_three_shot
+  - id: fair_calibrated
     category: balanced
-    cost_level: expensive
-    few_shot_count: 3
+    cost_level: medium
+    few_shot_count: 0
     prompt: >
       Apply one calibrated economic-evidence rule to every record. Base the
       decision chiefly on capital gain/loss, ordinal education, occupation, work
