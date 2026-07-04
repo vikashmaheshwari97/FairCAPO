@@ -1,6 +1,6 @@
 # Adult FairCAPO v3 -- paper-aligned 7.5M-token search.
 # Uses semantic text records, reasoning-bearing few-shots, ten shared initial
-# prompts, up to five shots, and unrestricted MO-CAPO intensification.
+# prompts, up to five shots, and progressive MO-CAPO intensification.
 
 dataset: adult
 task_type: classification
@@ -37,7 +37,9 @@ llm:
   model_id: mistralai/mistral-small-3.2
   api_url: http://localhost:1234/v1
   temperature: 0.0
-  num_predict: 24
+  # This cap is shared by downstream and meta-LLM calls. A 24-token cap can
+  # truncate <prompt>...</prompt> mutations, so keep enough room for evolution.
+  num_predict: 128
   timeout: 900
 
 evaluation:
@@ -88,6 +90,14 @@ budget:
   max_budget: 7500000.0
   allow_overspend: false
 
+# Fixed normalization makes the FairCAPO and MO-CAPO trajectory metrics
+# comparable. Search cost is normalized per evaluated example by BlockEvaluator.
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 100.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
 evolutionary:
   population_size: 10
   max_iterations: 2000
@@ -98,12 +108,17 @@ evolutionary:
   use_meta_llm: true
   require_prompt_tags: true
   preserve_output_format: true
+  validate_prompt_instruction: true
   advance_after_iteration: true
 
 intensification:
+  # Enables the final deepening pass; without this value the implementation
+  # skips final front intensification even when final_intensification is true.
+  max_blocks_per_challenger: 10
   reject_when_dominated: true
   accept_when_not_dominated_on_common_blocks: true
-  add_rejected_to_population: true
+  # Rejected one-block challengers must not enter the final reported archive.
+  add_rejected_to_population: false
   use_cache: true
   final_intensification: true
 
