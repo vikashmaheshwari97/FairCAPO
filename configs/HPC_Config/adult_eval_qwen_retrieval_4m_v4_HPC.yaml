@@ -1,0 +1,86 @@
+experiment_name: adult_eval_qwen_retrieval_4m_v4
+portfolio_csv: outputs/hpc/adult_faircapo_qwen_retrieval_4m_v4/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/evaluation_qwen_retrieval/seed_0/adult_faircapo_qwen_retrieval_4m_v4
+
+dataset: adult
+data_path: data/adult_semantic_v3.csv
+task_type: classification
+seed: 0
+
+dev:
+  dataset: adult
+  data_path: data/adult_semantic_v3.csv
+  split_manifest: data/adult_v4_fixed_split_seed0.json
+  dev_size: 3000
+  shots_size: 500
+  test_size: 1000
+
+dev_size: 3000
+shots_size: 500
+test_size: 1000
+stratified: true
+stratify_group_key: sex
+allow_smaller: false
+
+labels:
+  - "<=50K"
+  - ">50K"
+
+llm:
+  backend: lmstudio
+  model_id: Qwen/Qwen3-30B-A3B-Instruct-2507
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 32
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+  classification_mode: generate
+
+retrieval:
+  enabled: true
+  k: 12
+  policy: nonprotected_similarity_label_balanced
+  weights:
+    education: 3.0
+    occupation: 3.0
+    work class: 2.0
+    capital gain: 2.5
+    hours per week: 1.5
+    age: 1.0
+
+fairness:
+  in_loop: true
+  mode: equalized_odds
+  group_key: sex
+  positive_label: ">50K"
+  equalized_odds_weight: 1.0
+
+selection:
+  min_performance_for_fairness: 0.80
+  low_performance_fairness_penalty: 1.0
+  fairness_gate_mode: continuous
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 200000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0
