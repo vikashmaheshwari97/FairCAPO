@@ -75,6 +75,7 @@ esac
 CONFIG="${CONFIG:-${DEFAULT_CONFIG}}"
 PORTFOLIO_CSV="${PORTFOLIO_CSV:-${DEFAULT_PORTFOLIO_CSV}}"
 OUT_DIR="${OUT_DIR:-${DEFAULT_OUT_DIR}}"
+EVAL_RUNNER="${EVAL_RUNNER:-scripts/evaluate_pareto_on_test.py}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"
@@ -126,6 +127,10 @@ if [ ! -s "${PORTFOLIO_CSV}" ]; then
   echo "Missing or empty portfolio: ${PORTFOLIO_CSV}" >&2
   exit 3
 fi
+if [ ! -f "${EVAL_RUNNER}" ]; then
+  echo "Missing evaluation runner: ${EVAL_RUNNER}" >&2
+  exit 3
+fi
 
 echo "Starting vLLM on $(hostname):${SERVER_PORT}"
 python -m vllm.entrypoints.openai.api_server \
@@ -162,9 +167,10 @@ echo "seed=${SEED}"
 echo "config=${CONFIG}"
 echo "portfolio=${PORTFOLIO_CSV}"
 echo "out=${OUT_DIR}"
+echo "runner=${EVAL_RUNNER}"
 echo "api=${FAIRCAPO_LLM_API_URL}"
 
-python -u scripts/evaluate_pareto_on_test.py \
+python -u "${EVAL_RUNNER}" \
   --config "${CONFIG}" \
   --seed "${SEED}" \
   --portfolio-csv "${PORTFOLIO_CSV}" \
