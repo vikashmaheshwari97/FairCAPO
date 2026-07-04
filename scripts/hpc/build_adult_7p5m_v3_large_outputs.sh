@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build only scientifically valid Adult v3 seed-0 outputs. The old envelope
-# table mixed independently best accuracy/cost/fairness candidates and computed
-# method-local self-reference nR2, so it is intentionally not used here.
-
 cd "$(dirname "$0")/../.."
 
 TABLE_CONFIG="configs/HPC_Config/adult_experiment_table_7p5m_v3_large_HPC.yaml"
@@ -13,17 +9,13 @@ TABLE_CSV="${OUT_DIR}/representative_experiment_table.csv"
 FIG_DIR="outputs/figures/paper_adult_hpc_7p5m_v3_large_seed0"
 TITLE="Adult / Mistral-Small-3.2 / Rocket 7.5M v3 seed 0"
 
-echo "Validating completed Adult v3 searches and held-out evaluations..."
 PYTHONPATH=. python scripts/validate_adult_v3_outputs.py
-
-echo "Building one-real-candidate-per-method table with shared-reference nR2..."
 PYTHONPATH=. python scripts/build_representative_experiment_table.py \
   --config "${TABLE_CONFIG}"
 
 test -s "${TABLE_CSV}"
 mkdir -p "${FIG_DIR}"
 
-echo "Building FairCAPO held-out Pareto figures..."
 python scripts/visualize_paper_figures.py \
   --run outputs/hpc/adult_faircapo_7p5m_v3/seed_0 \
   --run-csv outputs/hpc/evaluation_large/seed_0/adult_faircapo_7p5m_v3/test_eval_candidates.csv \
@@ -36,12 +28,8 @@ python scripts/visualize_staircase.py \
   --portfolio outputs/hpc/adult_faircapo_7p5m_v3/seed_0/phase2_prompt_portfolio.csv \
   --mocapo "" \
   --title "${TITLE} (large held-out)" \
-  --out "${FIG_DIR}/fig_pareto_staircase.png" \
-  --color-fairness
+  --out "${FIG_DIR}/fig_pareto_staircase.png"
 
-# All three CSVs below use the identical 2,000-record held-out split, so accuracy,
-# cost and equalized-odds risk are on a common basis. The plotting code makes no
-# assumption about which method has more or fewer Pareto points.
 python scripts/visualize_adult_v3_fronts.py \
   --faircapo outputs/hpc/evaluation_large/seed_0/adult_faircapo_7p5m_v3/test_eval_candidates.csv \
   --mocapo outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3/test_eval_candidates.csv \
@@ -49,8 +37,6 @@ python scripts/visualize_adult_v3_fronts.py \
   --title "${TITLE} (shared held-out basis)" \
   --out "${FIG_DIR}/fig_front_richness_heldout.png"
 
-# FairCAPO and MO-CAPO both use BlockEvaluator's per-example cost and identical
-# fixed bounds, so their search trajectories are directly comparable.
 FAIR_TRAJ="outputs/hpc/adult_faircapo_7p5m_v3/seed_0/budgeted_mocapo_trajectory.json"
 MO_TRAJ="outputs/hpc/adult_ablation_7p5m_v3/seed_0/budgeted_mocapo_trajectory.json"
 if [[ -s "${FAIR_TRAJ}" && -s "${MO_TRAJ}" ]]; then
@@ -67,6 +53,6 @@ python scripts/visualize_pareto_front.py \
   --title "${TITLE} (large held-out)" \
   --out "${FIG_DIR}/pareto_diagnostics"
 
-echo "Representative table (use this for claims): ${TABLE_CSV}"
+echo "Representative table: ${TABLE_CSV}"
 echo "Figures: ${FIG_DIR}"
 find "${FIG_DIR}" -maxdepth 2 -type f -printf '%p\n' | sort
