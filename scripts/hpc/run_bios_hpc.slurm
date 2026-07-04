@@ -25,8 +25,10 @@ MOCAPO_RUNNER="${MOCAPO_RUNNER:-scripts/run_phase2_budgeted_mocapo.py}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"
+MODEL_FAMILY="${MODEL_FAMILY:-mistral}"
 SERVER_PORT="${SERVER_PORT:-$((15000 + (${SLURM_JOB_ID:-0} % 1000) + SEED))}"
 VLLM_LIMIT_MM_IMAGE="${VLLM_LIMIT_MM_IMAGE:-0}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 
 mkdir -p "$(dirname "$OUT_DIR")" outputs/hpc/logs
 
@@ -50,7 +52,7 @@ if [ ! -f ".venv/.faircapo_hpc_ready" ]; then
     python -m pip install -e third_party/promptolution
   fi
   python -m pip install \
-    "vllm>=0.8" "huggingface_hub>=0.24" \
+    "vllm>=0.8.5" "transformers>=4.51.0" "huggingface_hub>=0.24" \
     "datasets>=2.20" pandas requests pyyaml numpy pydantic matplotlib altair streamlit
   mkdir -p .venv
   date > .venv/.faircapo_hpc_ready
@@ -61,6 +63,15 @@ fi
 python - <<'PY' >/dev/null 2>&1 || python -m pip install "datasets>=2.20"
 import datasets
 PY
+
+if [[ "${MODEL_FAMILY}" == "qwen" ]]; then
+  python - <<'PY'
+from importlib.metadata import version
+from packaging.version import Version
+assert Version(version("vllm")) >= Version("0.8.5")
+assert Version(version("transformers")) >= Version("4.51.0")
+PY
+fi
 
 rmdir "${LOCK_DIR}" 2>/dev/null || true
 
@@ -81,19 +92,21 @@ if [ ! -f "${MOCAPO_RUNNER}" ]; then
   exit 3
 fi
 
-echo "Starting vLLM on $(hostname):${SERVER_PORT}"
+MODEL_ARGS=()
+if [[ "${MODEL_FAMILY}" == "mistral" ]]; then
+  MODEL_ARGS+=(--tokenizer-mode mistral --config-format mistral --load-format mistral)
+  MODEL_ARGS+=(--tool-call-parser mistral --enable-auto-tool-choice)
+fi
+
+echo "Starting vLLM model_family=${MODEL_FAMILY} on $(hostname):${SERVER_PORT}"
 python -m vllm.entrypoints.openai.api_server \
   --model "${MODEL_PATH}" \
   --served-model-name "${SERVED_MODEL_NAME}" \
   --host 127.0.0.1 \
   --port "${SERVER_PORT}" \
-  --tokenizer-mode mistral \
-  --config-format mistral \
-  --load-format mistral \
-  --tool-call-parser mistral \
-  --enable-auto-tool-choice \
+  "${MODEL_ARGS[@]}" \
   --limit-mm-per-prompt "{\"image\":${VLLM_LIMIT_MM_IMAGE}}" \
-  --max-model-len 8192 \
+  --max-model-len "${MAX_MODEL_LEN}" \
   --dtype auto \
   --gpu-memory-utilization 0.90 \
   --max-num-seqs 4 &
