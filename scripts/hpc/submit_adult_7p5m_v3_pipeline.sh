@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Seed-0 Adult v3 pipeline. All three optimizers use the same semantic dataset,
-# ten initial prompts, reasoning-bearing few-shots, and 7.5M-token search cap.
+# ten shared initial prompts, reasoning-bearing few-shots, and 7.5M-token caps.
 
 cd "$(dirname "$0")/../.."
 mkdir -p outputs/hpc/logs
@@ -12,11 +12,35 @@ if [[ ! -s data/adult.csv ]]; then
   exit 3
 fi
 
+# Never submit jobs against a stale hand-edited semantic file. Rebuild it from
+# the canonical Adult CSV, then validate configs, split disjointness, protected
+# attribute isolation, reasoning-shot rendering, and all required runtime files.
 PYTHONPATH=. python scripts/prepare_adult_semantic_csv.py \
   --input data/adult.csv \
   --output data/adult_semantic_v3.csv
 
-test -s data/adult_semantic_v3.csv
+PYTHONPATH=. python scripts/preflight_adult_v3.py \
+  --data data/adult_semantic_v3.csv
+
+# Prevent accidental mixing of a new run with partial outputs from an earlier
+# v3 attempt. Explicitly set ALLOW_OVERWRITE=1 only after archiving/removing them.
+RUN_DIRS=(
+  outputs/hpc/adult_faircapo_7p5m_v3/seed_0
+  outputs/hpc/adult_ablation_7p5m_v3/seed_0
+  outputs/hpc/adult_nsga2po_7p5m_v3/seed_0
+  outputs/hpc/evaluation_large/seed_0/adult_faircapo_7p5m_v3
+  outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3
+  outputs/hpc/evaluation_large/seed_0/adult_nsga2po_7p5m_v3
+)
+if [[ "${ALLOW_OVERWRITE:-0}" != "1" ]]; then
+  for run_dir in "${RUN_DIRS[@]}"; do
+    if [[ -d "${run_dir}" ]] && find "${run_dir}" -mindepth 1 -print -quit | grep -q .; then
+      echo "Refusing to mix outputs: ${run_dir} is not empty." >&2
+      echo "Archive/remove the old v3 outputs or submit with ALLOW_OVERWRITE=1." >&2
+      exit 4
+    fi
+  done
+fi
 
 COMMON_EXPORT="ALL,FAIRCAPO_ADULT_REASONING_SHOTS=1"
 
@@ -25,7 +49,7 @@ fair_search_job=$(sbatch --parsable --job-name=adult-fair-v3 --array=0 \
   --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_faircapo_7p5m_v3_HPC.yaml,RUN_TAG=adult_faircapo_7p5m_v3" \
   scripts/hpc/run_bios_hpc.slurm)
 
-echo "Submitting Adult MO-CAPO fairness-off v3 search..."
+echo "Submitting Adult MO-CAPO fairness-objective-off v3 search..."
 ablation_search_job=$(sbatch --parsable --job-name=adult-mo-v3 \
   --dependency=afterok:${fair_search_job} --array=0 \
   --export="${COMMON_EXPORT},CONFIG=configs/HPC_Config/adult_ablation_7p5m_v3_HPC.yaml,RUN_TAG=adult_ablation_7p5m_v3" \
@@ -70,6 +94,6 @@ Monitor:
   squeue -u \$USER
   sacct -j ${fair_search_job},${ablation_search_job},${nsga_search_job},${fair_eval_job},${ablation_eval_job},${nsga_eval_job} --format=JobID,JobName%24,State,ExitCode,Elapsed,NodeList
 
-Build tables and figures after all evaluations complete:
+Build the validated representative table and figures after all evaluations complete:
   bash scripts/hpc/build_adult_7p5m_v3_large_outputs.sh
 EOF
