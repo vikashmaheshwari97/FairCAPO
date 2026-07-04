@@ -17,9 +17,12 @@ if [[ -s data/adult.csv ]]; then
 fi
 
 test -s data/adult_semantic_v3.csv
-PYTHONPATH=. python scripts/preflight_adult_accuracy_v3.py \
-  --config "${CONFIG}" \
+PYTHONPATH=. python scripts/preflight_adult_v3.py \
   --data data/adult_semantic_v3.csv
+
+grep -q "classification_mode: two_stage_label_scoring" "${CONFIG}"
+grep -q "max_budget: 4000000.0" "${CONFIG}"
+grep -q "block_size: 50" "${CONFIG}"
 
 if [[ "${ALLOW_OVERWRITE:-0}" != "1" ]]; then
   for run_dir in "${RUN_DIR}" "${EVAL_DIR}"; do
