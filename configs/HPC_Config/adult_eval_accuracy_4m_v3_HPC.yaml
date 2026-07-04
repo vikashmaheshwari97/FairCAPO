@@ -1,0 +1,73 @@
+experiment_name: adult_eval_accuracy_4m_v3
+portfolio_csv: outputs/hpc/adult_faircapo_accuracy_4m_v3/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/evaluation_accuracy/seed_0/adult_faircapo_accuracy_4m_v3
+
+dataset: adult
+data_path: data/adult_semantic_v3.csv
+task_type: classification
+seed: 0
+dev_size: 400
+shots_size: 100
+test_size: 1000
+stratified: true
+stratify_group_key: sex
+allow_smaller: false
+
+labels:
+  - "<=50K"
+  - ">50K"
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+  classification_mode: two_stage_label_scoring
+  label_scoring_top_k: 2
+  label_scoring_score_scale: 10
+
+fairness:
+  in_loop: true
+  mode: equalized_odds
+  group_key: sex
+  positive_label: ">50K"
+  group_gap_weight: 0.0
+  demographic_parity_weight: 0.0
+  equal_opportunity_weight: 0.0
+  equalized_odds_weight: 1.0
+  flip_weight: 0.0
+  bias_weight: 0.0
+  debt_weight: 0.0
+
+selection:
+  min_performance_for_fairness: 0.80
+  low_performance_fairness_penalty: 1.0
+  fairness_gate_mode: continuous
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 96
+  timeout: 900
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 150000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0
