@@ -1,0 +1,85 @@
+# Accuracy-discovery Adult v3 initial prompt pool.
+# This pool is intentionally smaller than the shared ablation pool so the first
+# budget is spent exploring strong prompts rather than evaluating many seeds.
+# Protected attributes remain metadata-only and must not appear in prompt text.
+
+dataset: adult
+task_type: classification
+seed: 0
+
+labels:
+  - "<=50K"
+  - ">50K"
+
+prompt_pool:
+  - id: scorecard_zero_shot
+    category: accuracy_first
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Predict whether this Adult census person record has annual income >50K or <=50K.
+      Use only economic and work-related evidence in the record: education level,
+      occupation, work class, age, weekly hours, capital gain, capital loss,
+      marital/household context, and native country when it is relevant to work opportunity.
+      Return exactly one label inside <final_answer> tags.
+
+  - id: threshold_grid_two_shot
+    category: accuracy_first
+    cost_level: medium
+    few_shot_count: 2
+    prompt: >
+      Classify annual income by applying a calibrated evidence threshold. Predict >50K
+      when several strong signals co-occur, especially advanced education, professional
+      specialty, executive or managerial work, incorporated self-employment, high capital
+      gain, long hours, or late-career high-skill work. Predict <=50K when the record has
+      mostly lower education, routine service/manual/clerical work, no capital income, or
+      part-time/standard hours without strong high-income signals. Resolve conflicts by
+      counting the number and strength of signals. Return only <final_answer><=50K</final_answer>
+      or <final_answer>>50K</final_answer>.
+
+  - id: false_negative_guard_two_shot
+    category: accuracy_first
+    cost_level: medium
+    few_shot_count: 2
+    prompt: >
+      Avoid missing high-income cases. A record does not need every high-income signal to be
+      >50K; one very strong signal such as very high capital gain, or a combination of high
+      education with professional/executive/technical work and long hours, can be enough.
+      Still reject weak evidence: low education, low-skill work, no capital income, and
+      ordinary hours usually indicate <=50K. Use the same rule for every record and return
+      only the tagged label.
+
+  - id: false_positive_guard_two_shot
+    category: balanced
+    cost_level: medium
+    few_shot_count: 2
+    prompt: >
+      Avoid over-predicting >50K. Require strong economic evidence, not merely being older,
+      married, or working full time. Strong evidence includes very high capital gain,
+      professional or executive occupation with advanced education, incorporated self-employment,
+      or multiple reinforcing high-skill signals. If evidence is mixed but lacks these strong
+      signals, choose <=50K. Return exactly one label in <final_answer> tags.
+
+  - id: interaction_three_shot
+    category: accuracy_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Use feature interactions. Education matters most when paired with occupation and work
+      class. Professional specialty, executive-managerial, technical support, and incorporated
+      self-employment are strong >50K evidence when combined with higher education, long hours,
+      or capital gain. Service, handlers-cleaners, farming-fishing, machine operation, private
+      household service, and low education point toward <=50K unless there is unusually strong
+      capital or executive evidence. Return only the final tagged label.
+
+  - id: robust_audit_four_shot
+    category: fairness_first
+    cost_level: expensive
+    few_shot_count: 4
+    prompt: >
+      Audit all non-protected evidence and make a high-accuracy income decision. Do not infer
+      from protected demographics or stereotypes. Treat marital status and relationship as weak
+      context only; they may support household economic context but cannot override direct work,
+      education, hours, and capital evidence. Compare the case for both labels, use a consistent
+      threshold, avoid constant-label behavior, and output only one final label inside
+      <final_answer> tags.
