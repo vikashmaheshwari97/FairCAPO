@@ -21,6 +21,7 @@ CONFIG="${CONFIG:-configs/HPC_Config/bios_nsga2po_500k_v1_HPC.yaml}"
 SEED="${SLURM_ARRAY_TASK_ID:-0}"
 RUN_TAG="${RUN_TAG:-bios_nsga2po_500k_v1}"
 OUT_DIR="outputs/hpc/${RUN_TAG}/seed_${SEED}"
+NSGA_RUNNER="${NSGA_RUNNER:-scripts/run_baseline_nsga2_po.py}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"
@@ -75,6 +76,11 @@ if grep -q "fairness_bios_probe_search_seed0.jsonl" "${CONFIG}"; then
   }
 fi
 
+if [ ! -f "${NSGA_RUNNER}" ]; then
+  echo "Missing NSGA runner: ${NSGA_RUNNER}" >&2
+  exit 3
+fi
+
 echo "Starting vLLM on $(hostname):${SERVER_PORT}"
 python -m vllm.entrypoints.openai.api_server \
   --model "${MODEL_PATH}" \
@@ -108,9 +114,10 @@ echo "vLLM ready."
 echo "config=${CONFIG}"
 echo "seed=${SEED}"
 echo "out=${OUT_DIR}"
+echo "runner=${NSGA_RUNNER}"
 echo "api=${FAIRCAPO_LLM_API_URL}"
 
-python -u scripts/run_baseline_nsga2_po.py \
+python -u "${NSGA_RUNNER}" \
   --config "${CONFIG}" \
   --seed "${SEED}" \
   --output-dir "${OUT_DIR}"
