@@ -1,5 +1,6 @@
-# Adult MO-CAPO fairness-off v3 -- same semantic data, prompt pool and budget
-# as FairCAPO v3. The only headline difference is fairness.in_loop=false.
+# Adult MO-CAPO fairness-objective-off v3.
+# Data, initial prompts, few-shot pool, budget and search settings match
+# FairCAPO v3; only the in-loop fairness objective is disabled.
 
 dataset: adult
 task_type: classification
@@ -12,8 +13,10 @@ task_description: >
   Each input is a semantic text rendering of an Adult census record. Predict
   annual income as exactly <=50K or >50K. Combine ordinal education, occupation,
   work class, age band, weekly hours, capital gain, capital loss, and household
-  context. Evolve concise prompts that improve predictive accuracy and retain a
-  diverse accuracy-cost Pareto front while avoiding constant-label collapse.
+  context. Protected sex and race are hidden from the prompt and retained only
+  as metadata for held-out fairness evaluation. Evolve concise prompts that
+  improve predictive accuracy, retain diverse accuracy-cost trade-offs, and
+  avoid constant-label collapse.
 
 labels:
   - "<=50K"
@@ -34,7 +37,7 @@ llm:
   model_id: mistralai/mistral-small-3.2
   api_url: http://localhost:1234/v1
   temperature: 0.0
-  num_predict: 24
+  num_predict: 128
   timeout: 900
 
 evaluation:
@@ -74,6 +77,12 @@ budget:
   max_budget: 7500000.0
   allow_overspend: false
 
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 100.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
 evolutionary:
   population_size: 10
   max_iterations: 2000
@@ -84,12 +93,14 @@ evolutionary:
   use_meta_llm: true
   require_prompt_tags: true
   preserve_output_format: true
+  validate_prompt_instruction: true
   advance_after_iteration: true
 
 intensification:
+  max_blocks_per_challenger: 10
   reject_when_dominated: true
   accept_when_not_dominated_on_common_blocks: true
-  add_rejected_to_population: true
+  add_rejected_to_population: false
   use_cache: true
   final_intensification: true
 
