@@ -1,5 +1,4 @@
-# Adult NSGA-II-PO + fairness v3 -- same semantic data, prompt pool and
-# 7.5M-token cap as FairCAPO v3, but full-dev NSGA-II evaluation.
+# Adult NSGA-II-PO + fairness v3.
 
 dataset: adult
 task_type: classification
@@ -36,7 +35,7 @@ llm:
   model_id: mistralai/mistral-small-3.2
   api_url: http://localhost:1234/v1
   temperature: 0.0
-  num_predict: 24
+  num_predict: 128
   timeout: 900
 
 evaluation:
