@@ -91,5 +91,5 @@ Monitor:
   sacct -j ${fair_search_job},${ablation_search_job},${nsga_search_job},${fair_eval_job},${ablation_eval_job},${nsga_eval_job} --format=JobID,JobName%28,State,ExitCode,Elapsed,NodeList
 
 Build tables and figures after all six jobs complete:
-  bash scripts/hpc/build_adult_7p5m_v3_large_outputs.sh
+  bash scripts/hpc/build_adult_1m_v3_outputs.sh
 EOF
