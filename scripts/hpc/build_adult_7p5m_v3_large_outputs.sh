@@ -39,14 +39,13 @@ python scripts/visualize_staircase.py \
   --out "${FIG_DIR}/fig_pareto_staircase.png" \
   --color-fairness
 
-# Cross-method front richness must use a common evaluation basis. Search CSV
-# costs are per-example for blockwise MO-CAPO but full-dev totals for NSGA, so
-# the earlier search-basis comparison was not valid. All held-out CSVs below use
-# the same 2,000 test records and therefore have comparable objective scales.
-python scripts/visualize_front_richness.py \
+# All three CSVs below use the identical 2,000-record held-out split, so accuracy,
+# cost and equalized-odds risk are on a common basis. The plotting code makes no
+# assumption about which method has more or fewer Pareto points.
+python scripts/visualize_adult_v3_fronts.py \
   --faircapo outputs/hpc/evaluation_large/seed_0/adult_faircapo_7p5m_v3/test_eval_candidates.csv \
+  --mocapo outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3/test_eval_candidates.csv \
   --nsga outputs/hpc/evaluation_large/seed_0/adult_nsga2po_7p5m_v3/test_eval_candidates.csv \
-  --ablation outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3/test_eval_candidates.csv \
   --title "${TITLE} (shared held-out basis)" \
   --out "${FIG_DIR}/fig_front_richness_heldout.png"
 
