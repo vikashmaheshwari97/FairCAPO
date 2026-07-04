@@ -1,5 +1,5 @@
-# Adult v3 1M held-out comparison.
-output_dir: outputs/experiment_table/adult_mistral_hpc_1m_v3_seed0
+# Adult v3 cross-method held-out comparison.
+output_dir: outputs/experiment_table/adult_mistral_hpc_7p5m_v3_large_seed0
 dataset: Adult
 model: mistralai/mistral-small-3.2
 seed: 0
@@ -14,7 +14,7 @@ objectives:
 
 bounds:
   performance: [0.0, 1.0]
-  cost: [0.0, 50000.0]
+  cost: [0.0, 100000.0]
   risk: [0.0, 1.0]
   fairness_risk: [0.0, 1.0]
 
@@ -23,24 +23,27 @@ metrics:
   seed: 0
 
 selection:
-  min_performance_for_fairness: 0.70
+  min_performance_for_fairness: 0.72
   representative_policy: min_fairness_then_max_performance_then_min_cost
 
 methods:
   - name: FairCAPO
     type: pareto_set
-    candidates_csv: outputs/hpc/evaluation_1m/seed_0/adult_faircapo_1m_v3/test_eval_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/adult_faircapo_7p5m_v3/test_eval_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/adult_faircapo_1m_v3/seed_0/budget_summary.json
+    budget_json: outputs/hpc/adult_faircapo_7p5m_v3/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/adult_faircapo_7p5m_v3/test_eval_candidates.csv
 
-  - name: MO-CAPO (fairness objective off)
+  - name: MO-CAPO (fairness off)
     type: pareto_set
-    candidates_csv: outputs/hpc/evaluation_1m/seed_0/adult_ablation_1m_v3/test_eval_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3/test_eval_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/adult_ablation_1m_v3/seed_0/budget_summary.json
+    budget_json: outputs/hpc/adult_ablation_7p5m_v3/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/adult_ablation_7p5m_v3/test_eval_candidates.csv
 
   - name: NSGA-II-PO + fairness
     type: pareto_set
-    candidates_csv: outputs/hpc/evaluation_1m/seed_0/adult_nsga2po_1m_v3/test_eval_candidates.csv
+    candidates_csv: outputs/hpc/evaluation_large/seed_0/adult_nsga2po_7p5m_v3/test_eval_candidates.csv
     only_pareto: true
-    budget_json: outputs/hpc/adult_nsga2po_1m_v3/seed_0/budget_summary.json
+    budget_json: outputs/hpc/adult_nsga2po_7p5m_v3/seed_0/budget_summary.json
+    holdout_csv: outputs/hpc/evaluation_large/seed_0/adult_nsga2po_7p5m_v3/test_eval_candidates.csv
