@@ -1,388 +1,43 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-import hashlib
-import json
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Optional, Sequence
 
 from heal_capo.core import EvaluationResult, PromptCandidate
-from heal_capo.objectives import ObjectiveEvaluator
+from heal_capo.fairness import (
+    equalized_odds_gap,
+    group_accuracy_gap,
+    label_conditioned_group_accuracy_gap,
+)
+from heal_capo.optimizers import block_evaluator_legacy as _legacy
+
+DataBlock = _legacy.DataBlock
+BlockEvaluation = _legacy.BlockEvaluation
+EvaluationHistory = _legacy.EvaluationHistory
+prompt_signature = _legacy.prompt_signature
+clone_evaluation_for_candidate = _legacy.clone_evaluation_for_candidate
+make_blocks = _legacy.make_blocks
 
 
-@dataclass(frozen=True)
-class DataBlock:
-    """
-    A block of development examples used for progressive evaluation.
-    """
-
-    block_id: int
-    examples: list[dict]
-
-    @property
-    def size(self) -> int:
-        return len(self.examples)
-
-
-@dataclass
-class BlockEvaluation:
-    """
-    Evaluation of one prompt candidate on one data block.
-    """
-
-    candidate_id: str
-    block_id: int
-    result: EvaluationResult
-    prompt_signature: str = ""
-    from_cache: bool = False
-    cache_source_candidate_id: Optional[str] = None
-
-    @property
-    def objective_vector(self) -> tuple:
-        return self.result.objective_vector
-
-
-def prompt_signature(candidate: PromptCandidate) -> str:
-    """
-    Stable cache key for a rendered prompt template.
-
-    MO-CAPO's runhistory is keyed by prompt string and block, not by transient
-    candidate id. A FairCAPO candidate is defined by its instruction plus the
-    ordered few-shot examples it carries; two candidates with the same rendered
-    prompt should reuse block evaluations even if their UUIDs differ.
-    """
-    rendered_examples = [
-        {
-            "input": str(example.get("input", "")),
-            "output": str(example.get("output", "")),
-        }
-        for example in candidate.examples or []
+def _prediction_rows(evaluations: Sequence[BlockEvaluation]) -> list[dict]:
+    return [
+        dict(row)
+        for evaluation in evaluations
+        for row in ((evaluation.result.details or {}).get("predictions", []) or [])
+        if isinstance(row, dict)
     ]
-    payload = {
-        "instruction": str(candidate.instruction),
-        "examples": rendered_examples,
-    }
-    encoded = json.dumps(
-        payload,
-        sort_keys=True,
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def clone_evaluation_for_candidate(
-    evaluation: BlockEvaluation,
-    candidate_id: str,
-) -> BlockEvaluation:
-    """
-    Reuse a prompt/block evaluation for another candidate id.
-
-    The objective values and token/cost fields remain identical because the
-    rendered prompt is identical. ``from_cache`` lets budget accounting skip a
-    second charge while the candidate-level history still records that this
-    candidate has evidence on the block.
-    """
-    source_result = evaluation.result
-    details = dict(source_result.details or {})
-    details["prompt_cache_hit"] = True
-    details["cache_source_candidate_id"] = source_result.candidate_id
-
-    result = EvaluationResult(
-        candidate_id=candidate_id,
-        performance=source_result.performance,
-        cost=source_result.cost,
-        risk=source_result.risk,
-        fairness_risk=source_result.fairness_risk,
-        drift=source_result.drift,
-        n_examples=source_result.n_examples,
-        details=details,
-    )
-
-    return BlockEvaluation(
-        candidate_id=candidate_id,
-        block_id=evaluation.block_id,
-        result=result,
-        prompt_signature=evaluation.prompt_signature,
-        from_cache=True,
-        cache_source_candidate_id=source_result.candidate_id,
-    )
+def merge_results(candidate_id: str, evaluations: Sequence[BlockEvaluation]) -> EvaluationResult:
+    result = _legacy.merge_results(candidate_id, evaluations)
+    rows = _prediction_rows(evaluations)
+    if rows:
+        result.details["predictions"] = rows
+        result.details["num_merged_predictions"] = len(rows)
+    return result
 
 
-@dataclass
-class EvaluationHistory:
-    """
-    Stores block-level evaluations.
-
-    Key:
-      candidate_id -> block_id -> BlockEvaluation
-      prompt_signature -> block_id -> canonical BlockEvaluation
-    """
-
-    evaluations: Dict[str, Dict[int, BlockEvaluation]] = field(default_factory=dict)
-    prompt_evaluations: Dict[str, Dict[int, BlockEvaluation]] = field(default_factory=dict)
-
-    def add(self, evaluation: BlockEvaluation) -> None:
-        self.evaluations.setdefault(evaluation.candidate_id, {})
-        self.evaluations[evaluation.candidate_id][evaluation.block_id] = evaluation
-
-        if evaluation.prompt_signature and not evaluation.from_cache:
-            self.prompt_evaluations.setdefault(evaluation.prompt_signature, {})
-            self.prompt_evaluations[evaluation.prompt_signature][
-                evaluation.block_id
-            ] = evaluation
-
-    def has(self, candidate_id: str, block_id: int) -> bool:
-        return candidate_id in self.evaluations and block_id in self.evaluations[candidate_id]
-
-    def get(self, candidate_id: str, block_id: int) -> BlockEvaluation:
-        return self.evaluations[candidate_id][block_id]
-
-    def has_prompt(self, signature: str, block_id: int) -> bool:
-        return signature in self.prompt_evaluations and block_id in self.prompt_evaluations[signature]
-
-    def get_prompt(self, signature: str, block_id: int) -> BlockEvaluation:
-        return self.prompt_evaluations[signature][block_id]
-
-    def get_candidate_blocks(self, candidate_id: str) -> list[int]:
-        if candidate_id not in self.evaluations:
-            return []
-
-        return sorted(self.evaluations[candidate_id].keys())
-
-    def get_candidate_evaluations(self, candidate_id: str) -> list[BlockEvaluation]:
-        block_ids = self.get_candidate_blocks(candidate_id)
-        return [self.evaluations[candidate_id][block_id] for block_id in block_ids]
-
-    def num_blocks(self, candidate_id: str) -> int:
-        return len(self.get_candidate_blocks(candidate_id))
-
-    def total_cost(self, candidate_id: Optional[str] = None) -> float:
-        if candidate_id is not None:
-            return sum(
-                evaluation.result.cost
-                for evaluation in self.get_candidate_evaluations(candidate_id)
-            )
-
-        total = 0.0
-        for candidate_evals in self.evaluations.values():
-            for evaluation in candidate_evals.values():
-                total += evaluation.result.cost
-
-        return total
-
-    def candidates(self) -> list[str]:
-        return sorted(self.evaluations.keys())
-
-    def common_blocks(self, candidate_ids: Sequence[str]) -> list[int]:
-        if not candidate_ids:
-            return []
-
-        block_sets = []
-
-        for candidate_id in candidate_ids:
-            block_sets.append(set(self.get_candidate_blocks(candidate_id)))
-
-        if not block_sets:
-            return []
-
-        common = set.intersection(*block_sets)
-
-        return sorted(common)
-
-
-def make_blocks(
-    data: Sequence[dict],
-    block_size: int,
-    drop_last: bool = False,
-) -> list[DataBlock]:
-    """
-    Split data into ordered blocks.
-    """
-    if block_size <= 0:
-        raise ValueError("block_size must be positive.")
-
-    blocks = []
-
-    for start in range(0, len(data), block_size):
-        examples = list(data[start : start + block_size])
-
-        if drop_last and len(examples) < block_size:
-            continue
-
-        blocks.append(
-            DataBlock(
-                block_id=len(blocks),
-                examples=examples,
-            )
-        )
-
-    return blocks
-
-
-def merge_results(
-    candidate_id: str,
-    evaluations: Sequence[BlockEvaluation],
-) -> EvaluationResult:
-    """
-    Merge block-level evaluations into one aggregate result.
-
-    Performance/risk/fairness/drift are weighted by number of examples.
-    Deployment cost is normalized per evaluated example so candidates evaluated
-    on more blocks are not penalized for having deeper evidence. Search cost is
-    still summed in details for budget accounting.
-    """
-    if not evaluations:
-        raise ValueError("Cannot merge empty evaluations.")
-
-    total_examples = sum(max(0, evaluation.result.n_examples) for evaluation in evaluations)
-
-    if total_examples <= 0:
-        total_examples = len(evaluations)
-        weights = [1.0 for _ in evaluations]
-    else:
-        weights = [max(0, evaluation.result.n_examples) for evaluation in evaluations]
-
-    def weighted_average(field_name: str) -> float:
-        total = 0.0
-
-        for evaluation, weight in zip(evaluations, weights):
-            total += getattr(evaluation.result, field_name) * weight
-
-        return total / sum(weights)
-
-    block_ids = sorted(evaluation.block_id for evaluation in evaluations)
-    deployment_cost = sum(evaluation.result.cost for evaluation in evaluations)
-    objective_cost = deployment_cost / total_examples if total_examples else deployment_cost
-    deployment_input_tokens = sum(
-        float(
-            (evaluation.result.details or {}).get(
-                "deployment_input_tokens",
-                (evaluation.result.details or {}).get("input_tokens", 0.0),
-            )
-        )
-        for evaluation in evaluations
-    )
-    deployment_output_tokens = sum(
-        float(
-            (evaluation.result.details or {}).get(
-                "deployment_output_tokens",
-                (evaluation.result.details or {}).get("output_tokens", 0.0),
-            )
-        )
-        for evaluation in evaluations
-    )
-    search_cost = sum(
-        float((evaluation.result.details or {}).get("search_cost", evaluation.result.cost))
-        for evaluation in evaluations
-    )
-    search_input_tokens = sum(
-        float(
-            (evaluation.result.details or {}).get(
-                "search_input_tokens",
-                (evaluation.result.details or {}).get("input_tokens", 0.0),
-            )
-        )
-        for evaluation in evaluations
-    )
-    search_output_tokens = sum(
-        float(
-            (evaluation.result.details or {}).get(
-                "search_output_tokens",
-                (evaluation.result.details or {}).get("output_tokens", 0.0),
-            )
-        )
-        for evaluation in evaluations
-    )
-    fairness_audit_cost = sum(
-        float((evaluation.result.details or {}).get("fairness_audit_cost", 0.0))
-        for evaluation in evaluations
-    )
-    merged_details = {
-        "merged_from_blocks": [evaluation.block_id for evaluation in evaluations],
-        # Canonical key read by parent_selection.get_evaluated_blocks /
-        # advance_incumbents: makes every aggregate result self-describing so a
-        # candidate's real evaluated-block set is recoverable even when nobody
-        # stamped it onto candidate.metadata. Without this, intensification-
-        # accepted challengers look like they have 0 evaluated blocks, which
-        # misleads incumbent advancement and block-aware tournaments.
-        "evaluated_blocks": block_ids,
-        "num_block_evaluations": len(evaluations),
-        "deployment_cost": objective_cost,
-        "deployment_cost_total": deployment_cost,
-        "deployment_cost_per_example": objective_cost,
-        "deployment_input_tokens": deployment_input_tokens,
-        "deployment_output_tokens": deployment_output_tokens,
-        "search_cost": search_cost,
-        "search_input_tokens": search_input_tokens,
-        "search_output_tokens": search_output_tokens,
-        "fairness_audit_cost": fairness_audit_cost,
-    }
-
-    return EvaluationResult(
-        candidate_id=candidate_id,
-        performance=weighted_average("performance"),
-        cost=objective_cost,
-        risk=weighted_average("risk"),
-        fairness_risk=weighted_average("fairness_risk"),
-        drift=weighted_average("drift"),
-        n_examples=int(total_examples),
-        details=merged_details,
-    )
-
-
-class BlockEvaluator:
-    """
-    Evaluates PromptCandidate objects on data blocks with caching.
-
-    This is the first building block for MO-CAPO-style intensification:
-      - evaluate on one block first
-      - reuse cached evaluations
-      - aggregate over evaluated blocks
-    """
-
-    def __init__(
-        self,
-        evaluator: ObjectiveEvaluator,
-        blocks: Sequence[DataBlock],
-        history: Optional[EvaluationHistory] = None,
-    ):
-        if not blocks:
-            raise ValueError("BlockEvaluator requires at least one data block.")
-
-        self.evaluator = evaluator
-        self.blocks = list(blocks)
-        self.history = history or EvaluationHistory()
-        self._block_map = {block.block_id: block for block in self.blocks}
-
-    @classmethod
-    def from_data(
-        cls,
-        evaluator: ObjectiveEvaluator,
-        data: Sequence[dict],
-        block_size: int,
-        drop_last: bool = False,
-        history: Optional[EvaluationHistory] = None,
-    ) -> "BlockEvaluator":
-        blocks = make_blocks(
-            data=data,
-            block_size=block_size,
-            drop_last=drop_last,
-        )
-
-        return cls(
-            evaluator=evaluator,
-            blocks=blocks,
-            history=history,
-        )
-
-    def block_ids(self) -> list[int]:
-        return sorted(self._block_map.keys())
-
-    def get_block(self, block_id: int) -> DataBlock:
-        if block_id not in self._block_map:
-            raise KeyError(f"Unknown block_id: {block_id}")
-
-        return self._block_map[block_id]
+class BlockEvaluator(_legacy.BlockEvaluator):
+    """Block evaluator with error capture and statistically correct fairness merging."""
 
     def evaluate_block(
         self,
@@ -390,86 +45,39 @@ class BlockEvaluator:
         block_id: int,
         use_cache: bool = True,
     ) -> BlockEvaluation:
-        """
-        Evaluate one candidate on one block.
-        """
-        signature = prompt_signature(candidate)
-
-        if use_cache and self.history.has(candidate.candidate_id, block_id):
-            return self.history.get(candidate.candidate_id, block_id)
-
-        if use_cache and self.history.has_prompt(signature, block_id):
-            cached = clone_evaluation_for_candidate(
-                self.history.get_prompt(signature, block_id),
-                candidate_id=candidate.candidate_id,
-            )
-            self.history.add(cached)
-            return cached
-
-        block = self.get_block(block_id)
-
-        result = self.evaluator.evaluate(
-            candidate=candidate,
-            data=block.examples,
-        )
-
-        # Ensure candidate id and n_examples are aligned with the block.
-        result.candidate_id = candidate.candidate_id
-        if result.n_examples <= 0:
-            result.n_examples = block.size
-
-        evaluation = BlockEvaluation(
-            candidate_id=candidate.candidate_id,
-            block_id=block_id,
-            result=result,
-            prompt_signature=signature,
-        )
-
-        self.history.add(evaluation)
-
+        evaluation = super().evaluate_block(candidate, block_id, use_cache)
+        existing = [
+            dict(row)
+            for row in candidate.metadata.get("error_feedback_rows", [])
+            if isinstance(row, dict)
+        ]
+        seen = {
+            (str(row.get("input", "")), str(row.get("gold", "")), str(row.get("prediction", "")))
+            for row in existing
+        }
+        for row in (evaluation.result.details or {}).get("predictions", []) or []:
+            if bool(row.get("correct")):
+                continue
+            item = {
+                "input": str(row.get("text", ""))[:700],
+                "gold": str(row.get("gold", "")),
+                "prediction": str(row.get("prediction", "")),
+                "group": str(row.get("group", "")),
+                "block_id": int(block_id),
+            }
+            key = (item["input"], item["gold"], item["prediction"])
+            if key not in seen:
+                existing.append(item)
+                seen.add(key)
+        candidate.metadata["error_feedback_rows"] = existing[-12:]
+        candidate.metadata["last_block_performance"] = float(evaluation.result.performance)
         return evaluation
-
-    def evaluate_blocks(
-        self,
-        candidate: PromptCandidate,
-        block_ids: Iterable[int],
-        use_cache: bool = True,
-    ) -> list[BlockEvaluation]:
-        """
-        Evaluate one candidate on several blocks.
-        """
-        evaluations = []
-
-        for block_id in block_ids:
-            evaluations.append(
-                self.evaluate_block(
-                    candidate=candidate,
-                    block_id=block_id,
-                    use_cache=use_cache,
-                )
-            )
-
-        return evaluations
-
-    def evaluate_all_blocks(
-        self,
-        candidate: PromptCandidate,
-        use_cache: bool = True,
-    ) -> list[BlockEvaluation]:
-        return self.evaluate_blocks(
-            candidate=candidate,
-            block_ids=self.block_ids(),
-            use_cache=use_cache,
-        )
 
     def aggregate_candidate(
         self,
         candidate_id: str,
         block_ids: Optional[Sequence[int]] = None,
     ) -> EvaluationResult:
-        """
-        Aggregate cached evaluations for a candidate.
-        """
         if block_ids is None:
             evaluations = self.history.get_candidate_evaluations(candidate_id)
         else:
@@ -479,22 +87,45 @@ class BlockEvaluator:
                 if self.history.has(candidate_id, block_id)
             ]
 
-        return merge_results(
-            candidate_id=candidate_id,
-            evaluations=evaluations,
-        )
+        result = merge_results(candidate_id, evaluations)
+        rows = list(result.details.get("predictions", []) or [])
+        predictions = [str(row.get("prediction", "")) for row in rows]
+        labels = [str(row.get("gold", "")) for row in rows]
+        groups = [str(row.get("group", "")) for row in rows]
+        complete = bool(rows) and all(groups) and len(predictions) == len(labels) == len(groups)
 
-    def evaluated_blocks(self, candidate_id: str) -> list[int]:
-        return self.history.get_candidate_blocks(candidate_id)
+        mode = str(getattr(self.evaluator, "fairness_mode", "")).strip().lower()
+        fairness_cfg = dict(getattr(self.evaluator, "fairness_cfg", {}) or {})
+        recomputed = None
+        details = {}
+        if complete and mode == "equalized_odds":
+            positive_label = str(fairness_cfg.get("positive_label", ">50K"))
+            recomputed = equalized_odds_gap(predictions, labels, groups, positive_label)
+            details = {"fairness_method": "equalized_odds"}
+        elif complete and mode in {"group", "group_fairness", "group_accuracy_gap"}:
+            recomputed = group_accuracy_gap(predictions, labels, groups)
+            details = {"fairness_method": "group_accuracy_gap"}
+        elif complete and mode in {
+            "label_conditioned_group_accuracy_gap",
+            "label_group_accuracy_gap",
+        }:
+            recomputed, label_details = label_conditioned_group_accuracy_gap(
+                predictions,
+                labels,
+                groups,
+                min_count_per_group=int(fairness_cfg.get("min_count_per_group", 1)),
+            )
+            details = dict(label_details)
 
-    def unevaluated_blocks(self, candidate_id: str) -> list[int]:
-        evaluated = set(self.evaluated_blocks(candidate_id))
+        if recomputed is not None:
+            result.fairness_risk = float(recomputed)
+            result.details.update(details)
+            result.details["fairness_aggregation"] = "recomputed_from_merged_predictions"
+            result.details["fairness_risk_recomputed"] = float(recomputed)
 
-        return [
-            block_id
-            for block_id in self.block_ids()
-            if block_id not in evaluated
-        ]
-
-    def total_cost(self) -> float:
-        return self.history.total_cost()
+        floor = float(getattr(self.evaluator, "performance_floor", 0.0) or 0.0)
+        shortfall = max(0.0, floor - float(result.performance))
+        result.details["performance_feasibility_threshold"] = floor
+        result.details["performance_feasibility_shortfall"] = shortfall
+        result.details["performance_feasible"] = shortfall <= 0.0
+        return result
