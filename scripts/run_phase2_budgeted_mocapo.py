@@ -94,7 +94,6 @@ def _install_runtime(config: dict) -> None:
         int((config.get("intensification") or {}).get("min_blocks_before_reject", 1))
     )
 
-    # Install corrected implementations into the preserved legacy orchestration.
     _legacy.simple_token_count = simple_token_count
     _legacy.get_task_description = get_task_description
     _legacy.load_yaml = load_yaml
@@ -119,9 +118,7 @@ def run_budgeted_mocapo(config: dict, force_no_llm: bool = False):
 
 def main() -> None:
     config_path = _config_path_from_argv()
-    if not config_path:
-        raise ValueError("--config is required for the active MO-CAPO runner.")
-    config = load_yaml(config_path)
+    config = load_yaml(config_path) if config_path else {}
     _install_runtime(config)
     _legacy.main()
 
