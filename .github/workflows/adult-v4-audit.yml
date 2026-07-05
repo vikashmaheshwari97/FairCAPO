@@ -1,0 +1,38 @@
+name: Adult v4 audit
+
+on:
+  pull_request:
+    paths:
+      - "configs/HPC_Config/adult_*v4*"
+      - "configs/phase2_prompt_pool_adult_accuracy_v*.yaml"
+      - "heal_capo/**"
+      - "scripts/**"
+      - "tests/test_adult_*"
+      - ".github/workflows/adult-v4-audit.yml"
+  push:
+    branches:
+      - main
+      - "fix/adult-v4-*"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Compile upgraded modules
+        run: |
+          python -m compileall -q heal_capo scripts tests
+      - name: Run Adult v4 regression tests
+        run: |
+          PYTHONPATH=. python -m pytest -q \
+            tests/test_adult_retrieval_v4.py \
+            tests/test_adult_v4_pipeline.py
