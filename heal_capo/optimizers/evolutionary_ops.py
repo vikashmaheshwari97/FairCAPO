@@ -20,10 +20,7 @@ def _feedback_rows(candidate: PromptCandidate, limit: int = 6) -> list[dict]:
     return [dict(row) for row in list(rows)[-limit:] if isinstance(row, dict)]
 
 
-def _feedback_text(candidate: PromptCandidate) -> str:
-    rows = _feedback_rows(candidate)
-    if not rows:
-        return "No evaluated error examples are available yet."
+def _feedback_text(rows: list[dict]) -> str:
     rendered = []
     for index, row in enumerate(rows, start=1):
         rendered.append(
@@ -72,46 +69,60 @@ def make_mutation_meta_prompt(
 
 
 class EvolutionaryPromptOps(_legacy.EvolutionaryPromptOps):
-    """Legacy operators with error-driven crossover and mutation prompts."""
+    """Use error-driven operators only after development mistakes are available."""
 
     def crossover(self, mother, father, task_description: str = ""):
+        mother_rows = _feedback_rows(mother)
+        father_rows = _feedback_rows(father)
+        if not mother_rows and not father_rows:
+            result = super().crossover(mother, father, task_description)
+            result.candidate.metadata["error_feedback_used"] = False
+            return result
+
         original = _legacy.make_crossover_meta_prompt
-        mother_feedback = _feedback_text(mother)
-        father_feedback = _feedback_text(father)
-        _legacy.make_crossover_meta_prompt = lambda mother, father, task_description="": make_crossover_meta_prompt(
-            mother,
-            father,
-            task_description,
-            mother_feedback=mother_feedback,
-            father_feedback=father_feedback,
+        _legacy.make_crossover_meta_prompt = (
+            lambda mother, father, task_description="": make_crossover_meta_prompt(
+                mother,
+                father,
+                task_description,
+                mother_feedback=_feedback_text(mother_rows),
+                father_feedback=_feedback_text(father_rows),
+            )
         )
         try:
             result = super().crossover(mother, father, task_description)
         finally:
             _legacy.make_crossover_meta_prompt = original
-        result.candidate.metadata["error_feedback_used"] = bool(
-            _feedback_rows(mother) or _feedback_rows(father)
-        )
+        result.candidate.metadata["error_feedback_used"] = True
         result.candidate.metadata["error_feedback_parent_ids"] = [
             mother.candidate_id,
             father.candidate_id,
         ]
+        result.candidate.metadata["error_feedback_count"] = len(mother_rows) + len(father_rows)
         return result
 
     def mutate(self, parent, task_description: str = ""):
+        rows = _feedback_rows(parent)
+        if not rows:
+            result = super().mutate(parent, task_description)
+            result.candidate.metadata["error_feedback_used"] = False
+            return result
+
         original = _legacy.make_mutation_meta_prompt
-        feedback = _feedback_text(parent)
-        _legacy.make_mutation_meta_prompt = lambda instruction, task_description="": make_mutation_meta_prompt(
-            instruction,
-            task_description,
-            feedback=feedback,
+        _legacy.make_mutation_meta_prompt = (
+            lambda instruction, task_description="": make_mutation_meta_prompt(
+                instruction,
+                task_description,
+                feedback=_feedback_text(rows),
+            )
         )
         try:
             result = super().mutate(parent, task_description)
         finally:
             _legacy.make_mutation_meta_prompt = original
-        result.candidate.metadata["error_feedback_used"] = bool(_feedback_rows(parent))
+        result.candidate.metadata["error_feedback_used"] = True
         result.candidate.metadata["error_feedback_parent_ids"] = [parent.candidate_id]
+        result.candidate.metadata["error_feedback_count"] = len(rows)
         return result
 
 
