@@ -45,33 +45,38 @@ fi
 # Gemma serving overrides applied to every GPU job in the chain.
 GEMMA_ENV="MODEL_PATH=google/gemma-2-27b-it,SERVED_MODEL_NAME=google/gemma-2-27b-it,MODEL_FAMILY=gemma"
 
+# NOTE: the reused run_bios_*.slurm scripts hardcode #SBATCH --job-name=bios-*,
+# so squeue shows "bios-..." by default. --job-name below overrides that header
+# per job (SLURM honors the CLI flag over the script header) purely for readable
+# monitoring -- it changes nothing about the workload, which is driven by CONFIG
+# and the Gemma MODEL_* exports.
 echo "Submitting CivilComments FairCAPO 500k v1 (Gemma) search..."
-fair_search_job=$(sbatch --parsable --array=0 \
+fair_search_job=$(sbatch --parsable --array=0 --job-name=cc-faircapo \
   --export=ALL,${GEMMA_ENV},CONFIG=configs/HPC_Config/civilcomments_faircapo_500k_v1_gemma_HPC.yaml,RUN_TAG=civilcomments_faircapo_500k_v1_gemma \
   scripts/hpc/run_bios_hpc.slurm)
 
 echo "Submitting CivilComments MO-CAPO fairness-off 500k v1 (Gemma) search after FairCAPO..."
-ablation_search_job=$(sbatch --parsable --dependency=afterok:${fair_search_job} --array=0 \
+ablation_search_job=$(sbatch --parsable --dependency=afterok:${fair_search_job} --array=0 --job-name=cc-ablation \
   --export=ALL,${GEMMA_ENV},CONFIG=configs/HPC_Config/civilcomments_ablation_500k_v1_gemma_HPC.yaml,RUN_TAG=civilcomments_ablation_500k_v1_gemma \
   scripts/hpc/run_bios_hpc.slurm)
 
 echo "Submitting CivilComments NSGA-II-PO + fairness 500k v1 (Gemma) search after ablation..."
-nsga_search_job=$(sbatch --parsable --dependency=afterok:${ablation_search_job} --array=0 \
+nsga_search_job=$(sbatch --parsable --dependency=afterok:${ablation_search_job} --array=0 --job-name=cc-nsga \
   --export=ALL,${GEMMA_ENV},CONFIG=configs/HPC_Config/civilcomments_nsga2po_500k_v1_gemma_HPC.yaml,RUN_TAG=civilcomments_nsga2po_500k_v1_gemma \
   scripts/hpc/run_bios_nsga_hpc.slurm)
 
 echo "Submitting FairCAPO large-held-out eval after all searches..."
-fair_eval_job=$(sbatch --parsable --dependency=afterok:${nsga_search_job} --array=0 \
+fair_eval_job=$(sbatch --parsable --dependency=afterok:${nsga_search_job} --array=0 --job-name=cc-fair-eval \
   --export=ALL,${GEMMA_ENV},METHOD=faircapo,CONFIG=configs/HPC_Config/civilcomments_eval_large_500k_v1_gemma_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/civilcomments_faircapo_500k_v1_gemma/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/civilcomments_faircapo_500k_v1_gemma \
   scripts/hpc/run_bios_eval_hpc.slurm)
 
 echo "Submitting MO-CAPO fairness-off large-held-out eval after FairCAPO eval..."
-ablation_eval_job=$(sbatch --parsable --dependency=afterok:${fair_eval_job} --array=0 \
+ablation_eval_job=$(sbatch --parsable --dependency=afterok:${fair_eval_job} --array=0 --job-name=cc-abl-eval \
   --export=ALL,${GEMMA_ENV},METHOD=ablation,CONFIG=configs/HPC_Config/civilcomments_eval_ablation_large_500k_v1_gemma_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/civilcomments_ablation_500k_v1_gemma/seed_0/phase2_prompt_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/civilcomments_ablation_500k_v1_gemma \
   scripts/hpc/run_bios_eval_hpc.slurm)
 
 echo "Submitting NSGA-II-PO + fairness large-held-out eval after ablation eval..."
-nsga_eval_job=$(sbatch --parsable --dependency=afterok:${ablation_eval_job} --array=0 \
+nsga_eval_job=$(sbatch --parsable --dependency=afterok:${ablation_eval_job} --array=0 --job-name=cc-nsga-eval \
   --export=ALL,${GEMMA_ENV},METHOD=nsga,CONFIG=configs/HPC_Config/civilcomments_eval_nsga_large_500k_v1_gemma_HPC.yaml,PORTFOLIO_CSV=outputs/hpc/civilcomments_nsga2po_500k_v1_gemma/seed_0/nsga2_po_pareto_portfolio.csv,OUT_DIR=outputs/hpc/evaluation_large/seed_0/civilcomments_nsga2po_500k_v1_gemma \
   scripts/hpc/run_bios_eval_hpc.slurm)
 
