@@ -66,3 +66,39 @@ def test_no_match_returns_cleaned_text_not_a_spurious_label():
     pred = extract_label("<final_answer>astronaut</final_answer>", LABELS)
     assert pred not in LABELS
     assert pred == "astronaut"
+
+
+# --- Nested / substring label sets (e.g. CivilComments ["non-toxic", "toxic"]) ---
+# A hyphen is a regex word boundary, so \btoxic\b matches inside "non-toxic".
+# The nested label must NOT be extracted when the model wraps the answer in words.
+TOXICITY_LABELS = ["non-toxic", "toxic"]
+
+
+def test_nested_label_not_extracted_from_container_bare():
+    assert extract_label("non-toxic", TOXICITY_LABELS) == "non-toxic"
+
+
+def test_nested_label_not_extracted_from_container_in_sentence():
+    assert extract_label("This comment is non-toxic", TOXICITY_LABELS) == "non-toxic"
+    assert extract_label("The comment is clearly non-toxic.", TOXICITY_LABELS) == (
+        "non-toxic"
+    )
+    assert extract_label("Answer: non-toxic", TOXICITY_LABELS) == "non-toxic"
+    assert extract_label(
+        "I would classify this as non-toxic", TOXICITY_LABELS
+    ) == "non-toxic"
+
+
+def test_nested_label_still_matches_when_it_is_the_real_answer():
+    assert extract_label("toxic", TOXICITY_LABELS) == "toxic"
+    assert extract_label("The comment is toxic", TOXICITY_LABELS) == "toxic"
+    assert extract_label(
+        "<final_answer>toxic</final_answer>", TOXICITY_LABELS
+    ) == "toxic"
+
+
+def test_nested_label_final_answer_span_container():
+    assert extract_label(
+        "reasoning about tone...\n<final_answer>non-toxic</final_answer>",
+        TOXICITY_LABELS,
+    ) == "non-toxic"
