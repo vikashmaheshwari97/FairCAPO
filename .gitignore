@@ -13,3 +13,11 @@ outputs/
 
 # OS / editor
 .DS_Store
+.idea/
+
+# CivilComments-WILDS raw data (~1 GB; fetch on the node, never commit)
+data/civilcomments/
+data/civilcomments_v1.0/
+data/all_data_with_identities.csv
+# Generated search-only fairness probe (built on the node)
+data/fairness_civilcomments_probe_search_seed0.jsonl

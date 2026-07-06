@@ -57,10 +57,11 @@ evaluation:
   classification_mode: generate
 
 cost:
-  # Gemma-2-27B profile (placeholder -- confirm against measured OpenRouter
-  # pricing before publishing). Distinct from Mistral's 0.08/0.32.
-  input_weight: 0.10
-  output_weight: 0.30
+  # Gemma-2-27B-it OpenRouter pricing (2026-07): $0.65/M input, $0.65/M output
+  # (symmetric), vs Mistral-Small-3.2's $0.075/$0.20 -> weights 0.08/0.32.
+  # Re-check current OpenRouter pricing before publishing final numbers.
+  input_weight: 0.65
+  output_weight: 0.65
 
 fairness:
   in_loop: true

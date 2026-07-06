@@ -87,8 +87,8 @@ rich multi-point Pareto front. BIOS stays as the hard multi-class showcase.
    present, else `none`.
 4. **Model = Gemma-2-27B-it.** The BIOS SLURM scripts are now model-agnostic (Mistral vLLM flags gated
    behind `MODEL_FAMILY`, default `mistral`); the pipeline exports `MODEL_FAMILY=gemma`. Cost weights
-   are a **placeholder `0.10/0.30`** — replace with measured Gemma OpenRouter pricing before
-   publishing (the audit warns if Mistral's `0.08/0.32` is reused).
+   are **`0.65/0.65`** (measured Gemma-2-27B-it OpenRouter pricing, symmetric — notably unlike
+   Mistral's 1:4 `0.08/0.32`); re-check before publishing.
 
 **Status:** loader + probe builder + 8 configs + 2 prompt pools + pipeline scripts + audit rules + 10
 tests, all local-verified (449 pass / 1 pre-existing fail; audit clean for civilcomments). Not yet run
@@ -97,8 +97,9 @@ on Rocket.
 **How to run on Rocket:**
 ```bash
 cd ~/FairCAPO && git pull origin main
-# 0. Put the WILDS CSV on the node (once):
-#    data/civilcomments/all_data_with_identities.csv  (or set FAIRCAPO_CIVILCOMMENTS_CSV)
+# 0. Fetch the WILDS CSV to the default loader path (login node, no GPU; ~1 GB, not in git):
+bash scripts/hpc/download_civilcomments_data.sh
+#    -> data/civilcomments/all_data_with_identities.csv  (or set FAIRCAPO_CIVILCOMMENTS_CSV)
 # 1. Build the search-only fairness probe (login node, no GPU; must be 80 lines):
 PYTHONPATH=. python scripts/build_civilcomments_fairness_probe.py \
   --out data/fairness_civilcomments_probe_search_seed0.jsonl --split train --seed 0 --examples-per-group 5
@@ -228,7 +229,8 @@ before submitting or the jobs sit pending.
 - **Local (dev laptop):** LM Studio @ `localhost:1234` for quick checks. Project venv is
   `.venv/Scripts/python.exe` (Python 3.10; point PyCharm's interpreter here).
 - Cost weights: input 0.08 / output 0.32 (Mistral OpenRouter average, paper A.5). Gemma/CivilComments
-  configs use a **placeholder `0.10/0.30`** — replace with a measured Gemma profile before publishing.
+  configs use **`0.65/0.65`** (Gemma-2-27B-it OpenRouter pricing, 2026-07; symmetric input=output);
+  re-check current pricing before publishing.
 - pytest: `testpaths = ["tests"]`; ~450 tests, 1 known pre-existing failure
   (`test_portfolio_rows_to_candidates_restores_few_shot_examples`, a stale wording assert).
 

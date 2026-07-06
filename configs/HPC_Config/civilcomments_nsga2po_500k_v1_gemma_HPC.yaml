@@ -47,8 +47,8 @@ evaluation:
   classification_mode: generate
 
 cost:
-  input_weight: 0.10
-  output_weight: 0.30
+  input_weight: 0.65
+  output_weight: 0.65
 
 fairness:
   in_loop: true

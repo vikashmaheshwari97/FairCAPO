@@ -47,8 +47,8 @@ llm:
   timeout: 900
 
 cost:
-  input_weight: 0.10
-  output_weight: 0.30
+  input_weight: 0.65
+  output_weight: 0.65
 
 objectives:
   - name: performance
