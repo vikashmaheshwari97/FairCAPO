@@ -79,6 +79,7 @@ EVAL_RUNNER="${EVAL_RUNNER:-scripts/evaluate_pareto_on_test.py}"
 
 MODEL_PATH="${MODEL_PATH:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-mistralai/mistral-small-3.2}"
+MODEL_FAMILY="${MODEL_FAMILY:-mistral}"
 SERVER_PORT="${SERVER_PORT:-$((17000 + (${SLURM_JOB_ID:-0} % 1000) + SEED))}"
 VLLM_LIMIT_MM_IMAGE="${VLLM_LIMIT_MM_IMAGE:-0}"
 
@@ -132,17 +133,18 @@ if [ ! -f "${EVAL_RUNNER}" ]; then
   exit 3
 fi
 
-echo "Starting vLLM on $(hostname):${SERVER_PORT}"
+echo "Starting vLLM model_family=${MODEL_FAMILY} on $(hostname):${SERVER_PORT}"
+MODEL_ARGS=()
+if [[ "${MODEL_FAMILY}" == "mistral" ]]; then
+  MODEL_ARGS+=(--tokenizer-mode mistral --config-format mistral --load-format mistral)
+  MODEL_ARGS+=(--tool-call-parser mistral --enable-auto-tool-choice)
+fi
 python -m vllm.entrypoints.openai.api_server \
   --model "${MODEL_PATH}" \
   --served-model-name "${SERVED_MODEL_NAME}" \
   --host 127.0.0.1 \
   --port "${SERVER_PORT}" \
-  --tokenizer-mode mistral \
-  --config-format mistral \
-  --load-format mistral \
-  --tool-call-parser mistral \
-  --enable-auto-tool-choice \
+  "${MODEL_ARGS[@]}" \
   --limit-mm-per-prompt "{\"image\":${VLLM_LIMIT_MM_IMAGE}}" \
   --max-model-len 8192 \
   --dtype auto \

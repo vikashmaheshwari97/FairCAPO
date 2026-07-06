@@ -2,13 +2,15 @@
 
 _Last updated: 2026-07-06._
 
-> **HEADLINE.** FairCAPO = **MO-CAPO + an in-loop fairness objective** (accuracy↑, cost↓, risk↓,
-> fairness_risk↓). MO-CAPO tunes a prompt for accuracy + low cost and returns a *menu* (Pareto front)
-> of trade-offs; FairCAPO adds fairness as a 4th goal measured with the real model **during** search,
-> so fairness genuinely decides which prompts survive.
+> **HEADLINE.** FairCAPO = **MO-CAPO + an in-loop fairness objective** (accuracy↑, cost↓,
+> fairness_risk↓ — **three** objectives, no separate `risk`). MO-CAPO tunes a prompt for accuracy +
+> low cost and returns a *menu* (Pareto front) of trade-offs; FairCAPO adds fairness as a 3rd goal
+> measured with the real model **during** search, so fairness genuinely decides which prompts survive.
 >
-> **Current showcase = Bias-in-Bios (BIOS)** on Mistral-Small-3.2 (24B), run on the **Rocket HPC**
-> cluster (SLURM + vLLM). BBQ is archived; SUBJ is the no-harm control. Adult-income was removed.
+> **Showcases:** (1) **Bias-in-Bios (BIOS)** on Mistral-Small-3.2 (24B) — the hard 28-way multi-class
+> case (frozen v1 result below). (2) **CivilComments-WILDS** on **Gemma-2-27B** — the new
+> clean-trade-off case (binary toxicity + identity subgroups), code pushed / not yet run. Both on the
+> **Rocket HPC** cluster (SLURM + vLLM). BBQ is archived; SUBJ is the no-harm control; Adult removed.
 
 **Naming.** "FairCAPO" is the method/display name. The Python package is still `heal_capo/`
 (renaming buys nothing). Older notes say "HEAL-CAPO" — treat as a synonym.
@@ -33,11 +35,17 @@ but lost the fairness edge).
 
 ---
 
-## ▶️ Active work: BIOS 500k **v2** (reason-then-label CoT) — pushed, not yet run
+## BIOS 500k **v2** (reason-then-label CoT) — RAN, degenerate. Shelved.
 
 Diagnosis of the 78% ceiling: v1 forced a 24B model to do **28-way** classification with a **32-token
-output cap and no reasoning**, plus a fragile label extractor. v2 attacks the *evaluator*, the lever
-STATUS.md called out ("higher accuracy is a separate evaluator problem").
+output cap and no reasoning**, plus a fragile label extractor. v2 attacked the *evaluator*.
+
+**⚠️ Seed-0 result (2026-07-06): degenerate.** The CoT evaluator's per-eval cost exhausted the 500k
+budget **during the initial population** — every mutation hit `budget_error`, and the "Pareto front"
+collapsed to **2 trivial cheapest-prompt points** (acc 0.70–0.71, fairness_risk **0.40** — worse than
+v1 on both axes). The caveat below came true, harder than expected: 500k barely covers one pass over
+the initial population under CoT. Not worth more GPU. To revisit BIOS v2, raise `max_budget` to ~2M
+(≈4× GPU) so offspring/intensification can run — but the higher-value path is the CivilComments track.
 
 **What v2 changes (committed `3e9b4da3`):**
 1. **`classification_mode: reason_then_label`** in the runner — the model reasons briefly about
@@ -52,20 +60,69 @@ STATUS.md called out ("higher accuracy is a separate evaluator problem").
    All pass `audit_hpc_configs.py` with zero findings. NSGA shares FairCAPO's evaluator → identical
    CoT path → fair comparison.
 
-**Caveat:** CoT spends more output tokens, so under the same 500k budget the search explores fewer
-candidates. If the front looks thin, raise budget to 1M. Held identical to v1 otherwise for a clean
-single-variable comparison.
+**Caveat (confirmed by the degenerate run):** CoT spends far more output tokens, so under the same
+500k budget the search explores far fewer candidates. Held identical to v1 otherwise.
 
-**Next:** run the v2 pipeline on Rocket, compare `performance` vs 0.782. If it clears ~85%, extend to
-3 seeds. Ideas parked (not started): try **Gemma-2-27B**, and add **CivilComments/WILDS** as a
-binary toxicity+subgroup dataset for a richer multi-point Pareto front.
+---
+
+## ▶️ Active work: CivilComments-WILDS on **Gemma-2-27B** — pushed, not yet run
+
+Second showcase and the current focus. Instead of fighting the BIOS 78%/28-way ceiling, add a
+*clean-trade-off* dataset: **binary toxicity** (real accuracy headroom, cheap eval), **identity
+subgroups** (clean worst-subgroup fairness axis), and **few-shot count 0/1/3 as the cost lever** → a
+rich multi-point Pareto front. BIOS stays as the hard multi-class showcase.
+
+**Design decisions (defaults; can revisit):**
+1. **Fairness = `label_conditioned_group_accuracy_gap`** with group = identity, label = toxicity. This
+   *is* the WILDS 8-identity × toxicity worst-group gap (a majority can't hide an unfair subgroup) and
+   reuses the existing metric end-to-end — **zero edits to `heal_capo/fairness.py` or the runner**, so
+   the frozen BIOS path is untouched.
+2. **`classification_mode: generate`** (direct label, `num_predict: 16`), NOT CoT. Binary needs no
+   reasoning; cheap eval means 500k actually explores a front — the specific fix for what killed BIOS
+   v2.
+3. **Data = WILDS `all_data_with_identities.csv`** loaded via the local-CSV pattern (like Adult):
+   `FAIRCAPO_CIVILCOMMENTS_CSV` env / `data/civilcomments/` default. **NB:** plain HF
+   `google/civil_comments` is toxicity-only (no identity columns) — it cannot drive fairness; you need
+   the WILDS/Jigsaw CSV. Toxicity + 8 identity scores binarized at 0.5; primary identity = argmax
+   present, else `none`.
+4. **Model = Gemma-2-27B-it.** The BIOS SLURM scripts are now model-agnostic (Mistral vLLM flags gated
+   behind `MODEL_FAMILY`, default `mistral`); the pipeline exports `MODEL_FAMILY=gemma`. Cost weights
+   are a **placeholder `0.10/0.30`** — replace with measured Gemma OpenRouter pricing before
+   publishing (the audit warns if Mistral's `0.08/0.32` is reused).
+
+**Status:** loader + probe builder + 8 configs + 2 prompt pools + pipeline scripts + audit rules + 10
+tests, all local-verified (449 pass / 1 pre-existing fail; audit clean for civilcomments). Not yet run
+on Rocket.
+
+**How to run on Rocket:**
+```bash
+cd ~/FairCAPO && git pull origin main
+# 0. Put the WILDS CSV on the node (once):
+#    data/civilcomments/all_data_with_identities.csv  (or set FAIRCAPO_CIVILCOMMENTS_CSV)
+# 1. Build the search-only fairness probe (login node, no GPU; must be 80 lines):
+PYTHONPATH=. python scripts/build_civilcomments_fairness_probe.py \
+  --out data/fairness_civilcomments_probe_search_seed0.jsonl --split train --seed 0 --examples-per-group 5
+wc -l data/fairness_civilcomments_probe_search_seed0.jsonl   # 80
+# 2. Audit (civilcomments rows must be clean):
+python scripts/audit_hpc_configs.py 2>&1 | grep -i civilcomments   # prints nothing
+# 3. Submit the 6-job pipeline (serves Gemma via MODEL_FAMILY=gemma):
+bash scripts/hpc/submit_civilcomments_500k_v1_gemma_pipeline.sh
+# 4. After all 6 finish — table + figures (login node, no GPU):
+bash scripts/hpc/build_civilcomments_500k_v1_gemma_large_outputs.sh
+```
+Confirm Gemma weights are cached on the node and `firefly2`/`gpu` partition is still valid before
+submitting.
+
+**Next:** run it; compare the front (accuracy / fairness_risk / rich Pareto points) against BIOS. If
+Gemma-2-27B underperforms, the model swap and dataset swap are independent — the CivilComments configs
+also run under Mistral by dropping the Gemma exports.
 
 ---
 
 ## How the fairness extension works (plain English)
 
 MO-CAPO tunes a prompt for **accuracy + low cost** and returns a *menu* (Pareto front) of trade-offs.
-**FairCAPO adds fairness as a 4th goal.**
+**FairCAPO adds fairness as a 3rd goal.**
 
 **Measuring `fairness_risk` (0 = perfectly fair):**
 - **Group tasks (Bias-in-Bios, the showcase):** the model classifies a biography into one of 28
@@ -152,7 +209,12 @@ before submitting or the jobs sit pending.
 | **BIOS v2 configs** | `configs/HPC_Config/bios_{faircapo,ablation,nsga2po}_500k_v2_HPC.yaml`, `bios_eval_{large,ablation_large,nsga_large}_500k_v2_HPC.yaml`, `bios_experiment_table_500k_v2_large_HPC.yaml`, `bios_aggregate_500k_v2_large_HPC.yaml` |
 | **BIOS prompt pools** | `configs/phase2_prompt_pool_bios.yaml`, `configs/phase2_prompt_pool_bios_enhanced.yaml` (v2 uses enhanced) |
 | **BIOS v2 HPC pipeline** | `scripts/hpc/submit_bios_500k_v2_pipeline.sh`, `scripts/hpc/build_bios_500k_v2_large_outputs.sh` |
-| SLURM job scripts | `scripts/hpc/run_bios_hpc.slurm`, `run_bios_nsga_hpc.slurm`, `run_bios_eval_hpc.slurm` |
+| **CivilComments loader** | `experiments/datasets.py` (`load_civil_comments`, binary toxicity, 8 WILDS identity subgroups; local WILDS CSV via `FAIRCAPO_CIVILCOMMENTS_CSV`) |
+| **CivilComments probe builder** | `scripts/build_civilcomments_fairness_probe.py` → `data/fairness_civilcomments_probe_search_seed0.jsonl` (80 = 8 identities × 2 labels × 5) |
+| **CivilComments configs** | `configs/HPC_Config/civilcomments_{faircapo,ablation,nsga2po}_500k_v1_gemma_HPC.yaml`, `civilcomments_eval_{large,ablation_large,nsga_large}_500k_v1_gemma_HPC.yaml`, `civilcomments_{experiment_table,aggregate}_500k_v1_gemma_large_HPC.yaml` |
+| **CivilComments prompt pools** | `configs/phase2_prompt_pool_civilcomments.yaml`, `configs/phase2_prompt_pool_civilcomments_enhanced.yaml` (searches use enhanced) |
+| **CivilComments HPC pipeline** | `scripts/hpc/submit_civilcomments_500k_v1_gemma_pipeline.sh`, `scripts/hpc/build_civilcomments_500k_v1_gemma_large_outputs.sh` |
+| SLURM job scripts | `scripts/hpc/run_bios_hpc.slurm`, `run_bios_nsga_hpc.slurm`, `run_bios_eval_hpc.slurm` (model-agnostic: Mistral vLLM flags gated behind `MODEL_FAMILY`) |
 | MO metrics (HV opt/pes, nR2, Gap) | `heal_capo/evaluation/mo_metrics.py` |
 | Reference gap analysis vs paper | `docs/mocapo_gap_analysis_S12.md` |
 
@@ -165,8 +227,9 @@ before submitting or the jobs sit pending.
   cluster (not committed).
 - **Local (dev laptop):** LM Studio @ `localhost:1234` for quick checks. Project venv is
   `.venv/Scripts/python.exe` (Python 3.10; point PyCharm's interpreter here).
-- Cost weights: input 0.08 / output 0.32 (Mistral OpenRouter average, paper A.5).
-- pytest: `testpaths = ["tests"]`; ~440 tests, 1 known pre-existing failure
+- Cost weights: input 0.08 / output 0.32 (Mistral OpenRouter average, paper A.5). Gemma/CivilComments
+  configs use a **placeholder `0.10/0.30`** — replace with a measured Gemma profile before publishing.
+- pytest: `testpaths = ["tests"]`; ~450 tests, 1 known pre-existing failure
   (`test_portfolio_rows_to_candidates_restores_few_shot_examples`, a stale wording assert).
 
 ## Live-run gotchas
@@ -189,4 +252,10 @@ before submitting or the jobs sit pending.
   fairness 0.000952 vs NSGA 0.010, accuracy ~78%). Qwen / label-scoring / fair-shots tried and shelved.
 - **2026-07-05** removed all Adult-income dataset files (48) from the repo.
 - **2026-07-06** added BIOS **v2** (reason-then-label CoT + hardened extraction + enhanced pool) to
-  break the 78% accuracy ceiling; committed + pushed, pending the Rocket run.
+  break the 78% accuracy ceiling; committed + pushed. **Ran on Rocket → degenerate** (CoT starved the
+  500k budget into a 2-point front, acc ~0.70, fairness 0.40). Shelved.
+- **2026-07-06** pivoted to **CivilComments-WILDS on Gemma-2-27B** as the clean-trade-off showcase:
+  new `load_civil_comments` (local WILDS CSV, 8 identity subgroups), reused
+  `label_conditioned_group_accuracy_gap` (no fairness/runner edits), direct-label evaluator, 8 configs,
+  2 prompt pools, probe builder, pipeline scripts, audit rules, 10 tests. Model-agnostic SLURM
+  (`MODEL_FAMILY` gate). Committed + pushed, pending the Rocket run.

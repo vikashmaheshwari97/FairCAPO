@@ -40,6 +40,9 @@ BIOS_LABELS = [
 ]
 
 
+CIVILCOMMENTS_LABELS = ["non-toxic", "toxic"]
+
+
 @dataclass
 class Finding:
     severity: str
@@ -63,6 +66,10 @@ def add(
 
 def labels_match(config: dict[str, Any]) -> bool:
     return list(config.get("labels") or []) == BIOS_LABELS
+
+
+def civilcomments_labels_match(config: dict[str, Any]) -> bool:
+    return list(config.get("labels") or []) == CIVILCOMMENTS_LABELS
 
 
 def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding]) -> None:
@@ -297,6 +304,183 @@ def audit_bios_config(path: Path, config: dict[str, Any], findings: list[Finding
         )
 
 
+def audit_civilcomments_config(
+    path: Path, config: dict[str, Any], findings: list[Finding]
+) -> None:
+    dataset = str(config.get("dataset", "")).strip().lower()
+    if dataset not in {"civil_comments", "civilcomments"}:
+        return
+
+    lower_path = str(path).lower()
+
+    if config.get("task_type") != "classification":
+        add(findings, "error", path, "CivilComments must use task_type: classification.")
+
+    if not civilcomments_labels_match(config):
+        add(
+            findings,
+            "error",
+            path,
+            "CivilComments label list must be exactly [non-toxic, toxic].",
+        )
+
+    dev = config.get("dev") or {}
+    if dev and str(dev.get("dataset", "")).strip().lower() not in {
+        "civil_comments",
+        "civilcomments",
+    }:
+        add(findings, "error", path, "dev.dataset is not civil_comments.")
+    if dev:
+        if str(dev.get("stratify_group_key", "")).strip().lower() != "identity":
+            add(
+                findings,
+                "error",
+                path,
+                "CivilComments dev split must use stratify_group_key: identity.",
+            )
+    elif config.get("dataset_split") == "test":
+        if str(config.get("stratify_group_key", "")).strip().lower() != "identity":
+            add(
+                findings,
+                "error",
+                path,
+                "CivilComments held-out eval must use stratify_group_key: identity.",
+            )
+
+    # Binary toxicity needs no chain-of-thought; the direct-label evaluator keeps
+    # each eval cheap so the token budget explores a real front.
+    evaluation = config.get("evaluation") or {}
+    if str(evaluation.get("classification_mode", "generate")) != "generate":
+        add(
+            findings,
+            "warn",
+            path,
+            "CivilComments configs are designed for classification_mode: generate "
+            "(direct label); CoT will inflate cost and can starve the token budget.",
+        )
+
+    fairness = config.get("fairness") or {}
+    fairness_mode = fairness.get("mode")
+    fairness_in_loop = bool(fairness.get("in_loop", False))
+    if fairness and fairness_mode not in {
+        "group_accuracy_gap",
+        "label_conditioned_group_accuracy_gap",
+        "label_group_accuracy_gap",
+    }:
+        add(findings, "warn", path, "CivilComments fairness mode is not a supported group-gap mode.")
+
+    if fairness and str(fairness.get("group_key", "")).strip().lower() != "identity":
+        add(findings, "error", path, "CivilComments fairness.group_key must be identity.")
+
+    if (
+        "civilcomments_ablation" in lower_path
+        and "eval" not in lower_path
+        and fairness_in_loop
+    ):
+        add(
+            findings,
+            "error",
+            path,
+            "CivilComments MO-CAPO ablation search must keep fairness.in_loop: false.",
+        )
+
+    # Comparison configs (NSGA search + large held-out evals) must share the
+    # label-conditioned fairness basis so their HV/table rows are comparable.
+    if ("civilcomments_nsga2po" in lower_path) or (
+        "civilcomments_eval" in lower_path and "large" in lower_path
+    ):
+        if fairness_in_loop and fairness_mode not in {
+            "label_conditioned_group_accuracy_gap",
+            "label_group_accuracy_gap",
+        }:
+            add(
+                findings,
+                "error",
+                path,
+                "CivilComments comparison configs must use label-conditioned fairness for comparable HV/table rows.",
+            )
+
+    if "civilcomments_nsga2po" in lower_path:
+        budget = config.get("budget") or {}
+        if str(budget.get("unit", "")).strip().lower() != "tokens":
+            add(findings, "error", path, "CivilComments NSGA-II-PO must use budget.unit: tokens.")
+        if float(budget.get("max_budget", 0.0) or 0.0) != 500000.0:
+            add(findings, "error", path, "CivilComments NSGA-II-PO must use max_budget: 500000.0.")
+        if bool(budget.get("allow_overspend", True)):
+            add(findings, "error", path, "CivilComments NSGA-II-PO must use allow_overspend: false.")
+
+        few_shot = config.get("few_shot") or {}
+        if not bool(few_shot.get("enabled", False)):
+            add(findings, "error", path, "CivilComments NSGA-II-PO must enable the shared few-shot pool.")
+        if int(few_shot.get("pool_size", 0) or 0) != 112:
+            add(findings, "error", path, "CivilComments NSGA-II-PO few-shot pool_size must be 112.")
+        if int(few_shot.get("max_few_shot_examples", 0) or 0) != 3:
+            add(findings, "error", path, "CivilComments NSGA-II-PO max_few_shot_examples must be 3.")
+
+    fairness_data = str(fairness.get("fairness_data") or config.get("fairness_data") or "")
+    if fairness_data and config.get("dataset_split") == "test":
+        add(
+            findings,
+            "error",
+            path,
+            "CivilComments held-out eval must not use fairness_data; use the joint held-out test split.",
+        )
+    if fairness_data and "search" not in Path(fairness_data).name.lower():
+        add(
+            findings,
+            "warn",
+            path,
+            "CivilComments in-loop fairness_data should be named as a search-only probe.",
+        )
+    if "fairness_civilcomments_probe_search_seed0.jsonl" in fairness_data:
+        eval_pairs = int(fairness.get("eval_pairs", 0) or 0)
+        if eval_pairs != 80:
+            add(
+                findings,
+                "error",
+                path,
+                "CivilComments search fairness probe should use eval_pairs: 80.",
+            )
+
+    if fairness_mode in {
+        "label_conditioned_group_accuracy_gap",
+        "label_group_accuracy_gap",
+    }:
+        min_count = int(fairness.get("min_count_per_group", 1) or 1)
+        if min_count < 5:
+            add(
+                findings,
+                "error",
+                path,
+                "Label-conditioned CivilComments fairness should use min_count_per_group >= 5.",
+            )
+        selection = config.get("selection") or {}
+        min_perf = float(selection.get("min_performance_for_fairness", 0.0) or 0.0)
+        gate_mode = str(selection.get("fairness_gate_mode", "continuous") or "continuous").lower()
+        if gate_mode in {"hard", "clamp"} and min_perf > 0.0:
+            add(
+                findings,
+                "error",
+                path,
+                "Label-conditioned CivilComments fairness should not use a hard performance gate; use a continuous shortfall penalty.",
+            )
+
+    # Gemma runs must not silently reuse the measured Mistral cost profile.
+    model_id = str((config.get("llm") or {}).get("model_id", ""))
+    if "gemma" in model_id.lower():
+        cost_cfg = config.get("cost") or {}
+        if (
+            float(cost_cfg.get("input_weight", 0.0) or 0.0) == 0.08
+            and float(cost_cfg.get("output_weight", 0.0) or 0.0) == 0.32
+        ):
+            add(
+                findings,
+                "warn",
+                path,
+                "Gemma CivilComments config reuses the Mistral cost profile; set a measured Gemma profile.",
+            )
+
+
 def audit_table_config(path: Path, config: dict[str, Any], findings: list[Finding]) -> None:
     methods = config.get("methods") or []
     if not methods:
@@ -337,18 +521,28 @@ def audit_table_config(path: Path, config: dict[str, Any], findings: list[Findin
 
 
 def audit_prompt_pool(path: Path, config: dict[str, Any], findings: list[Finding]) -> None:
-    if path.name != "phase2_prompt_pool_bios.yaml":
+    is_bios_pool = path.name == "phase2_prompt_pool_bios.yaml"
+    is_civilcomments_pool = path.name == "phase2_prompt_pool_civilcomments.yaml"
+    if not (is_bios_pool or is_civilcomments_pool):
         return
 
-    if not labels_match(config):
+    label = "BIOS" if is_bios_pool else "CivilComments"
+    if is_bios_pool and not labels_match(config):
         add(findings, "error", path, "BIOS prompt-pool labels differ from canonical 28-label order.")
+    if is_civilcomments_pool and not civilcomments_labels_match(config):
+        add(
+            findings,
+            "error",
+            path,
+            "CivilComments prompt-pool labels must be exactly [non-toxic, toxic].",
+        )
 
     prompts = config.get("prompt_pool") or []
     categories = {str(item.get("category", "")) for item in prompts if isinstance(item, dict)}
     required = {"cost_first", "accuracy_first", "fairness_first", "balanced"}
     missing = sorted(required - categories)
     if missing:
-        add(findings, "error", path, f"BIOS prompt pool missing categories: {missing}")
+        add(findings, "error", path, f"{label} prompt pool missing categories: {missing}")
 
     cost_levels = {
         str(item.get("cost_level", "")).strip().lower()
@@ -361,7 +555,7 @@ def audit_prompt_pool(path: Path, config: dict[str, Any], findings: list[Finding
             findings,
             "error",
             path,
-            f"BIOS prompt pool missing explicit cost levels: {missing_cost_levels}",
+            f"{label} prompt pool missing explicit cost levels: {missing_cost_levels}",
         )
 
     shot_counts = set()
@@ -383,15 +577,25 @@ def audit_prompt_pool(path: Path, config: dict[str, Any], findings: list[Finding
             findings,
             "error",
             path,
-            f"BIOS prompt pool missing initial few-shot tiers: {missing_shot_counts}",
+            f"{label} prompt pool missing initial few-shot tiers: {missing_shot_counts}",
         )
 
+    identity_terms = ("gender", "religion", "race", "sexual orientation", "identity")
     for item in prompts:
         if not isinstance(item, dict):
             continue
         prompt = str(item.get("prompt", "")).lower()
-        if item.get("category") == "fairness_first" and "gender" not in prompt:
+        if item.get("category") != "fairness_first":
+            continue
+        if is_bios_pool and "gender" not in prompt:
             add(findings, "warn", path, f"Fairness prompt {item.get('id')} does not mention gender.")
+        if is_civilcomments_pool and not any(term in prompt for term in identity_terms):
+            add(
+                findings,
+                "warn",
+                path,
+                f"Fairness prompt {item.get('id')} does not mention an identity attribute.",
+            )
 
 
 def audit_slurm(path: Path, text: str, findings: list[Finding]) -> None:
@@ -420,6 +624,7 @@ def audit_repo(root: Path) -> list[Finding]:
             continue
 
         audit_bios_config(path, config, findings)
+        audit_civilcomments_config(path, config, findings)
         audit_table_config(path, config, findings)
         audit_prompt_pool(path, config, findings)
 

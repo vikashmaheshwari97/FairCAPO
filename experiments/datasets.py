@@ -923,6 +923,202 @@ def load_adult_income(
     )
 
 
+CIVILCOMMENTS_LABELS = ["non-toxic", "toxic"]
+
+# The eight WILDS identity subgroups (Koh et al. 2021). Column names match the
+# WILDS ``all_data_with_identities.csv`` exactly -- note the upper-case ``LGBTQ``
+# and the plural ``other_religions``.
+CIVILCOMMENTS_IDENTITY_COLUMNS = [
+    "male",
+    "female",
+    "LGBTQ",
+    "christian",
+    "muslim",
+    "other_religions",
+    "black",
+    "white",
+]
+
+# WILDS binarizes the continuous toxicity/identity scores at 0.5.
+_CIVILCOMMENTS_THRESHOLD = 0.5
+# Cap comment length so a few very long comments cannot dominate input cost.
+_CIVILCOMMENTS_TEXT_CAP = 1200
+
+_CIVILCOMMENTS_TASK_DESCRIPTION = (
+    "The dataset contains online comments labeled for toxicity. The task is to "
+    "classify each comment as toxic or non-toxic. Mentions of identity groups "
+    "(gender, sexual orientation, religion, race) are protected attributes used "
+    "only for fairness evaluation and must not bias the toxicity judgment."
+)
+
+
+def _civilcomments_dataset_alias(name: str) -> bool:
+    return name.lower().strip() in {
+        "civil_comments",
+        "civilcomments",
+        "civil-comments",
+        "wilds_civilcomments",
+        "civilcomments_wilds",
+    }
+
+
+def _civilcomments_default_paths() -> list[str]:
+    return [
+        os.environ.get("FAIRCAPO_CIVILCOMMENTS_CSV", ""),
+        "data/civilcomments/all_data_with_identities.csv",
+        "data/civil_comments/all_data_with_identities.csv",
+        "data/all_data_with_identities.csv",
+    ]
+
+
+def _resolve_civilcomments_csv_path(data_path: Optional[str] = None) -> str:
+    candidates = [data_path] if data_path else []
+    candidates.extend(_civilcomments_default_paths())
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+
+    tried = ", ".join(path for path in candidates if path)
+    raise FileNotFoundError(
+        "CivilComments-WILDS CSV not found. Download the WILDS civilcomments "
+        "data (all_data_with_identities.csv, civilcomments_v1.0) and place it at "
+        "data/civilcomments/all_data_with_identities.csv, set "
+        "FAIRCAPO_CIVILCOMMENTS_CSV, or pass dev.data_path in the config. "
+        f"Tried: {tried}"
+    )
+
+
+def _civilcomments_split_alias(split: Any) -> str:
+    text = str(split if split is not None else "train").strip().lower()
+    if text in {"train", "training"}:
+        return "train"
+    if text in {"val", "valid", "validation", "dev"}:
+        return "val"
+    if text in {"test", "testing"}:
+        return "test"
+    return text
+
+
+def _civilcomments_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _civilcomments_label(value: Any) -> str:
+    return "toxic" if _civilcomments_float(value) >= _CIVILCOMMENTS_THRESHOLD else "non-toxic"
+
+
+def _civilcomments_primary_identity(row: dict[str, Any]) -> str:
+    """
+    Assign each comment a single primary identity subgroup so it plugs into the
+    one-group-per-example fairness machinery.
+
+    The subgroup is the highest-scoring identity column that is present
+    (score >= 0.5); ties resolve to the first in canonical column order. Comments
+    that mention no identity above threshold get ``"none"``.
+    """
+    best_identity = "none"
+    best_score = 0.0
+    for column in CIVILCOMMENTS_IDENTITY_COLUMNS:
+        score = _civilcomments_float(row.get(column))
+        if score >= _CIVILCOMMENTS_THRESHOLD and score > best_score:
+            best_identity = column
+            best_score = score
+    return best_identity
+
+
+def load_civil_comments(
+    dev_size: int = 300,
+    shots_size: int = 100,
+    test_size: int = 500,
+    seed: int = 42,
+    allow_smaller: bool = False,
+    stratified: bool = True,
+    stratify_group_key: Optional[str] = "identity",
+    split: str = "train",
+    data_path: Optional[str] = None,
+) -> DatasetSplit:
+    """
+    CivilComments-WILDS: online comment -> binary toxicity classification.
+
+    Loaded from the WILDS ``all_data_with_identities.csv`` (Koh et al. 2021, a
+    subset of the Jigsaw Unintended Bias data). Toxicity and the eight identity
+    columns are continuous in [0, 1]; we binarize at 0.5. Each example keeps its
+    primary identity subgroup in metadata under ``group``/``identity`` so the
+    group-fairness evaluator can compute the WILDS-style worst identity x
+    toxicity gap (via the label-conditioned group accuracy gap).
+    """
+    csv_path = _resolve_civilcomments_csv_path(data_path)
+    wanted_split = _civilcomments_split_alias(split)
+
+    examples: list[Example] = []
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or []
+        text_column = "comment_text" if "comment_text" in fieldnames else "text"
+        required = {text_column, "toxicity", *CIVILCOMMENTS_IDENTITY_COLUMNS}
+        missing = sorted(required.difference(fieldnames))
+        if missing:
+            raise ValueError(
+                f"CivilComments CSV is missing required columns: {missing}"
+            )
+        has_split_column = "split" in fieldnames
+
+        for idx, row in enumerate(reader):
+            if (
+                has_split_column
+                and _civilcomments_split_alias(row.get("split")) != wanted_split
+            ):
+                continue
+
+            text = str(row.get(text_column, "")).strip()
+            if not text:
+                continue
+            if len(text) > _CIVILCOMMENTS_TEXT_CAP:
+                text = text[:_CIVILCOMMENTS_TEXT_CAP].rstrip() + " ..."
+
+            label = _civilcomments_label(row.get("toxicity"))
+            identity = _civilcomments_primary_identity(row)
+
+            examples.append(
+                Example(
+                    text=f"Comment: {text}",
+                    label=label,
+                    metadata={
+                        "dataset": "civil_comments",
+                        "source_index": idx,
+                        "identity": identity,
+                        "group": identity,
+                        "sensitive_attribute": "identity",
+                        "toxicity_label": label,
+                    },
+                )
+            )
+
+    if not examples:
+        raise ValueError(
+            f"No CivilComments examples found for split={wanted_split!r} in {csv_path}."
+        )
+
+    return _sample_split(
+        examples,
+        name="civil_comments",
+        task_type="classification",
+        classes=CIVILCOMMENTS_LABELS,
+        task_description=_CIVILCOMMENTS_TASK_DESCRIPTION,
+        dev_size=dev_size,
+        shots_size=shots_size,
+        test_size=test_size,
+        seed=seed,
+        allow_smaller=allow_smaller,
+        stratified=stratified,
+        stratify_group_key=stratify_group_key if stratified else None,
+    )
+
+
 # BBQ (Bias Benchmark for QA, Parrish et al. 2021).
 #
 # Three demographic categories used for FairCAPO's fairness showcase. The exact
@@ -1178,10 +1374,23 @@ def load_paper_dataset(
             data_path=data_path,
         )
 
+    if _civilcomments_dataset_alias(normalized_name):
+        return load_civil_comments(
+            dev_size,
+            shots_size,
+            test_size,
+            seed,
+            allow_smaller,
+            stratified=stratified,
+            split=dataset_split or "train",
+            stratify_group_key=stratify_group_key or "identity",
+            data_path=data_path,
+        )
+
     raise ValueError(
         f"Unknown paper dataset: {name}. "
         "Supported: toy_subjectivity, subj, ag_news, sst5, gsm8k, mbpp, "
-        "bbq, bias_in_bios, adult."
+        "bbq, bias_in_bios, adult, civil_comments."
     )
 
 
@@ -1205,6 +1414,9 @@ def get_dataset_classes(name: str) -> Optional[list[str]]:
 
     if _adult_dataset_alias(normalized_name):
         return list(ADULT_INCOME_LABELS)
+
+    if _civilcomments_dataset_alias(normalized_name):
+        return list(CIVILCOMMENTS_LABELS)
 
     # BBQ is multiple-choice (variable answer text per item) -> no fixed class set,
     # like GSM8K/MBPP.
@@ -1279,5 +1491,8 @@ def get_task_description(name: str) -> str:
             ">50K. Sex and race are protected attributes used only for fairness "
             "evaluation, not as model input features in the main setting."
         )
+
+    if _civilcomments_dataset_alias(normalized_name):
+        return _CIVILCOMMENTS_TASK_DESCRIPTION
 
     raise ValueError(f"Unknown dataset for task description: {name}")

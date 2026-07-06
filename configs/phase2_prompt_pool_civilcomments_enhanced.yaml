@@ -1,0 +1,207 @@
+# CivilComments-WILDS ENHANCED prompt pool (search seed pool for v1 Gemma runs).
+#
+# Superset of phase2_prompt_pool_civilcomments.yaml: the same 12 balanced seeds
+# plus 8 accuracy/fairness-focused seeds (toxicity definition boundaries, sarcasm
+# / quoted-toxicity handling, reclaimed language, over-flagging control, and
+# identity-mention fairness). Same schema and labels; used by the FairCAPO /
+# ablation / NSGA v1 Gemma searches.
+
+dataset: civil_comments
+task_type: classification
+seed: 0
+
+labels:
+  - non-toxic
+  - toxic
+
+task_description: >
+  Each item is an online comment. Classify the comment as toxic or non-toxic.
+  Mentions of identity groups (gender, sexual orientation, religion, race) are
+  protected attributes used only for fairness evaluation and must not bias the
+  toxicity judgment.
+
+prompt_pool:
+  - id: cheap_direct
+    category: cost_first
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Read the comment and decide whether it is toxic or non-toxic. Return only
+      the label.
+
+  - id: cheap_evidence
+    category: cost_first
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Judge whether the comment is toxic based on its language. Return only
+      "toxic" or "non-toxic".
+
+  - id: baseline
+    category: baseline
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Classify the comment as toxic or non-toxic. A comment is toxic if it is
+      rude, disrespectful, threatening, insulting, or an attack on a person or
+      group. Return only the label.
+
+  - id: accuracy_definition
+    category: accuracy_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Decide toxicity from the specific content: insults, slurs, threats,
+      obscenity, or attacks on a person or identity group make a comment toxic.
+      Ordinary disagreement or criticism does not. Return only the label.
+
+  - id: accuracy_disambiguate
+    category: accuracy_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Weigh the comment's language against what makes text toxic (insults,
+      threats, obscenity, identity attacks) versus merely critical or negative.
+      Think briefly about the strongest evidence, then return only the final
+      label: toxic or non-toxic.
+
+  - id: risk_no_overflag
+    category: risk_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Do not over-flag. Strong opinions, criticism, or emotional language are not
+      toxic unless they include insults, threats, obscenity, or attacks on a
+      person or group. Only label a comment toxic when the text clearly supports
+      it. Return one label only.
+
+  - id: risk_context_only
+    category: risk_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Base the decision only on the words in the comment, not on the topic or who
+      is mentioned. Choose the label most directly supported by the actual
+      language. Return only "toxic" or "non-toxic".
+
+  - id: fairness_identity_blind
+    category: fairness_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Judge toxicity from the comment's language only. Mentioning a gender,
+      sexual orientation, religion, or race does NOT make a comment toxic. Do not
+      let the identity group discussed change your label. Return only the label.
+
+  - id: fairness_equal_treatment
+    category: fairness_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Apply the same toxicity standard to every comment regardless of which
+      identity group (gender, religion, race, sexual orientation) it mentions. A
+      neutral or supportive comment about any group is non-toxic. Return the label
+      best supported by the language.
+
+  - id: fairness_counter_stereotype
+    category: fairness_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Before answering, check whether you are labeling the comment toxic only
+      because it mentions an identity group (a gender, religion, race, or sexual
+      orientation). If so, discard that shortcut and re-judge from the actual
+      language. Return exactly one label: toxic or non-toxic.
+
+  - id: balanced_evidence_fair
+    category: balanced
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Choose the label supported by the comment's actual language. Do not treat
+      the mere mention of an identity group (gender, religion, race, sexual
+      orientation) as toxic. Return only "toxic" or "non-toxic".
+
+  - id: balanced_short
+    category: balanced
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Use the comment's language, not the identity group it mentions, to decide
+      toxic or non-toxic. Return only the label.
+
+  # --- Enhanced accuracy / fairness seeds ---
+
+  - id: accuracy_boundary_criticism
+    category: accuracy_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Distinguish toxic attacks from legitimate criticism. Disagreeing with an
+      idea, policy, article, or public figure is non-toxic; personal insults,
+      slurs, threats, or dehumanizing language are toxic. Return only the label.
+
+  - id: accuracy_sarcasm_quote
+    category: accuracy_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Watch for comments that quote or describe toxic language in order to
+      condemn or discuss it -- these are usually non-toxic. Judge the commenter's
+      own stance, not isolated words. Return exactly one label: toxic or
+      non-toxic.
+
+  - id: accuracy_severity_gate
+    category: accuracy_first
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Separate merely rude or sarcastic remarks from genuinely toxic content.
+      Label toxic only when there are insults, obscenity, threats, or attacks on a
+      person or identity group. Otherwise label non-toxic. Return only the label.
+
+  - id: accuracy_short_cue
+    category: accuracy_first
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Scan for insults, slurs, threats, or obscene attacks. If present, label
+      toxic; otherwise non-toxic. Return only the label.
+
+  - id: fairness_identity_mention_ok
+    category: fairness_first
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      A comment that simply names or discusses a gender, religion, race, or
+      sexual orientation is non-toxic by itself. Only the presence of insults,
+      threats, or attacks makes it toxic. Return only the label.
+
+  - id: fairness_reclaimed_language
+    category: fairness_first
+    cost_level: expensive
+    few_shot_count: 3
+    prompt: >
+      Apply one consistent standard across all identity groups. Neutral,
+      supportive, or self-referential comments about a gender, religion, race, or
+      sexual orientation are non-toxic. Do not raise the toxicity bar for some
+      groups and lower it for others. Return exactly one label.
+
+  - id: balanced_calibrated
+    category: balanced
+    cost_level: medium
+    few_shot_count: 1
+    prompt: >
+      Judge toxicity from the actual language, applying the same threshold to
+      every comment. Do not flag a comment merely for mentioning an identity
+      group, and do not excuse genuine insults or threats. Return only "toxic" or
+      "non-toxic".
+
+  - id: balanced_evidence_short
+    category: balanced
+    cost_level: cheap
+    few_shot_count: 0
+    prompt: >
+      Decide from the comment's words alone whether it attacks or demeans anyone.
+      If yes, toxic; if not, non-toxic. Ignore which identity group is mentioned.
+      Return only the label.

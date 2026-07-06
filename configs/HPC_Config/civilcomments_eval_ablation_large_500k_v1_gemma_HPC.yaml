@@ -1,0 +1,68 @@
+# Large-held-out evaluation for CivilComments MO-CAPO fairness-off ablation
+# 500k v1 (Gemma-2-27B). Same held-out label-conditioned fairness basis as
+# FairCAPO -- only the search that produced the portfolio differed.
+
+experiment_name: civilcomments_eval_ablation_large_500k_v1_gemma
+
+portfolio_csv: outputs/hpc/civilcomments_ablation_500k_v1_gemma/seed_0/phase2_prompt_portfolio.csv
+output_dir: outputs/hpc/evaluation_large/seed_0/civilcomments_ablation_500k_v1_gemma
+
+dataset: civil_comments
+task_type: classification
+seed: 0
+dataset_split: test
+dev_size: 300
+shots_size: 112
+test_size: 1000
+stratified: true
+stratify_group_key: identity
+allow_smaller: false
+
+labels:
+  - non-toxic
+  - toxic
+
+evaluation:
+  use_llm: true
+  classification_mode: generate
+
+fairness:
+  in_loop: true
+  mode: label_conditioned_group_accuracy_gap
+  group_key: identity
+  min_count_per_group: 5
+
+selection:
+  min_performance_for_fairness: 0.40
+  low_performance_fairness_penalty: 0.5
+  fairness_gate_mode: continuous
+
+llm:
+  backend: lmstudio
+  model_id: google/gemma-2-27b-it
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 16
+  timeout: 900
+
+cost:
+  input_weight: 0.10
+  output_weight: 0.30
+
+objectives:
+  - name: performance
+    direction: maximize
+  - name: cost
+    direction: minimize
+  - name: fairness_risk
+    direction: minimize
+
+bounds:
+  performance: [0.0, 1.0]
+  cost: [0.0, 12000.0]
+  risk: [0.0, 1.0]
+  fairness_risk: [0.0, 1.0]
+
+metrics:
+  num_preference_vectors: 500
+  seed: 0
