@@ -7,6 +7,12 @@ set -euo pipefail
 # Run this ONCE on the Rocket login node (has internet; no GPU needed). The CSV
 # is ~1 GB and is NOT committed to git -- it is fetched here instead.
 #
+# NOTE: the WILDS default host (worksheets.codalab.org) currently serves an
+# EXPIRED TLS certificate, so the `wilds` package download fails with
+# CERTIFICATE_VERIFY_FAILED. This script fetches the archive directly with
+# certificate verification disabled (-k). That is safe here: the payload is
+# public, read-only benchmark data (and is column-checked below).
+#
 # Plain HF google/civil_comments is toxicity-only (no identity columns) and
 # cannot drive the fairness axis; the WILDS/Jigsaw file with the 8 identity
 # columns is required.
@@ -14,34 +20,45 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 DEST="data/civilcomments/all_data_with_identities.csv"
+VDIR="data/civilcomments_v1.0"
+ARCHIVE="${VDIR}/archive.tar.gz"
+URL="https://worksheets.codalab.org/rest/bundles/0x8cd3de0634154aeaad2ee6eb96723c6e/contents/blob/"
 
 if [ -s "${DEST}" ]; then
   echo "Already present: ${DEST}"
   exit 0
 fi
 
-mkdir -p data/civilcomments
+mkdir -p data/civilcomments "${VDIR}"
 
-# The wilds package downloads civilcomments_v1.0/ into root_dir.
-echo "Installing wilds (if needed) and downloading CivilComments-WILDS..."
-python -m pip install --quiet wilds
-python - <<'PY'
-from wilds import get_dataset
-# Downloads to data/civilcomments_v1.0/ (includes all_data_with_identities.csv).
-get_dataset(dataset="civilcomments", download=True, root_dir="data")
-PY
+# Reuse an already-extracted CSV if a prior (partial) run left one behind.
+FOUND="$(find data -maxdepth 3 -name all_data_with_identities.csv 2>/dev/null | head -1 || true)"
 
-SRC="data/civilcomments_v1.0/all_data_with_identities.csv"
-if [ ! -s "${SRC}" ]; then
-  echo "WILDS download did not produce ${SRC}." >&2
-  echo "If wilds is unavailable, place any CSV with columns comment_text, toxicity," >&2
-  echo "split, and the 8 identity columns (male, female, LGBTQ, christian, muslim," >&2
-  echo "other_religions, black, white) at ${DEST}." >&2
+if [ -z "${FOUND}" ]; then
+  echo "Downloading CivilComments-WILDS archive (codalab cert expired -> --insecure)..."
+  rm -f "${ARCHIVE}"
+  if command -v curl >/dev/null 2>&1; then
+    curl -kL --fail --retry 3 -o "${ARCHIVE}" "${URL}"
+  else
+    wget --no-check-certificate -O "${ARCHIVE}" "${URL}"
+  fi
+  echo "Extracting..."
+  tar xzf "${ARCHIVE}" -C "${VDIR}" || tar xf "${ARCHIVE}" -C "${VDIR}"
+  FOUND="$(find "${VDIR}" -maxdepth 2 -name all_data_with_identities.csv 2>/dev/null | head -1 || true)"
+fi
+
+if [ -z "${FOUND}" ]; then
+  echo "Could not locate all_data_with_identities.csv after download/extract." >&2
+  echo "Manual fallback: download the archive in a browser from" >&2
+  echo "  ${URL}" >&2
+  echo "extract it, and place all_data_with_identities.csv at ${DEST}" >&2
+  echo "(any CSV with columns comment_text, toxicity, split, and the 8 identity" >&2
+  echo " columns male/female/LGBTQ/christian/muslim/other_religions/black/white works)." >&2
   exit 1
 fi
 
-cp "${SRC}" "${DEST}"
-echo "Placed CivilComments CSV at ${DEST}"
+cp "${FOUND}" "${DEST}"
+echo "Placed CivilComments CSV at ${DEST} (from ${FOUND})"
 
 # Sanity-check the columns the loader/probe builder require.
 python - <<'PY'
