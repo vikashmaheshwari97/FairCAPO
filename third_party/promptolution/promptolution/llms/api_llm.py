@@ -101,10 +101,19 @@ class APILLM(BaseLLM):
             asyncio.TimeoutError: If the call exceeds `call_timeout_s`.
             Exception: Any exception raised by the underlying client call.
         """
-        messages = [
-            {"role": "system", "content": str(system_prompt)},
-            {"role": "user", "content": str(prompt)},
-        ]
+        # Some chat templates (e.g. Gemma-2) reject a "system" role and raise
+        # "System role not supported". For those models, fold the system prompt
+        # into the user turn instead of sending a separate system message.
+        if str(self.model_id or "").lower().find("gemma") != -1:
+            sys_txt = str(system_prompt).strip()
+            user_txt = str(prompt)
+            merged = f"{sys_txt}\n\n{user_txt}" if sys_txt else user_txt
+            messages = [{"role": "user", "content": merged}]
+        else:
+            messages = [
+                {"role": "system", "content": str(system_prompt)},
+                {"role": "user", "content": str(prompt)},
+            ]
 
         # base kwargs; user can override via call_kwargs
         kwargs: Dict[str, Any] = {

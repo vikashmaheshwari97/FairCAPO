@@ -88,6 +88,11 @@ if [[ "${MODEL_FAMILY}" == "mistral" ]]; then
   MODEL_ARGS+=(--tokenizer-mode mistral --config-format mistral --load-format mistral)
   MODEL_ARGS+=(--tool-call-parser mistral --enable-auto-tool-choice)
 fi
+if [[ "${MODEL_FAMILY}" == "gemma" ]]; then
+  # Skip torch.compile / cudagraph capture: on firefly2 the compile step
+  # deadlocked after weights loaded (GPU full, 0% util) and never served.
+  MODEL_ARGS+=(--enforce-eager)
+fi
 python -m vllm.entrypoints.openai.api_server \
   --model "${MODEL_PATH}" \
   --served-model-name "${SERVED_MODEL_NAME}" \

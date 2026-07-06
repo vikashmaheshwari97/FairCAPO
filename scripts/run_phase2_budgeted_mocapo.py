@@ -160,20 +160,45 @@ def extract_label(response: str, labels: list[str]) -> str:
             return str(label)
 
     # 3. Word-boundary match; prefer last position, then longer label on ties.
-    best: tuple[int, int, str] | None = None  # (position, length, canonical)
+    # Collect every (start, end) match span per label so a label whose match is
+    # NESTED inside a longer label's match can be discarded. This matters for
+    # substring-related label sets such as ["non-toxic", "toxic"]: a hyphen is a
+    # regex word boundary, so \btoxic\b fires inside "non-toxic", and the
+    # last-position tie-break would otherwise pick the nested "toxic" for a
+    # "non-toxic" answer. Containment removal fixes that without regressing the
+    # last-asserted / longer-on-tie behavior used by the BIOS labels.
+    spans: list[tuple[int, int, str]] = []  # (start, end, canonical)
     for label in labels:
         canonical = str(label)
-        positions: list[int] = []
         for variant in _label_variants(label):
             for match in re.finditer(r"\b" + re.escape(variant) + r"\b", lowered):
-                positions.append(match.start())
-        if not positions:
-            continue
-        candidate = (max(positions), len(canonical), canonical)
-        if best is None or candidate > best:
-            best = candidate
-    if best is not None:
-        return best[2]
+                spans.append((match.start(), match.end(), canonical))
+
+    if spans:
+        def _is_nested(span: tuple[int, int, str]) -> bool:
+            start, end, canonical = span
+            length = end - start
+            for other_start, other_end, other_canonical in spans:
+                if other_canonical == canonical:
+                    continue
+                if (
+                    other_start <= start
+                    and other_end >= end
+                    and (other_end - other_start) > length
+                ):
+                    return True
+            return False
+
+        surviving = [span for span in spans if not _is_nested(span)] or spans
+
+        # Prefer last start position, then the longer label on ties.
+        best: tuple[int, int, str] | None = None  # (position, length, canonical)
+        for start, _end, canonical in surviving:
+            candidate = (start, len(canonical), canonical)
+            if best is None or candidate > best:
+                best = candidate
+        if best is not None:
+            return best[2]
 
     return cleaned
 
