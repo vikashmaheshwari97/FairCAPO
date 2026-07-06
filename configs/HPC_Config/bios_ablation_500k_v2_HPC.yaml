@@ -1,0 +1,140 @@
+# MO-CAPO fairness-off ablation on Bias-in-Bios -- 500k v2 (reason-then-label CoT).
+#
+# Ablation for the v2 comparison: identical search to bios_faircapo_500k_v2 but
+# with fairness.in_loop: false, so fairness never steers the search. Isolates
+# the contribution of the in-loop fairness objective under the same CoT
+# evaluator and split sizes as FairCAPO v2.
+#
+# Changed vs bios_ablation_500k_v1_HPC.yaml:
+#   - evaluation.classification_mode: reason_then_label
+#   - llm.num_predict: 384
+#   - dev split bumped to 280/112/500 + stratify_group_key: gender (v2 parity)
+#   - block_size 15 -> 56 (match FairCAPO/NSGA v2 block scale)
+#   - output_dir bumped to the v2 tree.
+
+dataset: bias_in_bios
+task_type: classification
+seed: 0
+
+output_dir: outputs/hpc/bios_ablation_500k_v2/seed_0
+
+prompt_pool: configs/phase2_prompt_pool_bios_enhanced.yaml
+
+task_description: >
+  Each item is a short biography. Predict the person's profession from the
+  biography text.
+
+labels:
+  - accountant
+  - architect
+  - attorney
+  - chiropractor
+  - comedian
+  - composer
+  - dentist
+  - dietitian
+  - dj
+  - filmmaker
+  - interior_designer
+  - journalist
+  - model
+  - nurse
+  - painter
+  - paralegal
+  - pastor
+  - personal_trainer
+  - photographer
+  - physician
+  - poet
+  - professor
+  - psychologist
+  - rapper
+  - software_engineer
+  - surgeon
+  - teacher
+  - yoga_teacher
+
+dev:
+  dataset: bias_in_bios
+  split: train
+  dev_size: 280
+  shots_size: 112
+  test_size: 500
+  stratified: true
+  stratify_group_key: gender
+  allow_smaller: false
+
+llm:
+  backend: lmstudio
+  model_id: mistralai/mistral-small-3.2
+  api_url: http://localhost:1234/v1
+  temperature: 0.0
+  num_predict: 384
+  timeout: 900
+
+evaluation:
+  use_llm: true
+  require_final_answer_tags: true
+  classification_mode: reason_then_label
+
+cost:
+  input_weight: 0.08
+  output_weight: 0.32
+
+fairness:
+  in_loop: false
+  mode: group_accuracy_gap
+  group_key: gender
+  group_gap_weight: 1.0
+  flip_weight: 0.0
+  bias_weight: 0.0
+  debt_weight: 0.0
+
+few_shot:
+  enabled: true
+  few_shot_probability: 0.3
+  max_few_shot_examples: 3
+  pool_size: 112
+  use_rationale: false
+  shots_data: bias_in_bios
+  split: train
+
+block_size: 56
+drop_last_block: false
+num_seed_blocks: 1
+
+budget:
+  unit: tokens
+  max_budget: 500000.0
+  allow_overspend: false
+
+evolutionary:
+  population_size: 16
+  max_iterations: 8
+  offspring_per_iteration: 4
+  crossover_probability: 1.0
+  mutation_probability: 1.0
+  mutate_after_crossover: true
+  use_meta_llm: true
+  require_prompt_tags: true
+  preserve_output_format: true
+  advance_after_iteration: true
+
+intensification:
+  max_blocks_per_challenger: 5
+  reject_when_dominated: true
+  accept_when_not_dominated_on_common_blocks: true
+  add_rejected_to_population: true
+  use_cache: true
+
+routing_preferences:
+  - name: accuracy_first
+    mode: accuracy_first
+  - name: cost_first
+    mode: cost_first
+  - name: balanced
+    mode: balanced
+    performance: 1.0
+    cost: 0.3
+    risk: 1.0
+    fairness: 1.0

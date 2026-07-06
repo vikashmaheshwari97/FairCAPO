@@ -116,25 +116,64 @@ def simple_token_count(text: str) -> int:
     return len(str(text or "").split())
 
 
+def _label_variants(label: str) -> set[str]:
+    """Canonical label plus underscore/space/hyphen spellings, lowercased."""
+    base = str(label).strip().lower()
+    return {base, base.replace("_", " "), base.replace("_", "-"), base.replace("_", "")}
+
+
 def extract_label(response: str, labels: list[str]) -> str:
+    """
+    Extract a predicted label from a (possibly reasoning-then-answer) response.
+
+    Robustness rules, in order:
+    1. If <final_answer>...</final_answer> is present, only look inside it. This is
+       the intended answer span for CoT / tagged prompts; the reasoning before it
+       is ignored so a label mentioned while thinking cannot leak into the answer.
+    2. Exact match against a label (accepting underscore/space/hyphen spellings).
+    3. Word-boundary match. Unlike a raw substring scan this cannot fire on
+       incidental words -- e.g. "model" no longer matches inside "modeling"/"remodel",
+       and "poet" no longer matches inside "poetry". When several labels match we
+       prefer the LAST occurrence (a conclusion like "...not a nurse, she is a
+       physician" resolves to physician) and, on ties, the LONGER label
+       ("software engineer" over a stray "engineer").
+    4. Fall back to the cleaned text (guaranteed non-match) so a failure is a miss,
+       never a spurious hit.
+    """
     text = str(response or "").strip()
     lowered = text.lower()
 
-    if "<final_answer>" in lowered and "</final_answer>" in lowered:
+    # 1. Prefer the tagged answer span. Tolerate a missing closing tag (e.g. output
+    # truncated by num_predict) by reading to end-of-string.
+    if "<final_answer>" in lowered:
         start = lowered.find("<final_answer>") + len("<final_answer>")
         end = lowered.find("</final_answer>", start)
-        text = text[start:end].strip()
+        span = text[start:end] if end != -1 else text[start:]
+        text = span.strip()
         lowered = text.lower()
 
-    cleaned = lowered.strip(" .,:;!?\"'`")
+    cleaned = lowered.strip(" .,:;!?\"'`*_")
 
+    # 2. Exact match (underscore/space/hyphen tolerant).
     for label in labels:
-        if cleaned == str(label).lower():
+        if cleaned in _label_variants(label):
             return str(label)
 
+    # 3. Word-boundary match; prefer last position, then longer label on ties.
+    best: tuple[int, int, str] | None = None  # (position, length, canonical)
     for label in labels:
-        if str(label).lower() in lowered:
-            return str(label)
+        canonical = str(label)
+        positions: list[int] = []
+        for variant in _label_variants(label):
+            for match in re.finditer(r"\b" + re.escape(variant) + r"\b", lowered):
+                positions.append(match.start())
+        if not positions:
+            continue
+        candidate = (max(positions), len(canonical), canonical)
+        if best is None or candidate > best:
+            best = candidate
+    if best is not None:
+        return best[2]
 
     return cleaned
 
@@ -334,6 +373,42 @@ def make_llm_prompt(
         f"Allowed labels: {label_text}\n"
         f"{guidance_block}\n"
         f"Return only one label: {label_text}."
+    )
+
+
+def make_reason_then_label_prompt(
+    candidate: PromptCandidate,
+    text: str,
+    labels: list[str],
+    label_guidance: str = "",
+) -> str:
+    """
+    Reason-then-answer classification prompt.
+
+    Unlike the direct ``make_llm_prompt`` path (which asks for the label
+    immediately), this lets the model briefly weigh occupational evidence before
+    committing. The final label MUST be emitted inside
+    <final_answer>...</final_answer>; ``extract_label`` reads only that span, so
+    any label mentioned while reasoning does not leak into the prediction. Pair
+    this with a larger ``llm.num_predict`` so the reasoning + answer are not
+    truncated before the closing tag.
+    """
+    rendered = candidate.render(text)
+    label_text = ", ".join(labels)
+    guidance_block = (
+        f"\nProfession boundary guide:\n{label_guidance.strip()}\n"
+        if label_guidance
+        else ""
+    )
+    return (
+        f"{rendered}\n\n"
+        f"Allowed labels: {label_text}\n"
+        f"{guidance_block}"
+        f"Think step by step about the occupational evidence in the biography "
+        f"(credentials, job duties, workplace, domain terms). Ignore gender, "
+        f"names, and pronouns as evidence. Keep the reasoning brief.\n"
+        f"Then give your single best label from the allowed labels inside "
+        f"<final_answer> and </final_answer> tags, e.g. <final_answer>surgeon</final_answer>."
     )
 
 
@@ -1431,6 +1506,38 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             },
         )
 
+    def _predict_reason_then_label(
+        self,
+        candidate: PromptCandidate,
+        text: str,
+    ) -> tuple[str, str, int, int, dict]:
+        """
+        Single-call reason-then-answer classification for Bias-in-Bios.
+
+        The model reasons briefly, then emits the label inside
+        <final_answer> tags. ``extract_label`` reads only that span. This gives a
+        fine-grained 28-way classifier room to disambiguate confusable
+        professions (physician/surgeon, professor/teacher) instead of answering
+        blind under a tiny output cap.
+        """
+        prompt = make_reason_then_label_prompt(
+            candidate=candidate,
+            text=text,
+            labels=self.labels,
+            label_guidance=self.label_guidance,
+        )
+        response = get_llm_response(self.llm, prompt)
+        prediction = extract_label(response, self.labels).strip().lower()
+        input_tokens = simple_token_count(prompt)
+        output_tokens = simple_token_count(response)
+        return (
+            prediction,
+            response,
+            input_tokens,
+            output_tokens,
+            {"classification_mode": "reason_then_label"},
+        )
+
     def _predict_targeted_disambiguation(
         self,
         candidate: PromptCandidate,
@@ -1562,6 +1669,15 @@ class LLMObjectiveEvaluator(ObjectiveEvaluator):
             ):
                 pred, raw_response, prompt_tokens, response_tokens, row_details = (
                     self._predict_targeted_disambiguation(candidate, text)
+                )
+                is_correct = pred == gold
+            elif (
+                self.classification_mode == "reason_then_label"
+                and not self.is_generation
+                and not self.is_multiple_choice
+            ):
+                pred, raw_response, prompt_tokens, response_tokens, row_details = (
+                    self._predict_reason_then_label(candidate, text)
                 )
                 is_correct = pred == gold
             else:
