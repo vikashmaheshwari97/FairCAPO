@@ -183,23 +183,40 @@ class LMStudioPromptolutionLLM(BaseLLM):
     def _get_response(self, prompts: list[str], system_prompts: list[str]) -> list[str]:
         responses = []
 
+        # Some chat templates (e.g. Gemma-2) reject a "system" role and raise
+        # "System role not supported". For those models, fold the system prompt
+        # into the user turn instead of sending a separate system message.
+        no_system_role = str(self.model_id or "").lower().find("gemma") != -1
+
         for i, prompt in enumerate(prompts):
             messages = []
 
+            sys_prompt = ""
             if system_prompts and i < len(system_prompts) and system_prompts[i]:
+                sys_prompt = system_prompts[i]
+
+            if sys_prompt and no_system_role:
                 messages.append(
                     {
-                        "role": "system",
-                        "content": system_prompts[i],
+                        "role": "user",
+                        "content": f"{sys_prompt}\n\n{prompt}",
                     }
                 )
+            else:
+                if sys_prompt:
+                    messages.append(
+                        {
+                            "role": "system",
+                            "content": sys_prompt,
+                        }
+                    )
 
-            messages.append(
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                )
 
             payload = {
                 "model": self.model_id,
