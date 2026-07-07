@@ -3,13 +3,13 @@
 # civilcomments_faircapo_500k_v1_gemma_HPC.yaml with paper-faithful v2 knobs (block_size 30, k_max 5,
 # few_shot_probability 0.5, eval_pairs 40, max_blocks 8) at the 7500k_v2
 # token budget. See the generator docstring for the full rationale.
-# FairCAPO on CivilComments-WILDS -- 500k v1 (Gemma-2-27B, direct-label).
+# FairCAPO on CivilComments-WILDS -- 7500k v2 (Gemma-2-27B, direct-label).
 #
 # Second FairCAPO showcase: a clean-trade-off, binary toxicity task that
 # complements the hard 28-way BIOS showcase. Design choices vs BIOS:
 #   - Binary toxic/non-toxic -> real accuracy headroom, cheap eval.
 #   - classification_mode: generate (no CoT). Binary needs no reasoning, so each
-#     eval is cheap and the 500k budget explores a real front (BIOS v2's CoT
+#     eval is cheap and the 7500k v2 budget explores a real front (BIOS v2's CoT
 #     starved the same budget into a degenerate 2-point front).
 #   - Fairness = label_conditioned_group_accuracy_gap with group = identity,
 #     label = toxicity. This is the WILDS 8-identity x toxicity worst-group gap:

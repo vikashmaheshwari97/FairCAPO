@@ -3,7 +3,7 @@
 # civilcomments_aggregate_500k_v1_gemma_large_HPC.yaml with paper-faithful v2 knobs (block_size 30, k_max 5,
 # few_shot_probability 0.5, eval_pairs 40, max_blocks 8) at the 1000k_v2
 # token budget. See the generator docstring for the full rationale.
-# Aggregate CivilComments-WILDS large-held-out Dtest results -- 500k v1
+# Aggregate CivilComments-WILDS large-held-out Dtest results -- 1000k v2
 # (Gemma-2-27B), Rocket layout.
 
 base: outputs/hpc/evaluation_large/seed_{seed}

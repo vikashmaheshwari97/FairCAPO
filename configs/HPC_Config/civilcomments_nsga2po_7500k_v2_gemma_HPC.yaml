@@ -3,7 +3,7 @@
 # civilcomments_nsga2po_500k_v1_gemma_HPC.yaml with paper-faithful v2 knobs (block_size 30, k_max 5,
 # few_shot_probability 0.5, eval_pairs 40, max_blocks 8) at the 7500k_v2
 # token budget. See the generator docstring for the full rationale.
-# NSGA-II-PO + fairness on CivilComments-WILDS -- 500k v1 (Gemma-2-27B).
+# NSGA-II-PO + fairness on CivilComments-WILDS -- 7500k v2 (Gemma-2-27B).
 #
 # Primary algorithmic baseline (MO-CAPO section 4.2): NSGA-II + CAPO operators on
 # the SAME objectives as FairCAPO, differing only in the search algorithm. Shares

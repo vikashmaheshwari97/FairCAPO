@@ -117,8 +117,18 @@ def _apply_search_knobs(text: str, budget: float) -> str:
 
 
 def _retag(text: str, rung: str) -> str:
-    """Rewrite the run tag ``500k_v1`` -> ``<rung>_v2`` everywhere."""
-    return text.replace("500k_v1", f"{rung}_v2")
+    """Rewrite the run tag ``500k_v1`` -> ``<rung>_v2`` everywhere.
+
+    Also rewrites the human-readable ``500k v1`` display strings (echo lines /
+    comments, space instead of underscore) so submit-log messages don't
+    misleadingly announce a "500k v1" run when a ladder rung is submitted.
+    """
+    text = text.replace("500k_v1", f"{rung}_v2")
+    text = text.replace("500k v1", f"{rung} v2")
+    text = text.replace("500k budget", f"{rung} v2 budget")
+    # Bare "v1 search" in the flow-diagram comment (no 500k prefix).
+    text = text.replace("v1 search", "v2 search")
+    return text
 
 
 def _out_name(src_name: str, rung: str) -> str:

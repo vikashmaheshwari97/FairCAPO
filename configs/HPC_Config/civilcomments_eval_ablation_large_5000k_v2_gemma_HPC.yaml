@@ -4,7 +4,7 @@
 # few_shot_probability 0.5, eval_pairs 40, max_blocks 8) at the 5000k_v2
 # token budget. See the generator docstring for the full rationale.
 # Large-held-out evaluation for CivilComments MO-CAPO fairness-off ablation
-# 500k v1 (Gemma-2-27B). Same held-out label-conditioned fairness basis as
+# 5000k v2 (Gemma-2-27B). Same held-out label-conditioned fairness basis as
 # FairCAPO -- only the search that produced the portfolio differed.
 
 experiment_name: civilcomments_eval_ablation_large_5000k_v2_gemma

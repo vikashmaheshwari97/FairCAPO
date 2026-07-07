@@ -10,7 +10,7 @@ TABLE_CONFIG="${TABLE_CONFIG:-configs/HPC_Config/civilcomments_experiment_table_
 AGG_CONFIG="${AGG_CONFIG:-configs/HPC_Config/civilcomments_aggregate_5000k_v2_gemma_large_HPC.yaml}"
 TABLE_CSV="${TABLE_CSV:-outputs/experiment_table/civilcomments_gemma_hpc_5000k_v2_large_seed0/experiment_table.csv}"
 FIG_DIR="${FIG_DIR:-outputs/figures/paper_civilcomments_gemma_hpc_5000k_v2_large_seed0}"
-TITLE="${TITLE:-CivilComments-WILDS / Gemma-2-27B / Rocket 500k v1 seed 0 (direct-label, large held-out)}"
+TITLE="${TITLE:-CivilComments-WILDS / Gemma-2-27B / Rocket 5000k v2 seed 0 (direct-label, large held-out)}"
 
 echo "Checking CivilComments 5000k_v2 large-held-out eval outputs..."
 test -f outputs/hpc/evaluation_large/seed_0/civilcomments_faircapo_5000k_v2_gemma/test_eval_summary.json
@@ -47,7 +47,7 @@ python scripts/visualize_front_richness.py \
   --faircapo outputs/hpc/civilcomments_faircapo_5000k_v2_gemma/seed_0/phase2_all_candidates.csv \
   --nsga outputs/hpc/civilcomments_nsga2po_5000k_v2_gemma/seed_0/nsga2_po_all_candidates.csv \
   --ablation outputs/hpc/civilcomments_ablation_5000k_v2_gemma/seed_0/phase2_all_candidates.csv \
-  --title "CivilComments-WILDS / Gemma-2-27B / Rocket 500k v1 seed 0 (search basis)" \
+  --title "CivilComments-WILDS / Gemma-2-27B / Rocket 5000k v2 seed 0 (search basis)" \
   --out "${FIG_DIR}/fig_front_richness_search_basis.png"
 
 FAIR_TRAJ="outputs/hpc/civilcomments_faircapo_5000k_v2_gemma/seed_0/budgeted_mocapo_trajectory.json"
@@ -59,7 +59,7 @@ if [[ -f "${FAIR_TRAJ}" && -f "${ABL_TRAJ}" ]]; then
     --label FairCAPO \
     --trajectory "${ABL_TRAJ}" \
     --label "MO-CAPO (fairness off)" \
-    --title "CivilComments-WILDS / Gemma-2-27B / Rocket 500k v1 seed 0 (search trajectory)" \
+    --title "CivilComments-WILDS / Gemma-2-27B / Rocket 5000k v2 seed 0 (search trajectory)" \
     --out "${FIG_DIR}/fig_trajectory_search_basis.png"
 fi
 

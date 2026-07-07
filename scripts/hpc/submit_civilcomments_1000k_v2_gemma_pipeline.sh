@@ -6,11 +6,11 @@ set -euo pipefail
 # Clean-trade-off showcase (complements the hard 28-way BIOS showcase):
 # binary toxicity, direct-label evaluator (classification_mode: generate),
 # label-conditioned identity fairness. Few-shot count is the cost lever, so the
-# 500k budget yields a rich multi-point Pareto front.
+# 1000k v2 budget yields a rich multi-point Pareto front.
 #
-#   FairCAPO v1 search
-#     -> MO-CAPO fairness-off v1 search
-#       -> NSGA-II-PO + fairness v1 search
+#   FairCAPO v2 search
+#     -> MO-CAPO fairness-off v2 search
+#       -> NSGA-II-PO + fairness v2 search
 #         -> large-held-out evals for all three
 #
 # Conservative Rocket mode: one GPU job at a time via afterok dependencies.
@@ -50,17 +50,17 @@ GEMMA_ENV="MODEL_PATH=google/gemma-2-27b-it,SERVED_MODEL_NAME=google/gemma-2-27b
 # per job (SLURM honors the CLI flag over the script header) purely for readable
 # monitoring -- it changes nothing about the workload, which is driven by CONFIG
 # and the Gemma MODEL_* exports.
-echo "Submitting CivilComments FairCAPO 500k v1 (Gemma) search..."
+echo "Submitting CivilComments FairCAPO 1000k v2 (Gemma) search..."
 fair_search_job=$(sbatch --parsable --array=0 --job-name=cc1000k-faircapo \
   --export=ALL,${GEMMA_ENV},CONFIG=configs/HPC_Config/civilcomments_faircapo_1000k_v2_gemma_HPC.yaml,RUN_TAG=civilcomments_faircapo_1000k_v2_gemma \
   scripts/hpc/run_bios_hpc.slurm)
 
-echo "Submitting CivilComments MO-CAPO fairness-off 500k v1 (Gemma) search after FairCAPO..."
+echo "Submitting CivilComments MO-CAPO fairness-off 1000k v2 (Gemma) search after FairCAPO..."
 ablation_search_job=$(sbatch --parsable --dependency=afterok:${fair_search_job} --array=0 --job-name=cc1000k-ablation \
   --export=ALL,${GEMMA_ENV},CONFIG=configs/HPC_Config/civilcomments_ablation_1000k_v2_gemma_HPC.yaml,RUN_TAG=civilcomments_ablation_1000k_v2_gemma \
   scripts/hpc/run_bios_hpc.slurm)
 
-echo "Submitting CivilComments NSGA-II-PO + fairness 500k v1 (Gemma) search after ablation..."
+echo "Submitting CivilComments NSGA-II-PO + fairness 1000k v2 (Gemma) search after ablation..."
 nsga_search_job=$(sbatch --parsable --dependency=afterok:${ablation_search_job} --array=0 --job-name=cc1000k-nsga \
   --export=ALL,${GEMMA_ENV},CONFIG=configs/HPC_Config/civilcomments_nsga2po_1000k_v2_gemma_HPC.yaml,RUN_TAG=civilcomments_nsga2po_1000k_v2_gemma \
   scripts/hpc/run_bios_nsga_hpc.slurm)
