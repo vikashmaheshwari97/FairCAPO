@@ -1,6 +1,6 @@
 # FairCAPO — Project Status
 
-_Last updated: 2026-07-06._
+_Last updated: 2026-07-07._
 
 > **HEADLINE.** FairCAPO = **MO-CAPO + an in-loop fairness objective** (accuracy↑, cost↓,
 > fairness_risk↓ — **three** objectives, no separate `risk`). MO-CAPO tunes a prompt for accuracy +
@@ -120,6 +120,59 @@ also run under Mistral by dropping the Gemma exports.
 
 ---
 
+## ⚠️ CivilComments **500k_v1 held-out FAILED** → **v2 budget ladder** (1M → 5M → 7.5M)
+
+**What went wrong (500k_v1, seed 0, held-out `test_size 1000`):** all three methods collapsed to
+~0.69 accuracy — FairCAPO 0.699, MO-CAPO(off) 0.688, NSGA 0.685. Root cause (same failure family as
+BIOS v2): the **500k budget died in the initial population**. The in-loop fairness audit (80-item
+probe × every candidate) ate **~38% of budget** (188687/498819), only **18 candidates** were
+evaluated, the front collapsed to **3 points**, and — critically — **the few-shot arm never ran**.
+The surviving front was 0-shot terse prompts. MO-CAPO's accuracy engine on binary tasks is
+**few-shot + evolved instructions** (paper Table 3: Mistral-24B on Subj 0.673 → **0.919**), and that
+engine needs budget to explore. 500k never got there.
+
+**The fix = paper-faithful knobs + a budget ladder**, grounded in the MO-CAPO appendix (A.8,
+`docs/_mocapo_extracted.txt`) and their repo (`github.com/mo374z/mo-capo`, `src/mo_capo.py` +
+`src/helpers/task_creation.py`). Our intensification is already a **direct port** of their
+`_do_intensification` — the missing pieces were **budget, block granularity, and audit cost**, not the
+algorithm. Knob changes vs 500k_v1 (applied to search configs only; eval/table/aggregate pass
+through unchanged):
+
+| knob | v1 | v2 | why |
+|---|---|---|---|
+| `budget.max_budget` | 500000 | **1M / 5M / 7.5M** | ladder; 7.5M = MO-CAPO's own budget |
+| `block_size` | 56 | **30** | 300/30 = 10 blocks → finer racing (paper `n_subsamples`) |
+| `max_few_shot_examples` | 3 | **5** | paper `upper_shots`/k_max |
+| `few_shot_probability` | 0.3 | **0.5** | let the few-shot arm actually get sampled |
+| `intensification.max_blocks_per_challenger` | 5 | **8** | deeper racing before commit |
+| `fairness.eval_pairs` | 80 | **40** | halve the in-loop audit cost (the 38% waste) — **kept in-loop for every candidate**, so the FairCAPO steering story is intact |
+
+**Integrity:** NSGA gets the **same** budget / k_max=5 / eval_pairs=40 per rung — no handicap.
+
+**Generator (single source of truth):** `scripts/hpc/gen_civilcomments_budget_ladder.py` produces all
+30 v2 files (10 per rung: 3 search + 3 eval + table + aggregate + submit + build) by
+tag-substituting `500k_v1`→`<rung>_v2` and line-editing only the knobs above (comments/paths
+preserved). Rungs: `1000k / 5000k / 7500k` (matching the `500k` naming convention). The auditor
+(`scripts/audit_hpc_configs.py`) is **version-aware**: v2 rows expect eval_pairs=40, k_max=5, and the
+per-rung budget; v1 rows still expect 80 / 3 / 500000.
+
+**How to run each rung on Rocket (run 1M first, then 5M, then 7.5M; compare):**
+```bash
+cd ~/FairCAPO && git pull origin main
+# probe + data as in the 500k_v1 block above (steps 0–1), then per rung:
+python scripts/audit_hpc_configs.py 2>&1 | grep -i civilcomments   # prints nothing
+bash scripts/hpc/submit_civilcomments_1000k_v2_gemma_pipeline.sh    # then 5000k, then 7500k
+bash scripts/hpc/build_civilcomments_1000k_v2_gemma_large_outputs.sh
+```
+To regenerate the ladder after editing knobs: `PYTHONPATH=. python
+scripts/hpc/gen_civilcomments_budget_ladder.py` then re-audit.
+
+**Deferred (cheaper fix taken instead):** the eval_pairs 80→40 halving relieves the audit cost without
+touching code. A deeper option — auditing fairness **only for incumbents** (not every challenger) —
+was **not** implemented; revisit if the audit is still the budget bottleneck at 1M.
+
+---
+
 ## How the fairness extension works (plain English)
 
 MO-CAPO tunes a prompt for **accuracy + low cost** and returns a *menu* (Pareto front) of trade-offs.
@@ -215,6 +268,7 @@ before submitting or the jobs sit pending.
 | **CivilComments configs** | `configs/HPC_Config/civilcomments_{faircapo,ablation,nsga2po}_500k_v1_gemma_HPC.yaml`, `civilcomments_eval_{large,ablation_large,nsga_large}_500k_v1_gemma_HPC.yaml`, `civilcomments_{experiment_table,aggregate}_500k_v1_gemma_large_HPC.yaml` |
 | **CivilComments prompt pools** | `configs/phase2_prompt_pool_civilcomments.yaml`, `configs/phase2_prompt_pool_civilcomments_enhanced.yaml` (searches use enhanced) |
 | **CivilComments HPC pipeline** | `scripts/hpc/submit_civilcomments_500k_v1_gemma_pipeline.sh`, `scripts/hpc/build_civilcomments_500k_v1_gemma_large_outputs.sh` |
+| **CivilComments v2 budget ladder** | `scripts/hpc/gen_civilcomments_budget_ladder.py` (generates `*_{1000k,5000k,7500k}_v2_gemma*` configs + submit/build scripts from the 500k_v1 template) |
 | SLURM job scripts | `scripts/hpc/run_bios_hpc.slurm`, `run_bios_nsga_hpc.slurm`, `run_bios_eval_hpc.slurm` (model-agnostic: Mistral vLLM flags gated behind `MODEL_FAMILY`) |
 | MO metrics (HV opt/pes, nR2, Gap) | `heal_capo/evaluation/mo_metrics.py` |
 | Reference gap analysis vs paper | `docs/mocapo_gap_analysis_S12.md` |
@@ -261,3 +315,10 @@ before submitting or the jobs sit pending.
   `label_conditioned_group_accuracy_gap` (no fairness/runner edits), direct-label evaluator, 8 configs,
   2 prompt pools, probe builder, pipeline scripts, audit rules, 10 tests. Model-agnostic SLURM
   (`MODEL_FAMILY` gate). Committed + pushed, pending the Rocket run.
+- **2026-07-07** CivilComments **500k_v1 held-out FAILED** (~0.69 acc all three methods — budget died
+  in initial population, fairness audit ~38% of budget, few-shot arm never ran). Root-caused against
+  the MO-CAPO appendix + repo, then built the **v2 budget ladder** (`gen_civilcomments_budget_ladder.py`):
+  paper-faithful knobs (block_size 56→30, k_max 3→5, few_shot_prob 0.3→0.5, max_blocks 5→8, eval_pairs
+  80→40 to relieve the audit) × budgets **1M / 5M / 7.5M** (7.5M = MO-CAPO's own). 30 files/rung-set,
+  version-aware auditor, NSGA gets identical knobs (no handicap). Ladder generated + audited clean +
+  validated; pending the Rocket run (1M first, then 5M, then 7.5M).
