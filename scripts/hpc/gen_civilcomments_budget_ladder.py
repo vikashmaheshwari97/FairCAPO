@@ -78,10 +78,14 @@ PASSTHROUGH_CONFIGS = (
     "civilcomments_aggregate_500k_v1_gemma_large_HPC.yaml",
 )
 
-# Shell scripts (tag-substitution + per-rung job-name prefix).
+# Shell scripts. The original 500k_v1 pipeline scripts were DELETED (that run
+# failed), so the generator is self-hosting: it uses the committed 1000k_v2
+# scripts as templates and substitutes the rung tag. Regenerating the 1000k
+# rung reproduces the template verbatim; 5000k/7500k just swap the rung.
+SHELL_TEMPLATE_RUNG = "1000k"
 SHELL_SCRIPTS = (
-    "submit_civilcomments_500k_v1_gemma_pipeline.sh",
-    "build_civilcomments_500k_v1_gemma_large_outputs.sh",
+    "submit_civilcomments_{rung}_v2_gemma_pipeline.sh",
+    "build_civilcomments_{rung}_v2_gemma_large_outputs.sh",
 )
 
 PROVENANCE = (
@@ -158,13 +162,19 @@ def generate() -> None:
             header = PROVENANCE.format(src=name, rung=f"{rung}_v2")
             _write(CONFIG_DIR / _out_name(name, rung), header + text)
 
-        for name in SHELL_SCRIPTS:
-            src = HPC_DIR / name
-            text = src.read_text(encoding="utf-8")
-            text = _retag(text, rung)
-            # Per-rung job-name prefix so squeue distinguishes the ladders.
-            text = text.replace("--job-name=cc-", f"--job-name=cc{rung}-")
-            _write(HPC_DIR / _out_name(name, rung), text)
+        for tmpl in SHELL_SCRIPTS:
+            src_name = tmpl.format(rung=SHELL_TEMPLATE_RUNG)
+            out_name = tmpl.format(rung=rung)
+            text = (HPC_DIR / src_name).read_text(encoding="utf-8")
+            if rung != SHELL_TEMPLATE_RUNG:
+                # Template is already the 1000k_v2 script: swap its rung tag
+                # (both the "1000k_v2" paths and the "cc1000k-" job-name prefix).
+                text = text.replace(f"{SHELL_TEMPLATE_RUNG}_v2", f"{rung}_v2")
+                text = text.replace(f"{SHELL_TEMPLATE_RUNG} v2", f"{rung} v2")
+                text = text.replace(
+                    f"--job-name=cc{SHELL_TEMPLATE_RUNG}-", f"--job-name=cc{rung}-"
+                )
+            _write(HPC_DIR / out_name, text)
 
 
 if __name__ == "__main__":

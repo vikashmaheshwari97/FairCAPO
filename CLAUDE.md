@@ -106,10 +106,12 @@ PYTHONPATH=. python scripts/build_civilcomments_fairness_probe.py \
 wc -l data/fairness_civilcomments_probe_search_seed0.jsonl   # 80
 # 2. Audit (civilcomments rows must be clean):
 python scripts/audit_hpc_configs.py 2>&1 | grep -i civilcomments   # prints nothing
-# 3. Submit the 6-job pipeline (serves Gemma via MODEL_FAMILY=gemma):
-bash scripts/hpc/submit_civilcomments_500k_v1_gemma_pipeline.sh
+# 3. Submit the 6-job pipeline (serves Gemma via MODEL_FAMILY=gemma).
+#    NB: the 500k_v1 pipeline scripts were DELETED (that run failed — see the v2
+#    ladder section below). Start with the 1M v2 rung instead:
+bash scripts/hpc/submit_civilcomments_1000k_v2_gemma_pipeline.sh
 # 4. After all 6 finish — table + figures (login node, no GPU):
-bash scripts/hpc/build_civilcomments_500k_v1_gemma_large_outputs.sh
+bash scripts/hpc/build_civilcomments_1000k_v2_gemma_large_outputs.sh
 ```
 Confirm Gemma weights are cached on the node and `firefly2`/`gpu` partition is still valid before
 submitting.
@@ -267,7 +269,7 @@ before submitting or the jobs sit pending.
 | **CivilComments probe builder** | `scripts/build_civilcomments_fairness_probe.py` → `data/fairness_civilcomments_probe_search_seed0.jsonl` (80 = 8 identities × 2 labels × 5) |
 | **CivilComments configs** | `configs/HPC_Config/civilcomments_{faircapo,ablation,nsga2po}_500k_v1_gemma_HPC.yaml`, `civilcomments_eval_{large,ablation_large,nsga_large}_500k_v1_gemma_HPC.yaml`, `civilcomments_{experiment_table,aggregate}_500k_v1_gemma_large_HPC.yaml` |
 | **CivilComments prompt pools** | `configs/phase2_prompt_pool_civilcomments.yaml`, `configs/phase2_prompt_pool_civilcomments_enhanced.yaml` (searches use enhanced) |
-| **CivilComments HPC pipeline** | `scripts/hpc/submit_civilcomments_500k_v1_gemma_pipeline.sh`, `scripts/hpc/build_civilcomments_500k_v1_gemma_large_outputs.sh` |
+| **CivilComments HPC pipeline** | v2 ladder: `scripts/hpc/submit_civilcomments_{1000k,5000k,7500k}_v2_gemma_pipeline.sh`, `scripts/hpc/build_civilcomments_{1000k,5000k,7500k}_v2_gemma_large_outputs.sh` (the failed `*_500k_v1_*` scripts were deleted; v1 configs kept for provenance) |
 | **CivilComments v2 budget ladder** | `scripts/hpc/gen_civilcomments_budget_ladder.py` (generates `*_{1000k,5000k,7500k}_v2_gemma*` configs + submit/build scripts from the 500k_v1 template) |
 | SLURM job scripts | `scripts/hpc/run_bios_hpc.slurm`, `run_bios_nsga_hpc.slurm`, `run_bios_eval_hpc.slurm` (model-agnostic: Mistral vLLM flags gated behind `MODEL_FAMILY`) |
 | MO metrics (HV opt/pes, nR2, Gap) | `heal_capo/evaluation/mo_metrics.py` |
